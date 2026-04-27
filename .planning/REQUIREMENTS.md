@@ -133,17 +133,72 @@ Deferred to Tauri + Vue 3 frontend milestone.
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+Which phases cover which requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (To be populated by roadmapper) | | |
+| CONF-01 | Phase 1: Foundation | Pending |
+| CONF-02 | Phase 1: Foundation | Pending |
+| CONF-03 | Phase 1: Foundation | Pending |
+| CONF-04 | Phase 1: Foundation | Pending |
+| FFMP-01 | Phase 1: Foundation | Pending |
+| FFMP-09 | Phase 1: Foundation | Pending |
+| LLM-01 | Phase 2: LLM Service Layer | Pending |
+| LLM-02 | Phase 2: LLM Service Layer | Pending |
+| LLM-03 | Phase 2: LLM Service Layer | Pending |
+| LLM-04 | Phase 2: LLM Service Layer | Pending |
+| LLM-05 | Phase 2: LLM Service Layer | Pending |
+| LLM-06 | Phase 2: LLM Service Layer | Pending |
+| LLM-07 | Phase 2: LLM Service Layer | Pending |
+| TTS-01 | Phase 3: TTS Core + Edge-TTS | Pending |
+| TTS-02 | Phase 3: TTS Core + Edge-TTS | Pending |
+| TTS-03 | Phase 3: TTS Core + Edge-TTS | Pending |
+| PRMP-01 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| PRMP-02 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| PRMP-03 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| PRMP-04 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| VISL-01 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| VISL-02 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| VISL-03 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| SCRP-01 | Phase 5: Script Management | Pending |
+| SCRP-02 | Phase 5: Script Management | Pending |
+| SCRP-03 | Phase 5: Script Management | Pending |
+| FFMP-02 | Phase 6: Documentary Pipeline | Pending |
+| FFMP-03 | Phase 6: Documentary Pipeline | Pending |
+| FFMP-04 | Phase 6: Documentary Pipeline | Pending |
+| FFMP-05 | Phase 6: Documentary Pipeline | Pending |
+| FFMP-06 | Phase 6: Documentary Pipeline | Pending |
+| FFMP-07 | Phase 6: Documentary Pipeline | Pending |
+| FFMP-08 | Phase 6: Documentary Pipeline | Pending |
+| DOCS-01 | Phase 6: Documentary Pipeline | Pending |
+| DOCS-02 | Phase 6: Documentary Pipeline | Pending |
+| DOCS-03 | Phase 6: Documentary Pipeline | Pending |
+| SDE-01 | Phase 7: SDE Pipeline | Pending |
+| SDE-02 | Phase 7: SDE Pipeline | Pending |
+| SDE-03 | Phase 7: SDE Pipeline | Pending |
+| SDP-01 | Phase 8: SDP Pipeline | Pending |
+| SDP-02 | Phase 8: SDP Pipeline | Pending |
+| JYNG-01 | Phase 9: JianYing Export | Pending |
+| JYNG-02 | Phase 9: JianYing Export | Pending |
+| TAURI-01 | Phase 10: Tauri Command Layer | Pending |
+| TAURI-02 | Phase 10: Tauri Command Layer | Pending |
+| TAURI-03 | Phase 10: Tauri Command Layer | Pending |
+| EXTD-01 | Phase 11: Extended Features | Pending |
+| EXTD-02 | Phase 11: Extended Features | Pending |
+| EXTD-03 | Phase 11: Extended Features | Pending |
+| EXTD-04 | Phase 11: Extended Features | Pending |
+| TTS-04 | Phase 12: Additional TTS Engines | Pending |
+| TTS-05 | Phase 12: Additional TTS Engines | Pending |
+| TTS-06 | Phase 12: Additional TTS Engines | Pending |
+| TTS-07 | Phase 12: Additional TTS Engines | Pending |
+| TTS-08 | Phase 12: Additional TTS Engines | Pending |
+| TTS-09 | Phase 12: Additional TTS Engines | Pending |
 
 **Coverage:**
-- v1 requirements: 50 total
-- Mapped to phases: 0
-- Unmapped: 50 ⚠️
+- v1 requirements: 56 total
+- Mapped to phases: 56
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-27*
-*Last updated: 2026-04-27 after initial definition*
+*Last updated: 2026-04-27 after roadmap creation with traceability*
