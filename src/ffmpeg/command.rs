@@ -134,7 +134,7 @@ mod tests {
         let input = temp_dir.join("narratoai_test_nonexistent_video.mp4");
         let output = temp_dir.join("narratoai_test_nonexistent_output.mp4");
 
-        let result = clip_video(input, output, 0.0, 10.0, None).await;
+        let result = clip_video(&input, &output, 0.0, 10.0, None).await;
 
         assert!(
             result.is_err(),
