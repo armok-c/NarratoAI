@@ -87,8 +87,12 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — 数据模型 + 加载/保存/校验（ScriptClip, OstType, ScriptError, load/save/validate）
-- [ ] 05-02-PLAN.md — 编辑 API + 集成测试（不可变更新方法 + round-trip 测试）
+- **Wave 1** *(no blockers — can execute immediately)*
+  - [ ] 05-01-PLAN.md — 数据模型 + 加载/保存/校验（ScriptClip, OstType, ScriptError, load/save/validate）
+- **Wave 2** *(blocked on Wave 1 completion)*
+  - [ ] 05-02-PLAN.md — 编辑 API + 集成测试（不可变更新方法 + round-trip 测试）
+
+**Cross-cutting constraints:** 不可变数据更新（所有编辑方法返回新 Script 实例）
 
 ### Phase 6: Documentary Pipeline
 **Goal**: 纪录片模式完整流水线可端到端运行——从视频输入到最终合成输出，验证整体架构
@@ -177,7 +181,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. LLM Service Layer | 0/? | Not started | - |
 | 3. TTS Core + Edge-TTS | 0/? | Not started | - |
 | 4. Prompt System + Visual Analyzer | 0/? | Not started | - |
-| 5. Script Management | 0/? | Not started | - |
+| 5. Script Management | 0/2 | Planning complete | - |
 | 6. Documentary Pipeline | 0/? | Not started | - |
 | 7. SDE Pipeline | 0/? | Not started | - |
 | 8. SDP Pipeline | 0/? | Not started | - |

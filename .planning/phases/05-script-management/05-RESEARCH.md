@@ -421,22 +421,13 @@ pub enum ScriptError {
 - A3: serde_json::to_string_pretty 使用 2 空格缩进 [ASSUMED]——需要确认。Python 版 `json.dumps(indent=2)` 也是 2 空格，两者应一致。
 - A4: 已验证 [VERIFIED: serde.rs field-attrs.html + GitHub issue #2753，Option<T> 缺失字段自动为 None]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **serde_json::to_string_pretty 的缩进字符**
-   - What we know: serde_json 有 to_string_pretty 函数
-   - What's unclear: 缩进是 2 空格还是 tab
-   - Recommendation: serde_json 默认使用 2 空格缩进 [ASSUMED]，如有差异可接受——功能一致，格式微小差异不影响使用
+1. **RESOLVED:** serde_json::to_string_pretty 的缩进字符 — serde_json 默认使用 2 空格缩进，与 Python 版一致。Plan 已采用。
 
-2. **是否引入 regex crate**
-   - What we know: timestamp 校验需要一个正则或手写校验
-   - What's unclear: 引入 regex 依赖是否值得（只为一个格式校验）
-   - Recommendation: 手写校验函数更轻量，避免仅为一个正则引入整个 regex crate。timestamp 格式足够简单（固定长度、固定分隔符），手写更高效。
+2. **RESOLVED:** 是否引入 regex crate — 决定不引入，手写 timestamp 校验函数更轻量。Plan 01 Task 2 已采用。
 
-3. **_id 字段在 Rust 中是否保留下划线前缀**
-   - What we know: CONTEXT.md D-05 确认类型为 i64，但未明确 Rust 字段名
-   - What's unclear: 用 `id` + `#[serde(rename = "_id")]` 还是直接 `_id`
-   - Recommendation: 直接用 `_id`，虽然不符合 Rust 命名惯例，但与 JSON 字段名一致，减少认知负担。这是 Claude's Discretion 区域。
+3. **RESOLVED:** _id 字段在 Rust 中保留下划线前缀 — 直接使用 `_id`，与 JSON 字段名一致，减少认知负担。Plan 01 Task 1 已采用。
 
 ## Environment Availability
 
