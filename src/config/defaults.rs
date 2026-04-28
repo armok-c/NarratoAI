@@ -53,7 +53,7 @@ impl Default for SoulVoiceSection {
     fn default() -> Self {
         Self {
             api_key: String::new(),
-            voice_uri: "speech:mcg3fdnx:clzkyf4vy00e5qr6hywum4u84:bzznlkuhcjzpbosexitr".to_string(),
+            voice_uri: String::new(),
             api_url: "https://tts.scsmtech.cn/tts".to_string(),
             model: "FunAudioLLM/CosyVoice2-0.5B".to_string(),
         }
