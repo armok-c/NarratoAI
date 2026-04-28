@@ -108,7 +108,7 @@ pub async fn clip_video(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
+    use std::sync::Barrier;
 
     /// 验证 ProgressCallback 类型可以被 Box 化且 Send + Sync
     #[test]
@@ -137,34 +137,34 @@ mod tests {
     }
 
     /// 验证 spawn_blocking 不阻塞 tokio runtime
-    /// 创建两个并发的 spawn_blocking 任务（各 sleep 100ms），验证并行执行
+    /// 使用 Barrier 验证两个任务真正并行执行，而非依赖时序断言
     #[tokio::test]
     async fn test_spawn_blocking_non_blocking() {
-        let start = Instant::now();
+        let barrier = Arc::new(Barrier::new(3)); // 2 tasks + main
 
-        let task1 = tokio::task::spawn_blocking(|| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        let b1 = barrier.clone();
+        let task1 = tokio::task::spawn_blocking(move || {
+            b1.wait();
             1
         });
-        let task2 = tokio::task::spawn_blocking(|| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let b2 = barrier.clone();
+        let task2 = tokio::task::spawn_blocking(move || {
+            b2.wait();
             2
         });
 
+        // Wait for both tasks to reach the barrier.
+        // If spawn_blocking runs tasks serially (only 1 blocking thread),
+        // task2 would never start (task1 holds the thread while blocked on barrier),
+        // causing a deadlock. With concurrent execution, both reach the barrier.
+        barrier.wait();
+
         let (r1, r2) = tokio::join!(task1, task2);
-        let elapsed = start.elapsed();
 
         assert!(r1.is_ok(), "Task 1 应该成功完成");
         assert!(r2.is_ok(), "Task 2 应该成功完成");
         assert_eq!(r1.unwrap(), 1);
         assert_eq!(r2.unwrap(), 2);
-
-        // 如果 spawn_blocking 正常工作，两个任务应并行执行
-        // 总耗时应显著小于 200ms（串行执行的理论值）
-        assert!(
-            elapsed.as_millis() < 180,
-            "spawn_blocking 任务应并行执行, 预期 < 180ms, 实际: {:?}",
-            elapsed
-        );
     }
 }
