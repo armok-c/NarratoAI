@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use std::path::Path;
 use std::path::PathBuf;
 use crate::error::TTSError;
+use self::edge_tts::EdgeTtsEngine;
 
 /// 词边界，单位 100 纳秒（与 Python 版一致，Phase 6 字幕生成使用）
 ///
@@ -70,14 +71,17 @@ pub trait TtsProvider: Send + Sync {
 /// - 其余参数同 TtsProvider::synthesize
 pub async fn synthesize(
     engine: &str,
-    _text: &str,
-    _voice_name: &str,
-    _rate: f64,
-    _pitch: f64,
-    _output_path: &Path,
+    text: &str,
+    voice_name: &str,
+    rate: f64,
+    pitch: f64,
+    output_path: &Path,
 ) -> Result<TtsOutput, TTSError> {
     match engine {
-        // Plan 03-02 将添加 "edge_tts" => EdgeTtsEngine::new(...).synthesize(...) 分支
+        "edge_tts" => {
+            let edge_engine = EdgeTtsEngine::new(false, String::new(), String::new());
+            edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
         _ => Err(TTSError::UnknownEngine {
             engine: engine.to_string(),
         }),

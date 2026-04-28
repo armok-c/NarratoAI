@@ -1,5 +1,8 @@
 use std::path::Path;
 use async_trait::async_trait;
+use futures_util::SinkExt;
+use futures_util::StreamExt;
+use tokio_tungstenite::tungstenite::Message;
 use crate::error::TTSError;
 use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
 
@@ -116,11 +119,200 @@ impl EdgeTtsEngine {
             Ok(ws_stream)
         }
     }
+
+    /// 执行带重试的 TTS 合成
+    ///
+    /// 对应 D-03: 3 次重试，间隔 1 秒
+    async fn synthesize_with_retry(
+        &self,
+        ssml: &str,
+        output_path: &Path,
+    ) -> Result<TtsOutput, TTSError> {
+        let max_retries = 3;
+        let mut last_error = None;
+
+        for attempt in 1..=max_retries {
+            tracing::info!("Edge-TTS 合成尝试 {}/{}", attempt, max_retries);
+
+            match self.synthesize_once(ssml, output_path).await {
+                Ok(output) => return Ok(output),
+                Err(e) => {
+                    tracing::warn!("Edge-TTS 合成尝试 {} 失败: {}", attempt, e);
+                    last_error = Some(e);
+                    if attempt < max_retries {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
+        }
+
+        Err(TTSError::RetryExhausted(format!(
+            "Edge-TTS 重试 {} 次后仍失败: {}",
+            max_retries,
+            last_error.map_or("未知错误".to_string(), |e| e.to_string())
+        )))
+    }
+
+    /// 单次 TTS 合成（无重试）
+    async fn synthesize_once(
+        &self,
+        ssml: &str,
+        output_path: &Path,
+    ) -> Result<TtsOutput, TTSError> {
+        let mut ws_stream = self.connect().await?;
+
+        // 生成 SSML 请求中的 request ID
+        let request_id = uuid::Uuid::new_v4().to_string();
+
+        // 构建并发送 SSML WebSocket 消息
+        // 格式: X-RequestId:{uuid}\r\nContent-Type:application/ssml+xml\r\n\r\n{ssml}
+        // 对应 D-10: Edge-TTS 流式接收 audio + WordBoundary/SentenceBoundary chunk
+        let stt_message = format!(
+            "X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n{}",
+            request_id, ssml
+        );
+
+        ws_stream
+            .send(Message::Text(stt_message.into()))
+            .await
+            .map_err(|e| TTSError::ConnectionFailed(format!("发送 SSML 失败: {}", e)))?;
+
+        // 接收并处理响应流
+        let mut audio_data: Vec<u8> = Vec::new();
+        let mut word_boundaries: Vec<WordBoundary> = Vec::new();
+        let mut duration: f64 = 0.0;
+        let mut is_turn_start = false;
+
+        while let Some(msg_result) = ws_stream.next().await {
+            let msg =
+                msg_result.map_err(|e| TTSError::SynthesisFailed(format!("接收消息失败: {}", e)))?;
+
+            match msg {
+                Message::Binary(data) => {
+                    // 解析二进制消息头（格式: Path: {path}\r\n...\r\n\r\n{payload}）
+                    // 对应 D-10: WordBoundary/SentenceBoundary 事件通过路径判断
+                    if let Some(content) = parse_edge_tts_binary(&data) {
+                        if content.path == "audio" {
+                            audio_data.extend_from_slice(&content.payload);
+                        } else if content.path == "turn.start" {
+                            // 解析 metadata JSON 中的词边界信息
+                            if let Ok(metadata) =
+                                serde_json::from_str::<serde_json::Value>(
+                                    &String::from_utf8_lossy(&content.payload),
+                                )
+                            {
+                                if let Some(wbs) = metadata["wordboundary"].as_array() {
+                                    for wb in wbs {
+                                        if let (Some(start), Some(end), Some(text)) = (
+                                            wb["offset"].as_u64(),
+                                            wb["duration"].as_u64(),
+                                            wb["text"].as_str(),
+                                        ) {
+                                            word_boundaries.push(WordBoundary {
+                                                start_offset: start,
+                                                end_offset: start + end,
+                                                text: text.to_string(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            is_turn_start = true;
+                        } else if content.path == "turn.end" {
+                            // 解析结束事件中的音频时长
+                            if let Ok(metadata) =
+                                serde_json::from_str::<serde_json::Value>(
+                                    &String::from_utf8_lossy(&content.payload),
+                                )
+                            {
+                                duration = metadata["audio_duration"]
+                                    .as_f64()
+                                    .unwrap_or(0.0);
+                            } else {
+                                duration = 0.0;
+                            }
+                            break;
+                        }
+                    }
+                }
+                Message::Text(text) => {
+                    // 文本消息通常是调试或连接信息，忽略
+                    tracing::debug!("Edge-TTS 文本消息: {}", text);
+                }
+                Message::Close(frame) => {
+                    tracing::debug!("Edge-TTS 连接关闭: {:?}", frame);
+                    break;
+                }
+                _ => {
+                    tracing::debug!("Edge-TTS 忽略消息类型");
+                }
+            }
+        }
+
+        // 写入音频文件（对应 D-04: MP3 格式）
+        if audio_data.is_empty() && !is_turn_start {
+            return Err(TTSError::SynthesisFailed("未收到音频数据".to_string()));
+        }
+
+        tokio::fs::write(output_path, &audio_data)
+            .await
+            .map_err(|e| {
+                TTSError::SynthesisFailed(format!("写入音频文件失败: {}", e))
+            })?;
+
+        Ok(TtsOutput {
+            audio_file_path: output_path.to_path_buf(),
+            word_boundaries,
+            duration,
+        })
+    }
+}
+
+/// 解析 Edge-TTS 二进制消息
+///
+/// 消息格式: Path: {path}\r\nX-RequestId: {uuid}\r\nContent-Type: {mime}\r\n\r\n{payload}
+struct EdgeTtsContent {
+    path: String,
+    payload: Vec<u8>,
+}
+
+fn parse_edge_tts_binary(data: &[u8]) -> Option<EdgeTtsContent> {
+    // 查找 header-payload 分隔符
+    let separator = b"\r\n\r\n";
+    let sep_pos = data.windows(4).position(|w| w == separator)?;
+
+    let header = std::str::from_utf8(&data[..sep_pos]).ok()?;
+    let payload = data[sep_pos + 4..].to_vec();
+
+    // 从 header 中提取 Path 字段
+    let path = header
+        .lines()
+        .find(|line| line.starts_with("Path:"))
+        .and_then(|line| line.strip_prefix("Path:"))
+        .map(|p| p.trim().to_string())?;
+
+    Some(EdgeTtsContent { path, payload })
+}
+
+#[async_trait]
+impl TtsProvider for EdgeTtsEngine {
+    async fn synthesize(
+        &self,
+        text: &str,
+        voice_name: &str,
+        rate: f64,
+        pitch: f64,
+        output_path: &Path,
+    ) -> Result<TtsOutput, TTSError> {
+        let ssml = build_ssml(text, voice_name, rate, pitch);
+        self.synthesize_with_retry(&ssml, output_path).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_convert_rate_to_percent_standard() {
@@ -191,5 +383,30 @@ mod tests {
         assert!(!engine.proxy_enabled);
         assert!(engine.proxy_http.is_empty());
         assert!(engine.proxy_https.is_empty());
+    }
+
+    /// 集成测试：需要网络连接访问微软 Edge TTS 服务
+    /// 运行方式: cargo test --lib edge_tts::tests::test_edge_tts_integration -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn test_edge_tts_integration() {
+        let engine = EdgeTtsEngine::new(false, String::new(), String::new());
+        let dir = TempDir::new().expect("创建临时目录失败");
+        let output_path = dir.path().join("test_output.mp3");
+
+        let result = engine
+            .synthesize("这是一个测试。", "zh-CN-XiaoyiNeural", 1.0, 0.0, &output_path)
+            .await;
+
+        assert!(result.is_ok(), "Edge-TTS 集成测试失败: {:?}", result.err());
+        let output = result.unwrap();
+        assert!(output.audio_file_path.exists(), "音频文件应存在");
+        assert!(
+            output.audio_file_path.metadata().unwrap().len() > 1000,
+            "音频文件大小应大于 1KB"
+        );
+        assert!(output.duration > 0.0, "时长应大于 0");
+        // 中文语音应有词边界数据
+        assert!(!output.word_boundaries.is_empty(), "应有词边界数据");
     }
 }
