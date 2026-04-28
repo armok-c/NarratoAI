@@ -40,15 +40,6 @@ impl Default for UiSection {
     }
 }
 
-impl Default for AzureSection {
-    fn default() -> Self {
-        Self {
-            speech_key: String::new(),
-            speech_region: String::new(),
-        }
-    }
-}
-
 impl Default for TencentSection {
     fn default() -> Self {
         Self {
@@ -106,16 +97,6 @@ impl Default for DoubaoTTSSection {
             volume: 1.0,
             pitch: 1.0,
             silence_duration: 0.125,
-        }
-    }
-}
-
-impl Default for ProxySection {
-    fn default() -> Self {
-        Self {
-            http: String::new(),
-            https: String::new(),
-            enabled: false,
         }
     }
 }

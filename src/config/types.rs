@@ -84,7 +84,7 @@ pub struct UiSection {
 }
 
 /// [azure] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AzureSection {
     #[serde(default)]
     pub speech_key: String,
@@ -170,7 +170,7 @@ pub struct DoubaoTTSSection {
 }
 
 /// [proxy] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProxySection {
     #[serde(default)]
     pub http: String,
