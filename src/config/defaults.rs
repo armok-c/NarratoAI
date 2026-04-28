@@ -111,19 +111,3 @@ impl Default for FramesSection {
     }
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            app: AppSection::default(),
-            ui: UiSection::default(),
-            azure: AzureSection::default(),
-            tencent: TencentSection::default(),
-            soulvoice: SoulVoiceSection::default(),
-            tts_qwen: TtsQwenSection::default(),
-            indextts2: IndexTTS2Section::default(),
-            doubaotts: DoubaoTTSSection::default(),
-            proxy: ProxySection::default(),
-            frames: FramesSection::default(),
-        }
-    }
-}

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 顶层配置，与 config.toml 结构一一对应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
     pub app: AppSection,
