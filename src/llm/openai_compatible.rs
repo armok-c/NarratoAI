@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_openai::{
-    config::OpenAIConfig,
+    config::{OpenAIClientConfig, OpenAIConfig, RetryConfig},
     error::OpenAIError,
     types::chat::{
         ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImage,
@@ -59,6 +59,15 @@ impl OpenAiCompatibleProvider {
             .with_api_key(&api_key)
             .with_api_base(base_url.trim_end_matches('/'));
 
+        // 配置客户端重试策略（D-15: max_retries from config）
+        let client_config = OpenAIClientConfig {
+            retry: RetryConfig {
+                max_retries: _max_retries,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
         let client = if proxy_http.is_some() || proxy_https.is_some() {
             let mut http_client_builder = reqwest::Client::builder()
                 .timeout(Duration::from_secs(timeout_secs));
@@ -79,14 +88,14 @@ impl OpenAiCompatibleProvider {
                 .build()
                 .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
 
-            Client::build(http_client, config, Default::default())
+            Client::build(http_client, config, client_config)
         } else {
             let http_client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(timeout_secs))
                 .build()
                 .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
 
-            Client::build(http_client, config, Default::default())
+            Client::build(http_client, config, client_config)
         };
 
         Ok(Self {

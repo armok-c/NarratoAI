@@ -251,9 +251,7 @@ async fn test_json_response_format_fallback() {
 
 /// 测试 7: OpenAI 错误映射（wiremock）
 ///
-/// 注意：async-openai 默认有 3 次重试 + 指数退避，导致测试执行很长。
-/// 忽略此测试直到有方法配置 0 重试。
-#[ignore]
+/// max_retries=0 配置使得测试快速完成，无需等待指数退避。
 #[tokio::test]
 async fn test_openai_error_mapping() {
     let test_cases = vec![
