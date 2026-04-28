@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::event::FfmpegEvent;
@@ -55,7 +56,7 @@ pub async fn clip_video(
     let output_path = output.to_string_lossy().to_string();
     let progress = progress.map(Arc::new);
 
-    tokio::task::spawn_blocking(move || {
+    tokio::time::timeout(Duration::from_secs(600), tokio::task::spawn_blocking(move || {
         let mut cmd = FfmpegCommand::new();
         // -ss before -i = fast seek (keyframe-based, not frame-accurate)
         cmd.seek(format!("{:.3}", start))
@@ -109,8 +110,9 @@ pub async fn clip_video(
         }
 
         Ok(())
-    })
+    }))
     .await
+    .map_err(|_| FFmpegError::Timeout("FFmpeg clip_video timed out after 600s".into()))?
     .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
 }
 
