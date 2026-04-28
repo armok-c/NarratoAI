@@ -11,7 +11,7 @@ use crate::error::LLMError;
 /// image::open() -> thumbnail(1024,1024) -> JPEG quality 85 -> base64 encode -> data URL
 pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     let img = image::open(path)
-        .map_err(|e| LLMError::Configuration(format!("图片加载失败: {}", e)))?;
+        .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
 
     // 缩放到 1024px 保持宽高比，对齐 Python 的 PIL.Image.thumbnail((1024, 1024), LANCZOS)
     let thumb = img.thumbnail(1024, 1024);
@@ -20,7 +20,7 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     let mut buf = Cursor::new(Vec::new());
     thumb
         .write_to(&mut buf, image::ImageFormat::Jpeg)
-        .map_err(|e| LLMError::Configuration(format!("JPEG 编码失败: {}", e)))?;
+        .map_err(|e| LLMError::General(format!("JPEG 编码失败: {}", e)))?;
 
     // base64 编码
     let b64 = base64::engine::general_purpose::STANDARD.encode(buf.get_ref());
