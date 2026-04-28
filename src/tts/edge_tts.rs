@@ -292,7 +292,7 @@ impl EdgeTtsEngine {
                                 )
                             {
                                 duration = if let Some(d) = metadata["audio_duration"].as_f64() {
-                                    d
+                                    d / 10_000_000.0
                                 } else if let Some(s) = metadata["audio_duration"].as_str() {
                                     s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
                                 } else if let Some(ticks) = metadata["audio_duration"]["ticks"].as_u64() {
