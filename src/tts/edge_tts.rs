@@ -121,10 +121,11 @@ impl EdgeTtsEngine {
 
             // Parse target WSS URL manually
             let target_addr = EDGE_TTS_WSS_URL.trim_start_matches("wss://");
+            let target_host_only = target_addr.split('/').next().unwrap_or(target_addr);
             let (target_host, target_port_str) = target_addr
                 .split_once(':')
                 .and_then(|(h, p)| Some((h, p.split('/').next().unwrap_or("443"))))
-                .unwrap_or((target_addr, "443"));
+                .unwrap_or((target_host_only, "443"));
             let target_port: u16 = target_port_str
                 .parse()
                 .map_err(|_| TTSError::ConnectionFailed("目标端口格式错误".to_string()))?;
