@@ -78,6 +78,9 @@ project_version = "test"
     assert_eq!(config.azure.speech_key, "");
     assert_eq!(config.frames.frame_interval_input, 3);
     assert!(!config.proxy.enabled);
+    assert_eq!(config.app.llm_vision_timeout, 120);
+    assert_eq!(config.app.llm_text_timeout, 180);
+    assert_eq!(config.app.llm_max_retries, 3);
 }
 
 /// 加载空 TOML 文件，全部 section 使用默认值
