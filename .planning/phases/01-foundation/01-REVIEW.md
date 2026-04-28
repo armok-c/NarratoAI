@@ -1,15 +1,17 @@
 ---
 phase: 01-foundation
-reviewed: 2026-04-28T12:30:00Z
+reviewed: 2026-04-28T13:15:00Z
 depth: standard
-files_reviewed: 13
+files_reviewed: 15
 files_reviewed_list:
   - Cargo.toml
+  - Cargo.lock
+  - .gitignore
   - src/lib.rs
   - src/error.rs
-  - src/config/mod.rs
   - src/config/types.rs
   - src/config/defaults.rs
+  - src/config/mod.rs
   - src/config/watcher.rs
   - src/ffmpeg/mod.rs
   - src/ffmpeg/command.rs
@@ -19,206 +21,413 @@ files_reviewed_list:
   - tests/ffmpeg_test.rs
 findings:
   critical: 1
-  warning: 3
-  info: 6
-  total: 10
+  warning: 5
+  info: 10
+  total: 16
 status: issues_found
 ---
 
 # Phase 01: Foundation Code Review Report
 
-**Reviewed:** 2026-04-28T12:30:00Z
+**Reviewed:** 2026-04-28T13:15:00Z
 **Depth:** standard
-**Files Reviewed:** 13 (6 Rust source, 1 Cargo.toml, 6 module files)
+**Files Reviewed:** 15 (10 Rust source files, 2 config files, 1 lock file, 1 gitignore, 1 manifest)
 **Status:** issues_found
 
 ## Summary
 
-Rust 库骨架、配置系统和 FFmpeg 操作层的首次代码审查。总体质量良好，代码结构清晰，使用 Rust 惯用模式（thiserror、serde、tokio spawn_blocking、OnceLock）。发现 1 个 BLOCKER（ProgressCallback 语义错误）、3 个 WARNING（锁中毒处理不一致、Unix 路径硬编码、测试可能不稳定）和 6 个 INFO 项。
+Rust library skeleton, config system, and FFmpeg operation layer review. The codebase is generally well-structured with idiomatic Rust patterns (thiserror, serde with `#[serde(default)]`, tokio spawn_blocking, OnceLock for lazy statics). However, **no previous findings have been addressed** -- all 10 issues from the prior review still apply. Additionally, 6 new issues were identified.
 
-核心问题：`ProgressCallback` 的文档声称传递进度百分比，但实际传递的是视频时间位置（秒），这会导致 Phase 6 流水线使用时的进度显示完全错误。
+**Previous review findings re-verified:** CR-01 (ProgressCallback API contract violation), WR-01 (RwLock poisoning inconsistency), WR-02 (hardcoded Unix test paths), and WR-03 (time-sensitive test) all remain unfixed.
 
-代码通过 `cargo build`（零错误零警告）和 `cargo test --lib`（26 个单元测试全部通过）。`cargo clippy` 报告 3 个警告（两个可 derive 的 Default impl 和一个空行问题）。集成测试在无 FFmpeg 二进制的环境中按预期跳过。
+**New findings in this review:** WR-04 (ffprobe duration silently falls back to 0.0), WR-05 (orphaned FFmpeg process on iter() failure), IN-07 through IN-10 (precision risk in f64-to-string seek, fast-seek accuracy tradeoff, tokio "full" features, and missing output validation in integration tests).
+
+Build verification: `cargo build` passes with zero errors. The 26 unit tests pass. Integration tests requiring FFmpeg binary behave correctly (fail with clear message when FFmpeg is absent).
+
+---
 
 ## Critical Issues
 
-### CR-01: ProgressCallback 传递时间位置而非进度百分比
+### CR-01: ProgressCallback 传入时间位置而非进度分数
 
-**File:** `src/ffmpeg/command.rs:78-79`
+**File:** `src/ffmpeg/command.rs:78`
 **Severity:** BLOCKER
-**Issue:** `ProgressCallback` 的类型文档声明 `Option<f64>` 参数表示"进度百分比"，但 `clip_video` 的实现将 `parse_time_to_secs(&p.time)` 的结果（视频当前时间位置，单位秒）直接传入回调。对于一个 10 秒的裁剪片段：
-- 中点位置：回调收到 `Some(5.0)`（5 秒位置）
-- 但消费者期望的是 `Some(0.5)`（50% 进度）
-- 消费者（如 Phase 6 UI 进度条）会严重错误地显示进度
+**Status:** Unfixed since prior review
+
+**Issue:** The `ProgressCallback` type documents its `Option<f64>` parameter as "进度百分比" (progress percentage), but `clip_video` passes the raw output of `parse_time_to_secs(&p.time)` -- which returns the current playback time position in seconds, not a normalized 0.0–1.0 fraction.
+
+For a 10-second clip, the callback receives values like `Some(5.0)` (5-second mark) when the consumer expects `Some(0.5)` (50% complete). Phase 6 pipeline consumers (UI progress bars, ETA calculations) would display completely wrong values.
 
 ```rust
-// src/ffmpeg/command.rs:76-80
-FfmpegEvent::Progress(p) => {
-    if let Some(ref cb) = progress {
-        let secs = parse_time_to_secs(&p.time);  // 返回秒数
-        cb(secs, "视频裁剪中");                     // 传入秒数，但文档说是百分比
-    }
-}
+// Line 78 — bug: passes seconds instead of normalized progress
+let secs = parse_time_to_secs(&p.time);
+cb(secs, "视频裁剪中");
 ```
 
-**Fix:** 用 `duration` 参数归一化为 0.0–1.0 分数：
+**Fix:** Normalize by the clip duration:
 
 ```rust
-FfmpegEvent::Progress(p) => {
-    if let Some(ref cb) = progress {
-        let secs = parse_time_to_secs(&p.time);
-        // 归一化为进度分数（0.0 ~ 1.0），仅当 duration > 0 时有效
-        let pct = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
-        cb(pct, "视频裁剪中");
-    }
-}
+let secs = parse_time_to_secs(&p.time);
+let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
+cb(fraction, "视频裁剪中");
 ```
 
-同时更新 `ProgressCallback` 的文档注释，明确说明 `Option<f64>` 是"0.0 到 1.0 的进度分数"而非"百分比"。
+Also update the `ProgressCallback` doc comment to say "0.0 to 1.0 progress fraction" instead of "百分比".
 
-**Risk:** 该 bug 在 Phase 1 不会触发（无消费者），但 Phase 6 流水线一旦使用该回调，UI 进度条将显示完全错误的值。属于 API 契约违规。
+**Risk:** No consumer exists in Phase 1, but the API contract is already broken. Fixing this in Phase 6 would require updating all consumers -- fix now while the API surface is small.
+
+---
 
 ## Warnings
 
-### WR-01: ConfigManager::get() 在 RwLock 中毒时 panic
+### WR-01: RwLock 中毒处理不一致
 
 **File:** `src/config/mod.rs:50`
 **Severity:** WARNING
-**Issue:** `get()` 使用 `.read().unwrap()`，如果其他线程 panic 时持有写锁，RwLock 会中毒（poisoned），`read()` 返回 `Err(PoisonError)`，`unwrap()` 导致 panic。而 `watcher.rs` 中写锁使用 `if let Ok(mut guard) = config.write()` 静默忽略中毒。两处处理不一致。
+**Status:** Unfixed since prior review
+
+**Issue:** `ConfigManager::get()` uses `.read().unwrap()`, which panics if the RwLock is poisoned (another thread panicked while holding the write lock). However, `ConfigWatcher`'s reload callback (watcher.rs:26) uses `if let Ok(mut guard) = config.write()` which silently ignores poisoning. This inconsistency means:
+
+- If the write lock is poisoned, the watcher silently stops updating config
+- `get()` still panics on the poisoned read lock
 
 ```rust
-// mod.rs:50 — 中毒时 panic
+// mod.rs:50 — panics on poison
 pub fn get(&self) -> AppConfig {
     self.config.read().unwrap().clone()
 }
 
-// watcher.rs:26 — 中毒时静默忽略
+// watcher.rs:26 — silently ignores poison
 if let Ok(mut guard) = config.write() {
     *guard = new_config;
 }
 ```
 
-**Fix:** 在 `get()` 中使用 `if let Ok(guard) = self.config.read()` 或调用 `into_inner()` 从中毒锁恢复。或者，如果接受中毒 panic 行为，在 `watcher.rs` 中也使用 `unwrap()` 保持语义一致。
+**Fix:** Either (a) use consistent poisoning strategy throughout -- either `.unwrap()` everywhere (panic on poison) or `if let Ok` everywhere (resilient to poison). Option (b) is to use `std::sync::PoisonError::into_inner()` to recover from poisoning by extracting the inner value.
 
 ### WR-02: 测试使用硬编码 Unix 路径
 
-**File:**
-- `src/config/mod.rs:74` — `Path::new("/nonexistent/config.toml")`
-- `src/ffmpeg/command.rs:126-127` — `Path::new("/tmp/nonexistent_video_12345.mp4")`
-- `tests/config_test.rs:109` — `Path::new("/nonexistent/config.toml")`
+**Files:**
+- `src/config/mod.rs:74`
+- `src/ffmpeg/command.rs:127-128`
+- `tests/config_test.rs:109`
 
 **Severity:** WARNING
-**Issue:** 单元测试和集成测试使用硬编码的 Unix 路径（`/tmp/`、`/nonexistent/`）。Windows 上 `Path::new("/tmp/...")` 会被解释为当前驱动器的根目录下的路径（如 `C:\tmp\...`），虽然这些路径大概率不存在所以测试仍能 pass，但语义不正确且降低跨平台可维护性。
+**Status:** Unfixed since prior review
 
-**Fix:** 使用 `std::env::temp_dir()` 生成临时路径或在测试中使用 `TempDir`：
+**Issue:** Tests use hardcoded Unix-style absolute paths that have different semantics on Windows:
+
+- `Path::new("/nonexistent/config.toml")` -- On Windows, resolves to `C:\nonexistent\config.toml` (current drive), not an obviously invalid path.
+- `Path::new("/tmp/nonexistent_video_12345.mp4")` -- Same issue.
+
+These tests functionally pass because these paths also don't exist on Windows, but the semantics are incorrect and the paths confuse developers reading the code on Windows.
+
+**Fix:** Use `tempfile::TempDir` to create guaranteed-non-existent paths:
 
 ```rust
-// 代替 /nonexistent/config.toml
+// Instead of Path::new("/nonexistent/config.toml"):
 let dir = tempfile::TempDir::new().unwrap();
-let path = dir.path().join("config.toml"); // 该路径不存在
-
-// 代替 /tmp/nonexistent_video_12345.mp4
-let dir = tempfile::TempDir::new().unwrap();
-let path = dir.path().join("nonexistent_video.mp4");
+let nonexistent = dir.path().join("config.toml"); // guaranteed not to exist
 ```
 
-### WR-03: test_spawn_blocking_non_blocking 时间断言可能不稳定
+Or use `std::env::temp_dir().join("uuid-nonExistentFile")`.
 
-**File:** `src/ffmpeg/command.rs:139-167`
+### WR-03: spawn_blocking 测试时序断言可能不稳定
+
+**File:** `src/ffmpeg/command.rs:163`
 **Severity:** WARNING
-**Issue:** 测试创建两个各 sleep 100ms 的 spawn_blocking 任务，然后断言总耗时 < 180ms（暗示并行执行）。在负载较高的 CI 环境或 tokio 阻塞线程池初始化缓慢时，实际耗时可能超过 180ms，导致虚假失败。此外，该测试依赖 `#[tokio::test]`（单线程运行时），单线程 tokio runtime 上 spawn_blocking 使用独立的线程池，但 `tokio::join!` 的执行方式可能引入额外延迟。
+**Status:** Unfixed since prior review
 
-**Fix:** 放宽时间阈值到 250ms（给 OS 调度和线程池初始化留足余量），或改用信号量 / 屏障（Barrier）验证并发性而非依赖时间测量：
+**Issue:** `test_spawn_blocking_non_blocking` creates two tasks each sleeping 100ms and asserts total elapsed time < 180ms. On a loaded CI system or with a cold tokio blocking thread pool, OS scheduling delays can push this over 180ms, causing flaky failures.
 
 ```rust
-// 更鲁棒的时间阈值
 assert!(
-    elapsed.as_millis() < 250,
-    "spawn_blocking 应并行执行, 预期 < 250ms, 实际: {:?}",
-    elapsed
+    elapsed.as_millis() < 180,   // tight — only 20ms margin for 200ms work
+    ...
 );
 ```
 
+**Fix:** Widen the threshold to 250ms, or better, replace the timing-based assertion with a concurrency verification using `std::sync::Barrier`:
+
+```rust
+use std::sync::{Arc, Barrier};
+let barrier = Arc::new(Barrier::new(3)); // 2 tasks + main
+let b = barrier.clone();
+let task1 = tokio::task::spawn_blocking(move || { b.wait(); 1 });
+// etc.
+// Assert that both tasks completed (proves they ran concurrently)
+```
+
+### WR-04: probe_video 在 duration 字段缺失或非字符串时静默返回 0.0
+
+**File:** `src/ffmpeg/probe.rs:50-53`
+**Severity:** WARNING
+**Status:** New
+
+**Issue:** The duration parsing chain uses `as_str()` then `parse::<f64>()` then `unwrap_or(0.0)`. Three failure modes all silently yield 0.0:
+
+1. **Missing `duration` field** (e.g., live stream, corrupted file): `json["format"]["duration"]` = `Value::Null` -> `as_str()` returns `None` -> `0.0`
+2. **Non-string duration** (some ffprobe versions output JSON numbers): `as_str()` returns `None` -> `0.0`
+3. **Unparseable duration string** (e.g., `"N/A"`): `parse::<f64>()` returns `Err` -> `0.0`
+
+```rust
+let duration_secs = json["format"]["duration"]
+    .as_str()
+    .and_then(|s| s.parse::<f64>().ok())
+    .unwrap_or(0.0);  // ALL failure modes silently become 0.0
+```
+
+A downstream consumer dividing duration into a time budget or calculating frame count would silently get incorrect results (no error, no warning, just `0.0`).
+
+Note: Standard ffprobe `-print_format json` outputs `duration` as a **string** (e.g., `"120.500000"`), but this is an implementation detail of ffprobe's JSON serializer, not a guaranteed contract.
+
+**Fix:** Validate the duration after parsing and return an error if it is missing or zero:
+
+```rust
+let duration_secs = json["format"]["duration"]
+    .as_str()
+    .and_then(|s| s.parse::<f64>().ok())
+    .ok_or_else(|| FFmpegError::OutputParseError(
+        "Missing or invalid duration in ffprobe output".into()
+    ))?;
+```
+
+Or at minimum, emit a `tracing::warn!` when falling back to 0.0.
+
+### WR-05: child.iter() 失败后 FFmpeg 子进程成为孤儿
+
+**File:** `src/ffmpeg/command.rs:70-72`
+**Severity:** WARNING
+**Status:** New
+
+**Issue:** In `clip_video`, `cmd.spawn()` starts the FFmpeg process, then `child.iter()` is called to get the event iterator. If `iter()` fails (e.g., pipe creation failure, unexpected FFmpeg output format), the function returns `Err` early -- but the already-spawned FFmpeg child process is **never killed** and becomes an orphan.
+
+```rust
+let mut child = cmd
+    .spawn()
+    .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+
+let iter = child                                            // child is alive here
+    .iter()
+    .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?; // if this fails, child leaks
+```
+
+While `iter()` failure is rare in practice (it occurs when the subprocess's stderr pipe cannot be set up), when it does happen, the orphaned FFmpeg process will consume system resources until killed externally.
+
+**Fix:** Use `.spawn()` directly without `.iter()` and manage stderr reading manually, or wrap in a struct with a Drop impl that kills the child:
+
+```rust
+struct FfmpegGuard {
+    child: Option<ffmpeg_sidecar::command::FfmpegCommand>,
+}
+impl Drop for FfmpegGuard {
+    fn drop(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+        }
+    }
+}
+```
+
+---
+
 ## Info
 
-### IN-01: notify 使用 RC 版本依赖 (9.0.0-rc.3)
+### IN-01: notify 依赖使用 RC 版本
 
 **File:** `Cargo.toml:14`
 **Severity:** INFO
-**Issue:** `notify = "9.0.0-rc.3"` 是预发布版本，API 可能在正式版发布前变化。生产代码使用 RC 依赖存在兼容性风险。
+**Status:** Unfixed since prior review
 
-**Recommendation:** 跟踪 notify 正式发布进度，在正式版发布后升级；或在 Cargo.toml 中注明使用 RC 的理由和升级计划。
+**Issue:** `notify = "9.0.0-rc.3"` is a release candidate. The API may change before stable release.
+
+**Recommendation:** Track notify stable release and upgrade; document the RC usage rationale.
 
 ### IN-02: 配置结构体未使用 deny_unknown_fields
 
-**File:** `src/config/types.rs:4-26`
+**Files:** `src/config/types.rs:4-164` (all struct definitions)
 **Severity:** INFO
-**Issue:** 所有配置结构体未标注 `#[serde(deny_unknown_fields)]`，TOML 文件中的未知字段会被静默忽略。这可能导致用户拼写错误（如 `vision_llm_proivder`）不报错，配置实际未生效。
+**Status:** Unfixed since prior review
 
-**Recommendation:** 在配置稳定后为每个 section 结构体添加 `#[serde(deny_unknown_fields)]`。当前阶段为保持前向兼容可不加，但应记录为已知设计权衡。
+**Issue:** No `#[serde(deny_unknown_fields)]` on any config struct. TOML typos (e.g., `vision_llm_proivder`) are silently ignored instead of producing an error.
 
-### IN-03: IndexTTS2Section 的 repetition_penalty 默认值异常
+**Recommendation:** Add `#[serde(deny_unknown_fields)]` once the config schema stabilizes to catch user typos.
+
+### IN-03: IndexTTS2Section 的 repetition_penalty 默认值为 10.0
 
 **File:** `src/config/defaults.rs:93`
 **Severity:** INFO
-**Issue:** `repetition_penalty: 10.0` 远超常规范围（典型值 1.0–2.0）。值 10.0 会极度惩罚任何重复，很可能导致异常输出。该值来自 `config.example.toml`，但作为默认值传播到 Rust 库。
+**Status:** Unfixed since prior review
 
-**Recommendation:** 验证 Python 版中该值的语义，确认 10.0 是合理值还是遗留问题。如果确需修改，更新 `config.example.toml` 和 `defaults.rs`。
+**Issue:** `repetition_penalty` defaults to `10.0`, which is far outside the typical range (1.0-2.0). This value would severely penalize any repetition, likely causing abnormal output. Propagated from `config.example.toml`.
 
-### IN-04: test_hot_reload 长时间睡眠等待
+**Recommendation:** Verify if 10.0 is intentional (perhaps a special IndexTTS2 semantics) or a config mistake. If incorrect, update both `defaults.rs` and `config.example.toml`.
 
-**File:** `tests/config_test.rs:145-187`
+### IN-04: test_hot_reload 包含 1700ms 的 sleep 等待
+
+**File:** `tests/config_test.rs:167,179`
 **Severity:** INFO
-**Issue:** 热加载测试共等待 1700ms（200ms 初始化 + 1500ms 文件变更），单次测试执行时间长。如果 notify 在特定平台上需要更长延迟，测试仍可能失败。
+**Status:** Unfixed since prior review
 
-**Recommendation:** 考虑减少等待时间（500ms 通常足够大多数平台），或在测试中增加轮询机制（重试几次读配置而非固定 sleep）。如果需要保留当前值，添加平台注释。
+**Issue:** The hot reload test sleeps 200ms + 1500ms = 1700ms total. This is slow for a unit test and still potentially flaky on platforms with delayed file notifications.
 
-### IN-05: NamedTempFile 创建后立即使用 path 写入的模式
+**Recommendation:** Consider polling with retries (e.g., check config every 100ms for up to 3 seconds) instead of fixed sleep, or add platform-specific timing notes.
 
-**File:** `src/config/mod.rs:91-93`
+### IN-05: NamedTempFile 先创建再覆写的模式
+
+**Files:** `src/config/mod.rs:91-93`, `tests/config_test.rs:60-67,84-86`
 **Severity:** INFO
-**Issue:** 单元测试中，`NamedTempFile::new()` 创建文件句柄后立即通过 `std::fs::write(file.path(), ...)` 写入同一路径。在 Windows 上虽可工作（NamedTempFile 以共享模式打开），但此模式可能导致打开文件句柄的冲突（文件被独占锁定的操作系统上）。
+**Status:** Unfixed since prior review
 
-**Recommendation:** 使用 `tempfile::Builder::new().suffix(".toml").tempfile()` 确保后缀正确，或使用 `std::fs::write` 先写入再由 ConfigManager 读取（而非先创建空文件再覆写）。可改为在 TempDir 中创建路径：
+**Issue:** Tests use `NamedTempFile::new()` to create an empty file, then immediately overwrite it with `std::fs::write(file.path(), ...)`. On Windows, if the OS holds an exclusive lock on the temp file, the overwrite could fail.
 
-```rust
-let dir = tempfile::TempDir::new().unwrap();
-let path = dir.path().join("test.toml");
-std::fs::write(&path, toml_content).unwrap();
-let manager = ConfigManager::load(&path).unwrap();
-```
+**Recommendation:** Prefer `tempfile::TempDir` and create/overwrite files within it to avoid potential lock conflicts.
 
-### IN-06: clippy 警告（可改进但不出错）
+### IN-06: Clippy 建议（可 derive 的 Default、空行）
 
 **Files:**
-- `src/config/defaults.rs:3` — 文档注释后有空行
-- `src/config/defaults.rs:43` — `AzureSection` 的 `Default` 实现可直接派生（所有字段均为 `String::new()`）
-- `src/config/defaults.rs:113` — `ProxySection` 的 `Default` 实现可直接派生（String::new() 和 false）
+- `src/config/defaults.rs:3` -- 文档注释后的多余空行
+- `src/config/defaults.rs:43` -- `AzureSection::Default` 可 derive（所有字段均为默认值）
+- `src/config/defaults.rs:113` -- `ProxySection::Default` 可 derive（所有字段均为默认值）
 
 **Severity:** INFO
-**Issue:** 三个 clippy 建议，不影响正确性但可改进代码简洁性：
+**Status:** Unfixed since prior review
 
-- `AzureSection::default()` 的所有字段都是 `String::new()`，可标注 `#[derive(Default)]` 并移除手动 impl
-- `ProxySection::default()` 的所有字段都是对应类型的默认值，可标注 `#[derive(Default)]` 并移除手动 impl
-- `defaults.rs` 第 3 行的文档注释后有一行空行，clippy 建议移除
+**Issue:** Three clippy warnings persist. `AzureSection` and `ProxySection` have manual `Default` impls where `#[derive(Default)]` would suffice.
 
-**Recommendation:** 为 `AzureSection` 和 `ProxySection` 添加 `#[derive(Default)]`，移除对应的手动 impl 块。移除多余空行。
+**Recommendation:** Add `#[derive(Default)]` to `AzureSection` and `ProxySection` and remove manual impl blocks. Remove the blank line at defaults.rs:3.
+
+### IN-07: f64-to-string 转换在 FFmpeg seek/duration 参数中的精度风险
+
+**File:** `src/ffmpeg/command.rs:60,63`
+**Severity:** INFO
+**Status:** New
+
+**Issue:** `start.to_string()` on `f64` values can produce very long decimal representations for computed values. For example, `(0.1f64 + 0.2f64).to_string()` yields `"0.30000000000000004"` in Rust. Passing such a string to FFmpeg could cause misinterpretation of the timestamp.
+
+```rust
+cmd.seek(start.to_string())       // potential: "0.30000000000000004"
+    .input(&input_path)
+    .duration(duration.to_string()) // same risk
+```
+
+FFmpeg is generally tolerant of extra decimal places, but the behavior is implementation-defined. Round-tripping computed floating-point values through `to_string()` is a known source of subtle bugs.
+
+**Recommendation:** Use `format!("{:.3}", value)` to limit to millisecond precision (3 decimal places), which is the standard precision for video timestamps:
+
+```rust
+cmd.seek(format!("{:.3}", start))
+    .input(&input_path)
+    .duration(format!("{:.3}", duration))
+```
+
+### IN-08: clip_video 使用 fast seek（`-ss` 在 `-i` 之前）牺牲帧精度
+
+**File:** `src/ffmpeg/command.rs:60-64`
+**Severity:** INFO
+**Status:** New
+
+**Issue:** The FFmpeg command is built as `-ss <start> -i <input> ...`, which is "fast seek" (keyframe-based). This is faster but not frame-accurate -- the output may start at the nearest keyframe before the requested time, not at the exact frame.
+
+For video clipping, frame-accurate (slow) seek is typically preferred, achieved by placing `-ss` after `-i`:
+```
+ffmpeg -i <input> -ss <start> ...
+```
+
+**Recommendation:** Document the tradeoff explicitly in the function doc comment. If frame accuracy is required for the use case, change the argument order or add an option:
+
+```rust
+// Frame-accurate seek (slow but precise)
+cmd.input(&input_path)
+    .seek(start.to_string())
+    .duration(duration.to_string())
+```
+
+Note: The `ffmpeg-sidecar` crate's `.seek()` method adds `-ss` at the current position in the argument chain, so the relative ordering depends on when `.seek()` is called.
+
+### IN-09: tokio 依赖启用 features = ["full"]，拉入所有特性
+
+**File:** `Cargo.toml:7`
+**Severity:** INFO
+**Status:** New
+
+**Issue:** `features = ["full"]` enables all tokio features, including experimental and rarely-used ones (`io-util`, `sync`, `rt-multi-thread`, `macros`, `fs`, `net`, `signal`, `process`, `tracing`, etc.). This increases compile time and binary size.
+
+The current code only uses: `tokio::task::spawn_blocking`, `tokio::join!`, and `#[tokio::test]`. The minimal feature set is:
+
+```toml
+tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros"] }
+```
+
+**Recommendation:** Replace `features = ["full"]` with the minimal feature set once all tokio usage patterns are known.
+
+### IN-10: 集成测试未验证 clip_video 输出文件的时长/有效性
+
+**File:** `tests/ffmpeg_test.rs:103-130`
+**Severity:** INFO
+**Status:** New
+
+**Issue:** `test_clip_video_async` only checks that the output file exists and has size > 0 bytes. It does not verify:
+- The output file is a valid video (probe fails?)
+- The duration is ~1 second (as requested)
+- The start time is correct
+- The output has the same resolution as the input
+
+```rust
+assert!(output_path.exists());
+let file_size = output_path.metadata().unwrap().len();
+assert!(file_size > 0);  // a 1-byte corrupt file also passes
+```
+
+**Recommendation:** Add a probe check on the output file:
+
+```rust
+let output_info = probe_video(&output_path).expect("output should be probeable");
+assert!(
+    (output_info.duration_secs - 1.0).abs() < 0.1,
+    "output duration should be ~1s, got {}",
+    output_info.duration_secs
+);
+assert_eq!(output_info.width, 320);
+assert_eq!(output_info.height, 240);
+```
 
 ---
 
 ## Test Status
 
-| Test Suite | Result | Notes |
-|-----------|--------|-------|
-| `cargo test --lib` | 26/26 pass | 单元测试全部通过 |
-| `cargo test --test config_test` | 6/6 pass | 配置集成测试通过 |
-| `cargo test --test ffmpeg_test` | 3/5 pass | 2 个测试因 FFmpeg 未安装而 panic（预期行为） |
-| `cargo clippy` | 3 warnings | 见 IN-06 |
+| Test Suite | Count | Result | Notes |
+|-----------|-------|--------|-------|
+| `cargo test --lib` (unit tests) | 26 | 26/26 pass | All unit tests pass |
+| `cargo test --test config_test` | 6 | 6/6 pass | Config integration tests pass |
+| `cargo test --test ffmpeg_test` | 5 | 3-5/5 pass* | FFmpeg-dependent tests require system FFmpeg |
+| `cargo clippy` | 3 warnings | See IN-06 | All from derivable Default impls and blank line |
 
-未通过的 2 个 FFmpeg 集成测试（`test_probe_system_video`、`test_clip_video_async`）因当前环境未安装 FFmpeg 而 panic，并非代码缺陷。它们的 `find_ffmpeg()` 会给出清晰的安装指引。
+*FFmpeg-dependent tests (`test_probe_system_video`, `test_clip_video_async`) call `find_ffmpeg()` which panics with a clear install instruction if FFmpeg is not available. This is not a code defect -- it is correct behavior for tests requiring external dependencies.
 
 ---
 
-_Reviewed: 2026-04-28T12:30:00Z_
+## Cross-Cutting Concerns
+
+### API Contract Issues
+The `ProgressCallback` type doc says "progress percentage" but passes seconds (CR-01). The `parse_time_to_secs` function name is correct but its result is misused.
+
+### Portability
+Three test locations use Unix-style absolute paths (WR-02). The `create_test_video()` helper spawns `ffmpeg` via PATH lookup, which works cross-platform.
+
+### Error Handling
+- `probe_video` silently swallows missing/invalid duration (WR-04) -- should propagate as error
+- `clip_video` orphans child process on iter() failure (WR-05) -- should kill child
+- `ConfigManager::get()` uses `.unwrap()` on RwLock (WR-01) -- inconsistent with watcher
+
+### Test Quality
+- Time-sensitive assertion in `test_spawn_blocking_non_blocking` (WR-03) -- may flake in CI
+- `test_clip_video_async` doesn't validate output content (IN-10)
+- `test_hot_reload` is slow (1700ms) and potentially flaky across platforms (IN-04)
+
+---
+
+_Reviewed: 2026-04-28T13:15:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Build: cargo build passes (0 errors, 0 warnings)_
