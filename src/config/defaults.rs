@@ -80,7 +80,7 @@ impl Default for IndexTTS2Section {
             top_k: 30,
             do_sample: true,
             num_beams: 3,
-            repetition_penalty: 10.0,
+            repetition_penalty: 1.5,
         }
     }
 }
