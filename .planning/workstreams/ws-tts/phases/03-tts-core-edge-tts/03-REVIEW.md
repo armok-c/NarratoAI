@@ -1,287 +1,61 @@
 ---
 phase: 03-tts-core-edge-tts
-reviewed: 2026-04-28T10:00:00Z
+reviewed: 2026-04-28T14:30:00Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
-  - Cargo.toml
+  - src/tts/mod.rs
   - src/error.rs
   - src/lib.rs
+  - Cargo.toml
   - src/tts/edge_tts.rs
-  - src/tts/mod.rs
   - tests/tts_test.rs
 findings:
-  critical: 0
-  warning: 8
+  critical: 1
+  warning: 6
   info: 5
-  total: 13
+  total: 12
 status: issues_found
 ---
 
-# Phase 03: TTS Core + Edge-TTS -- Code Review Report
+# Phase 03: TTS Core + Edge-TTS Engine - Code Review Report
 
-**Reviewed:** 2026-04-28T10:00:00Z
+**Reviewed:** 2026-04-28T14:30:00Z
 **Depth:** standard
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-Fresh review of the TTS core abstraction (TTSError, WordBoundary, TtsOutput, TtsProvider trait, synthesize() router) and the Edge-TTS engine implementation (native WebSocket via tokio-tungstenite, SSML generation, binary message parsing, 3-retry loop). Also reviewed Cargo.toml dependencies, module structure, and integration tests.
+对 Phase 03 的 6 个文件进行了标准深度审查。审查范围包括 TTS 核心模块（`WordBoundary`、`TtsOutput`、`TtsProvider` trait、`synthesize()` 路由器）、Edge-TTS 引擎实现（WebSocket 连接、SSML 生成、代理支持、二进制消息解析、3 次重试逻辑）、错误类型定义和集成测试。
 
-Previous review findings (CR-01, WR-01/02/03/04/05 from the prior round) have been verified as fixed in the current codebase. This report covers issues still present after those fixes.
+上一轮审查报告的 8 个警告（WR-01 至 WR-08）已被确认修复，包括：代理 CONNECT 的 interim 1xx 支持、重试语义修正、pitch 函数重命名、turn.end/duration 区分、WebSocket 超时保护、代理认证凭据支持、xml:lang 动态提取和 saturating_add 溢出保护。
 
-The architecture is sound overall. SSML escaping is correct for XML text content. Binary message parsing handles the Edge TTS protocol correctly including audio, wordboundary, and turn.end events. Word boundary collection and audio accumulation flow are properly sequenced.
+本次审查发现 **1 个关键问题**和 **6 个警告**。关键问题为 `voice_name_to_lang()` 函数中字符索引与字节索引混用，对包含多字节 UTF-8 字符的语音名称会导致运行时 panic。警告包括未使用的错误变体、提前关闭返回 duration=0.0、变量命名误导、测试代码重复和可见度过宽等问题。
 
-Eight warnings remain, primarily around HTTP CONNECT compliance, retry semantics, misleading identifiers/log messages, and missing timeout protection on WebSocket operations. No Critical issues were identified.
+## Critical Issues
 
----
+### CR-01: voice_name_to_lang 使用字符索引代替字节索引，在多字节字符语音名称上导致 panic
 
-## Warnings
+**File:** `src/tts/edge_tts.rs:50-61`
+**Issue:** `voice_name_to_lang()` 使用 `voice_name.chars().enumerate()` 遍历字符，`enumerate()` 返回的是**字符索引**（第几个 Unicode 标量值）。但后续使用 `voice_name[..idx]` 进行**字节索引**字符串切片。Rust 的字符串切片要求索引必须落在 UTF-8 字符边界上。
 
-### WR-01: Proxy CONNECT handler does not support interim 1xx responses
+当语音名称包含非 ASCII 字符时（如中文语音名称或带重音符号的拉丁字母），字符索引与字节索引不一致。导致：
+1. **运行时 panic**：如果 `idx` 落在多字节字符中间，Rust 字符串切片直接 panic。
+2. **错误结果**：即使不 panic，切片也切出错误内容（缺少或多余字符）。
 
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:163`
+示例：假设语音名称为 `"cafe-FR-HenriNeural"`（法语语音），使用 `é`（2 字节）替换第一个 `e`。字符序列为 `c(0) a(1) f(2) e-acute(3) -(4) F(5) R(6) -(7)`，第二个 `-` 的字符索引为 7。但字节序列为 `c(0) a(1) f(2) e-acute-b1(3) e-acute-b2(4) -(5) F(6) R(7) -(8)`，第二个 `-` 的字节索引为 8。`voice_name[..7]` 切到字节 7（`R` 的内部），产生 panic 或错误的 `"cafe-FR"`（缺少第二个 `-`）。
 
-**Issue:** The proxy CONNECT handler reads only a single response line and checks `response_line.contains("200")`. Per RFC 7231 Section 4.3.6, HTTP/1.1 proxies MAY send interim 1xx responses (e.g., `HTTP/1.1 100 Continue`) before the final `HTTP/1.1 200 Connection Established`. If a proxy sends an interim response, the code reads the 1xx line, `"200"` is not present, and it returns `Err(TTSError::ConnectionFailed(...))` -- even though the connection would have succeeded on the next line.
+当前标准 Edge-TTS 语音名称（`zh-CN-XiaoyiNeural`、`en-US-JennyNeural`、`ja-JP-NanamiNeural`）均为纯 ASCII，因此该 bug 在当前输入下**潜伏未触发**。但一旦遇到非 ASCII 语音名称（如未来新增的法语 `fr-FR-DeniseNeural` 等）就会崩溃。
 
-This is a real issue: some transparent proxies, load balancers, and TLS-terminating proxies emit interim 1xx responses during CONNECT tunnel setup.
+**Fix:** 使用 `char_indices()` 替代 `chars().enumerate()`。`char_indices()` 直接返回 `(byte_index, char)` 元组，确保 `idx` 是合法的字节索引。
 
-**Fix:** Add a loop that continues reading response lines (skipping 1xx interim responses and their trailing headers) until either a 2xx final response (success) or a non-1xx, non-2xx response (failure) is received:
-
-```rust
-// Replace the single read_line + contains("200") check with:
-loop {
-    response_line.clear();
-    buf_reader.read_line(&mut response_line).await
-        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
-
-    let trimmed = response_line.trim();
-    if trimmed.is_empty() {
-        return Err(TTSError::ConnectionFailed("代理响应为空".to_string()));
-    }
-
-    // Extract HTTP status code
-    let status_code: u16 = trimmed
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    if (200..300).contains(&status_code) {
-        break; // success
-    }
-    if status_code < 200 || status_code >= 300 {
-        // Not an interim 1xx -- permanent failure
-        return Err(TTSError::ConnectionFailed(format!(
-            "代理 CONNECT 失败: {}",
-            trimmed
-        )));
-    }
-    // Interim 1xx: skip its trailing headers, then loop for the next response
-    loop {
-        let mut line = String::new();
-        buf_reader.read_line(&mut line).await
-            .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应头失败: {}", e)))?;
-        if line.trim().is_empty() {
-            break;
-        }
-    }
-}
-```
-
----
-
-### WR-02: Retry semantics do not match documentation
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:210-233`
-
-**Issue:** The comment documents `3 次重试` (3 retries) and the error message at line 229 says `重试 3 次后仍失败` (failed after 3 retries). However, the loop `for attempt in 1..=max_retries` with `max_retries = 3` yields attempts 1, 2, and 3 -- which is only 2 retries (the first attempt is not a retry). The requirement "D-03: 3 次重试，间隔 1 秒" is not met.
-
-| Attempt | Type |
-|---------|------|
-| 1       | Initial |
-| 2       | Retry 1 |
-| 3       | Retry 2 |
-
-Total retries: 2, not 3.
-
-**Fix:** Set `max_retries = 4` to get 1 initial attempt + 3 retries:
-
-```rust
-let max_retries = 4;
-for attempt in 1..max_retries {
-    tracing::info!("Edge-TTS 合成尝试 {}/{}", attempt, max_retries - 1);
-    // ...
-}
-// Error message remains: "Edge-TTS 重试 3 次后仍失败: {}"
-```
-
-Alternatively, if 2 retries is the intended behavior, update the comment to `2 次重试` and the error message to `重试 2 次后仍失败`.
-
----
-
-### WR-03: `convert_pitch_to_percent` function name is misleading
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:29`
-
-**Issue:** The function is named `convert_pitch_to_percent` but outputs `+XHz` / `-XHz` format (hertz), not percent. The adjacent function `convert_rate_to_percent` correctly outputs `+X%` / `-X%`, making the inconsistency confusing for maintainers.
-
-**Line 28 comment** correctly says "Hz format" but the function name contradicts it.
-
-**Fix:** Rename to `convert_pitch_to_hz`:
-
-```rust
-fn convert_pitch_to_hz(pitch: f64) -> String {
-    // body unchanged
-}
-// Update call at line 44:
-let pitch_str = convert_pitch_to_hz(pitch);
-```
-
----
-
-### WR-04: Warning log misleading when turn.end received with missing audio_duration
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:340-345`
-
-**Issue:** The warning message at line 341 says `Edge-TTS connection closed before turn.end` whenever `duration == 0.0`. But this also fires when `turn.end` WAS received and parsed, but the `audio_duration` field was missing, `null`, or in an unexpected format (lines 309-314 fall through to `else { 0.0 }`). The log message is actively misleading -- it blames a missing `turn.end` event when the actual cause is a missing or unparseable duration field within a successfully received `turn.end`.
-
-**Fix:** Track whether `turn.end` was received separately from the duration value:
-
-```rust
-let mut received_turn_end = false;
-
-// In the turn.end handler (around line 298):
-} else if content.path == "turn.end" {
-    received_turn_end = true;
-    // ... existing duration parsing ...
-}
-
-// In the post-loop check (around line 340):
-if duration == 0.0 {
-    if received_turn_end {
-        tracing::warn!(
-            "Edge-TTS turn.end received but audio_duration missing/unparseable, \
-             audio data size: {} bytes",
-            audio_data.len()
-        );
-    } else {
-        tracing::warn!(
-            "Edge-TTS connection closed before turn.end; duration is 0.0, \
-             audio data size: {} bytes",
-            audio_data.len()
-        );
-    }
-}
-```
-
----
-
-### WR-05: No timeout on WebSocket message receive
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:263`
-
-**Issue:** The `ws_stream.next().await` call at line 263 can block indefinitely if the Edge TTS server stalls, the network connection becomes unresponsive but does not close (half-open TCP state), or the server encounters an internal deadlock. There is no configurable timeout on any network operation within `synthesize_once`. A hung connection consumes the task/thread without recovery.
-
-This is especially risky because `synthesize_with_retry` calls `synthesize_once` up to 3 times -- a hung first attempt delays the entire retry sequence until an external watchdog (if any) intervenes.
-
-**Fix:** Wrap the receive loop with `tokio::time::timeout`. Use a generous but finite timeout:
-
-```rust
-use tokio::time::{timeout, Duration};
-
-const WS_RECEIVE_TIMEOUT: Duration = Duration::from_secs(120);
-
-while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, ws_stream.next()).await
-    .map_err(|_| TTSError::SynthesisFailed("接收消息超时: 服务器无响应".to_string()))?
-{
-    // ... existing message handling ...
-}
-```
-
----
-
-### WR-06: Proxy URL with authentication credentials is not supported
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:120-122`
-
-**Issue:** The proxy URL parsing splits on the first colon to separate host and port. If the proxy URL contains authentication credentials in standard format `http://user:pass@proxy.example.com:8080`, the first colon belongs to `user:pass`, not the host:port separator. The result is:
-
-- `proxy_host` = `"user"`
-- `proxy_port_str` = `"pass@proxy.example.com:8080"`
-- `"pass@proxy.example.com:8080".parse::<u16>()` fails
-- Error returned: `TTS 连接失败: 代理端口格式错误`
-
-This error message does not hint at the actual problem (unsupported authentication format), making debugging difficult.
-
-**Fix:** Use a proper URL parser (the `url` crate is already a transitive dependency via `reqwest`) or manually strip credentials before parsing:
-
-```rust
-fn pretty_proxy_host_port(proxy_url: &str) -> Result<(&str, u16), TTSError> {
-    let without_scheme = proxy_url
-        .strip_prefix("http://")
-        .or_else(|| proxy_url.strip_prefix("https://"))
-        .unwrap_or(proxy_url);
-    // Strip any user:pass@ prefix
-    let host_part = without_scheme
-        .rsplit('@')
-        .next()
-        .unwrap_or(without_scheme);
-    // Now parse host:port from host_part
-    match host_part.split_once(':') {
-        Some((host, port_str)) => {
-            let port: u16 = port_str.parse()
-                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
-            Ok((host, port))
-        }
-        None => {
-            let default_port = if proxy_url.starts_with("https://") { 443 } else { 80 };
-            Ok((host_part, default_port))
-        }
-    }
-}
-```
-
----
-
-### WR-07: `xml:lang="zh-CN"` hardcoded in SSML template
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:50-53`
-
-**Issue:** The SSML template hardcodes `xml:lang="zh-CN"`. When using non-Chinese voices (e.g., `en-US-JennyNeural`, `ja-JP-NanamiNeural`), the language attribute does not match the voice. While the Edge TTS server primarily uses the voice name to determine language synthesis, an incorrect `xml:lang` can cause:
-- Suboptimal prosody and pronunciation for non-Chinese text
-- Potential rejection by some TTS-compatible engines
-- Confusion when the SSML is logged or inspected for debugging
-
-**Fix:** Derive the language tag from the voice name, or add it as a parameter. Voice names follow the pattern `{lang}-{region}-{Name}{Attributes}`:
-
-```rust
-fn voice_name_to_lang(voice_name: &str) -> &str {
-    // "zh-CN-XiaoyiNeural" -> "zh-CN"
-    // "en-US-JennyNeural"   -> "en-US"
-    let parts: Vec<&str> = voice_name.splitn(3, '-').collect();
-    if parts.len() >= 2 {
-        // Rejoin first two parts: "zh-CN"
-        // Actually voice names have format "zh-CN-XiaoyiNeural" where
-        // lang = "zh-CN" (first two hyphen-separated tokens)
-        let lang_parts: Vec<&str> = voice_name.splitn(3, '-').collect();
-        // But "zh-CN" has - in it; the first split gives "zh" and "CN" and "XiaoyiNeural"
-        // So lang = "zh-CN" = parts[0] + "-" + parts[1]
-        return &voice_name[..parts[0].len() + 1 + parts[1].len()];
-    }
-    "zh-CN" // fallback
-}
-```
-
-Or simpler: use the first two characters before the second hyphen as the language prefix:
 ```rust
 fn voice_name_to_lang(voice_name: &str) -> String {
-    if let Some(idx) = voice_name.chars()
-        .enumerate()
+    if let Some((idx, _)) = voice_name
+        .char_indices()
         .filter(|(_, c)| *c == '-')
         .nth(1)
-        .map(|(i, _)| i)
     {
         voice_name[..idx].to_string()
     } else {
@@ -290,108 +64,166 @@ fn voice_name_to_lang(voice_name: &str) -> String {
 }
 ```
 
----
+## Warnings
 
-### WR-08: Word boundary offset addition can overflow `u64`
+### WR-01: TTSError::AuthenticationFailed 在 Edge-TTS 引擎中从未被使用
 
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:288`
+**File:** `src/error.rs:57-58`
+**Issue:** `TTSError` 定义了 `AuthenticationFailed(String)` 变体，但 Edge-TTS 引擎在 `connect()` 和 `synthesize_once()` 中将所有网络相关错误都映射为 `ConnectionFailed(...)`。即使微软 TTS 服务返回 HTTP 401（认证失败）或 403（禁止访问），调用方也只能看到统一的"连接失败"消息，无法区分是网络问题还是认证问题。这降低了错误诊断能力。
 
-**Issue:** Line 288 computes `end_offset: offset + duration_100ns`. Both `offset` and `duration_100ns` are `u64` values parsed from an untrusted server response. If their sum exceeds `u64::MAX` (theoretically possible with corrupted or extreme server data representing ~584,000 years of audio), the addition:
+在 `Cargo.lock` 中确认 tokio-tungstenite 0.29.0 的 `Connector::NativeTls` 接受 `native_tls_crate::TlsConnector`（即 `native_tls::TlsConnector`），类型匹配正确。TLS 握手失败时 tungstenite 会返回 `Error::Tls`，带有 `native_tls::Error` 内部错误，但代码将其统一映射为 `ConnectionFailed`。
 
-- **Panics** in debug builds (Rust enforces overflow checking)
-- **Wraps silently** in release builds, producing `end_offset < start_offset`, which violates the type's implied invariant and could cause downstream bugs in subtitle generation or audio trimming logic
-
-**Fix:** Use `saturating_add` for defense-in-depth without changing the control flow:
+**Fix:** 在 `connect()` 和 `synthesize_once()` 中，当 tungstenite 返回的错误可以识别为认证错误时，映射到 `TTSError::AuthenticationFailed(...)`：
 
 ```rust
-word_boundaries.push(WordBoundary {
-    start_offset: offset,
-    end_offset: offset.saturating_add(duration_100ns),
-    text: text.to_string(),
-});
+// 在 synthesize_once 中：
+.map_err(|e| {
+    let err_str = e.to_string();
+    if err_str.contains("401") || err_str.contains("authentication") || err_str.contains("Unauthorized") {
+        TTSError::AuthenticationFailed(err_str)
+    } else {
+        TTSError::SynthesisFailed(format!("接收消息失败: {}", e))
+    }
+})?
 ```
 
-Or for strict validation with error propagation (preferred for security-critical contexts):
+### WR-02: WebSocket 在 turn.end 前关闭导致 duration=0.0 被当作成功返回
+
+**File:** `src/tts/edge_tts.rs:326-431`
+**Issue:** `synthesize_once()` 的消息接收循环在两种情况下退出：
+1. 正常：收到 `turn.end` 消息后 `break`，`duration` 正常解析
+2. 异常：`ws_stream.next()` 返回 `None`（连接关闭）或超时
+
+在异常情况下，`received_turn_end` 保持 `false`，`duration` 保持 `0.0`（默认值）。但代码在第 420-424 行仍然写入已收到的部分音频数据，并在第 426 行返回 `Ok(TtsOutput { duration: 0.0, ... })`。这导致：
+- 调用方收到 `Ok` 但 `duration` 为 0，如果下游用 `duration` 做除数或计算比特率，会产生无穷大/NaN。
+- 调用方无法区分"完整成功"和"部分音频+连接中断"。
+
+当前第 406-418 行的警告日志只输出 warning 不改变控制流。`received_turn_end` 标志位虽然在第 364 行设为 true，但检查在第 407 行 `duration == 0.0` 时只在日志中区分场景，仍然返回 `Ok`。
+
+**Fix:** 当 `received_turn_end` 为 `false` 时，应返回 `Err` 而非 `Ok`：
 
 ```rust
-let end_offset = offset.checked_add(duration_100ns).ok_or_else(|| {
-    TTSError::SynthesisFailed("word boundary offset overflow".to_string())
-})?;
-word_boundaries.push(WordBoundary {
-    start_offset: offset,
-    end_offset,
-    text: text.to_string(),
-});
+// 替代第 406-418 行的 duration 检查
+if !received_turn_end {
+    return Err(TTSError::SynthesisFailed(
+        "WebSocket 连接在收到 turn.end 前关闭，音频数据不完整".to_string(),
+    ));
+}
+// duration == 0.0 但 received_turn_end 为 true 的情况可以保留 warning
 ```
 
----
+### WR-03: max_retries 变量命名与实际语义不符（误导维护者）
+
+**File:** `src/tts/edge_tts.rs:272`
+**Issue:** `let max_retries = 4;  // 1 initial + 3 retries (D-03: 3 次重试)` 变量名 `max_retries` 暗示"最大重试次数为 4"，但实际语义是"总尝试次数为 4"（1 次首次尝试 + 3 次重试）。第 291 行的错误消息用 `max_retries - 1` 来计算实际重试次数，说明代码作者也知道命名不一致。
+
+这种命名在将来修改时容易引入 off-by-one bug：假设有人看到 `let max_retries = 3` 以为"只重试 3 次"，但循环 `1..=3` 只做 2 次重试（1 次初始 + 2 次重试）。
+
+**Fix:** 将变量重命名以清晰表达语义：
+
+```rust
+let max_attempts = 4; // 1 initial + 3 retries
+for attempt in 1..=max_attempts {
+    // ...
+    if attempt < max_attempts {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+Err(TTSError::RetryExhausted(format!(
+    "Edge-TTS 重试 {} 次后仍失败: {}",
+    max_attempts - 1,
+    last_error.map_or("未知错误".to_string(), |e| e.to_string())
+)))
+```
+
+### WR-04: 库测试与集成测试存在重复测试用例（翻倍维护成本）
+
+**Files:**
+- `src/tts/mod.rs:136-172`（`test_synthesize_unknown_engine`、`test_synthesize_unknown_engine_message`）
+- `tests/tts_test.rs:79-114`（`test_synthesize_unknown_engine_error`、`test_synthesize_unknown_engine_message_contains_name`）
+
+**Issue:** 两组测试对 `tts::synthesize()` 路由器的未知引擎分支执行完全相同的验证：断言返回 `Err(TTSError::UnknownEngine {..})`，断言错误消息包含引擎名。差异仅仅是使用的引擎名字面量不同（`"nonexistent_engine"` vs `"invalid_engine"`、`"bad_engine"` vs `"bad_engine_name"`），验证逻辑和断言完全相同。
+
+当路由器的错误处理逻辑改变时（例如修改错误消息格式），两组测试需要同步修改。这增加了维护成本且无额外覆盖收益。
+
+**Fix:** 移除 `tests/tts_test.rs` 中的 `test_synthesize_unknown_engine_error` 和 `test_synthesize_unknown_engine_message_contains_name`，保留 `src/tts/mod.rs` 中的版本即可覆盖。`tts_test.rs` 专注测试集成级别的场景。
+
+### WR-05: test_synthesize_function_signature 丢弃未 poll 的 async future（编译器警告）
+
+**File:** `tests/tts_test.rs:146-148`
+**Issue:** `let _ = tts::synthesize(...)` 创建了 `synthesize()` 返回的 async future 但立即通过 `let _ =` 丢弃，从未被 `.await` 或 poll。Rust 中 `Future` 实现了 `#[must_use]`，编译器会对丢弃未 poll 的 future 产生警告。clippy 的 `let_underscore_future` lint 也会报告此问题。
+
+未来如果在 `synthesize()` 中添加了带副作用的初始化逻辑（例如创建临时文件），该测试不会捕获这些副作用，但仍然"通过"编译。
+
+**Fix:** 用类型检查闭包替代函数调用，避免实际创建 future：
+
+```rust
+#[test]
+fn test_synthesize_function_signature() {
+    fn assert_send<T: Send>(_t: T) {}
+    // 仅验证函数签名（编译时检查），不创建 future
+    assert_send(
+        tts::synthesize("", "", "", 1.0, 0.0, std::path::Path::new(""), None)
+    );
+}
+```
+
+或者保留原有形式但显式消音 clippy 警告：
+
+```rust
+#[allow(clippy::let_underscore_future)]
+#[test]
+fn test_synthesize_function_signature() {
+    let _ = tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None);
+}
+```
+
+### WR-06: EdgeTtsEngine 和 new() 的 pub 可见度过于宽松
+
+**File:** `src/tts/edge_tts.rs:83-87, 90`
+**Issue:** `EdgeTtsEngine` 结构体及其 `new()` 方法被标记为 `pub`，允许外部 crate 直接构造引擎实例。这绕过了 `tts::synthesize()` 路由器的代理配置逻辑和引擎名校验。随着 Phase 3+ 新增更多 TTS 引擎（Azure、Tencent 等），外部代码直接实例化引擎将破坏路由器的一致性。
+
+**Fix:** 将可见度降级为 `pub(super)`（仅对父模块 `tts` 可见）：
+
+```rust
+pub(super) struct EdgeTtsEngine {
+    pub(super) proxy_enabled: bool,
+    pub(super) proxy_http: String,
+    pub(super) proxy_https: String,
+}
+
+impl EdgeTtsEngine {
+    pub(super) fn new(...) -> Self { ... }
+}
+```
 
 ## Info
 
-### IN-01: Redundant `.into()` on `Message::Text`
+### IN-01: 多余的 `.into()` 转换
 
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:255`
+**File:** `src/tts/edge_tts.rs:317`
+**Issue:** `stt_message` 已经是 `String`，`Message::Text` 接收 `String`，`.into()` 是空操作（`String` -> `String` 的 identity 转换）。
 
-**Issue:** `stt_message` is already `String`. `Message::Text` takes `String`. `stt_message.into()` produces `String` from `String` -- a no-op.
+### IN-02: `and_then` 应改为 `map`
 
-**Fix:** Remove `.into()`:
-```rust
-ws_stream.send(Message::Text(stt_message)).await
-```
+**File:** `src/tts/edge_tts.rs:166-167`
+**Issue:** `Option::and_then(|(h, p)| Some(...))` 的闭包总是返回 `Some`，语义上等同于 `Option::map`。使用 `map` 更清晰地表达了"转换内部值"的意图。
 
----
+### IN-03: EDGE_TTS_WSS_URL 硬编码公开令牌
 
-### IN-02: `and_then(|(h, p)| Some(...))` should be `map`
+**File:** `src/tts/edge_tts.rs:14-15`
+**Issue:** `EDGE_TTS_WSS_URL` 包含硬编码的 `TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4`。虽然这是公开令牌（来自 Edge 浏览器扩展，广泛公开），但微软可能轮换此令牌，届时需要代码修改才能恢复服务。建议提取为常量并添加来源说明，或在未来通过配置开放。
 
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:132`
+### IN-04: `unwrap()` 无 `expect()` 说明安全性原因
 
-**Issue:** `Option::and_then` with a closure that returns `Some(...)` is semantically identical to `Option::map`. Using `map` is clearer about the intent (transforming the inner value, not chaining to another Option).
+**File:** `src/tts/edge_tts.rs:113-122`
+**Issue:** 两处 `"string".parse().unwrap()` 调用使用 `.unwrap()` 但不附带任何解释。虽然硬编码的字符串字面量保证有效，但使用 `.expect("...")` 可以明确告知读者"此 unwrap 不会失败"的原因。
 
-**Fix:**
-```rust
-let (target_host, target_port_str) = target_addr
-    .split_once(':')
-    .map(|(h, p)| (h, p.split('/').next().unwrap_or("443")))
-    .unwrap_or((target_host_only, "443"));
-```
+### IN-05: 版本测试绑定硬编码字符串
 
----
+**File:** `src/lib.rs:17-19`
+**Issue:** `assert_eq!(version(), "0.1.0")` 在版本号变化时需要同步修改两个位置。可以直接与编译时常量对比以避免遗忘：
 
-### IN-03: Hardcoded `TrustedClientToken` in WebSocket URL
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:11`
-
-**Issue:** The WebSocket URL contains a hardcoded `TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4`. While this is a public token used by the browser extension (same across all `edge-tts` implementations), hardcoding it:
-- Ties the code to a specific client identity that Microsoft could deprecate or rotate
-- Provides no configuration path to update the token without a code change
-- Makes the URL non-configurable even if Microsoft changes the endpoint
-
-**Suggestion:** Extract the base URL and token into named constants, or better, make them configurable via environment variables or config.toml.
-
----
-
-### IN-04: `unwrap()` on hardcoded header value parse
-
-**File:** `E:\GitLib\NarratoAI\src\tts\edge_tts.rs:92,98`
-
-**Issue:** Two `"string".parse().unwrap()` calls convert hardcoded string literals to HTTP header values. While these specific strings are guaranteed valid (they are hardcoded literals), using `unwrap()` without `expect()` provides no documentation of why the unwrap is safe, making it look like a lazy shortcut.
-
-**Fix:** Replace `.unwrap()` with `.expect("hardcoded header value is valid")`:
-```rust
-"chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
-    .parse()
-    .expect("hardcoded Origin header is valid"),
-```
-
----
-
-### IN-05: Version test tied to hardcoded version string
-
-**File:** `E:\GitLib\NarratoAI\src\lib.rs:17-19`
-
-**Issue:** The test `test_version_returns_0_1_0` asserts `version() == "0.1.0"` by literal string. This will break on any version bump, requiring a coordinated change in two places (`Cargo.toml` and `lib.rs`). The same value is available at compile time via `env!("CARGO_PKG_VERSION")`.
-
-**Fix:** Compare against the compile-time constant:
 ```rust
 #[test]
 fn test_version_matches_cargo_toml() {
@@ -399,18 +231,26 @@ fn test_version_matches_cargo_toml() {
 }
 ```
 
----
+### IN-06: TTSError 中文消息测试在集成测试中与单元测试重叠
 
-## Scope Notes
-
-- **No Critical issues** found. The codebase is well-structured with proper error types, async trait patterns, and defensive parsing logic.
-- **Cargo dependencies** are properly specified. `native-tls` 0.2.18 is used consistently by both the explicit dependency and the `tokio-tungstenite` dependency chain (verified via Cargo.lock lines 1608-1622 and 2890-2901). No version conflict.
-- **Previous round fixes verified in current code:** CR-01 (duration division), WR-01 target path stripping, WR-02 word boundary logging, WR-03 dead test replacement, WR-04 proxy port default, WR-05 duration-zero warning. All are confirmed present.
-- **Test coverage** is adequate for Phase 3 but the `parse_edge_tts_binary` function has no unit tests for edge cases (empty data, malformed header, missing Path field). Consider adding these.
-- **Tests and test infrastructure** (mock engine, router tests, error display tests) are correct and reliable. No issues.
+**Files:** `tests/tts_test.rs:57-71` vs `src/error.rs:189-221`
+**Issue:** `test_tts_error_all_variants_chinese` 验证所有 `TTSError` 变体的 Display 包含中文。`src/error.rs` 中已有 5 个独立的单元测试对每个变体逐一验证。集成测试的合并遍历没有增加覆盖价值。
 
 ---
 
-_Reviewed: 2026-04-28T10:00:00Z_
+_Reviewed: 2026-04-28T14:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+## Appendix: Previous Review Resolution Status
+
+| Previous ID | Issue | Fixed in current code? |
+|---|---|---|
+| WR-01 | Proxy CONNECT no 1xx support | 已修复（第 193-230 行） |
+| WR-02 | Retry semantics 3 vs 2 | 已修复（max_retries=4） |
+| WR-03 | convert_pitch_to_percent naming | 已修复（函数已重命名） |
+| WR-04 | turn.end vs duration log confusion | 已修复（received_turn_end 标志位） |
+| WR-05 | No timeout on WS receive | 已修复（WS_RECEIVE_TIMEOUT） |
+| WR-06 | Proxy URL with credentials | 已修复（rsplit('@') 处理） |
+| WR-07 | xml:lang hardcoded to zh-CN | 已修复（voice_name_to_lang 函数） |
+| WR-08 | u64 overflow on word boundary | 已修复（saturating_add） |
