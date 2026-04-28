@@ -71,7 +71,7 @@ fn profile_map() -> &'static HashMap<HwAccelProfile, FFmpegProfileInfo> {
                 name: "Windows NVIDIA",
                 description: "Windows NVIDIA 专用硬件编码",
                 hwaccel_enabled: true,
-                hwaccel_type: Some("nvenc_pure"),
+                hwaccel_type: Some("cuda"),
                 encoder: "h264_nvenc",
                 quality_preset: "medium",
                 pixel_format: "yuv420p",
