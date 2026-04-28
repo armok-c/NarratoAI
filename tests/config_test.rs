@@ -168,11 +168,12 @@ project_version = "0.1.0"
 
     assert_eq!(manager.get().app.project_version, "0.1.0");
 
-    // 启动热加载监听
-    manager.start_watching().expect("启动热加载监听失败");
-
-    // 等待 watcher 初始化
-    std::thread::sleep(Duration::from_millis(200));
+    // 启动热加载监听（使用 readiness 信号替代固定 sleep）
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    manager.start_watching_with_ready(ready_tx).expect("启动热加载监听失败");
+    ready_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("watcher 应在超时前就绪");
 
     // 修改配置文件内容
     std::fs::write(

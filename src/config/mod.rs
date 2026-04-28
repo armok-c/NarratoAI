@@ -3,6 +3,7 @@ pub mod types;
 pub mod watcher;
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use crate::config::types::AppConfig;
 use crate::error::ConfigError;
@@ -39,7 +40,17 @@ impl ConfigManager {
 
     /// 启动文件变更监听（热加载）
     pub fn start_watching(&mut self) -> Result<(), ConfigError> {
-        let watcher = ConfigWatcher::new(&self.config_path, Arc::clone(&self.config))?;
+        let watcher = ConfigWatcher::new(&self.config_path, Arc::clone(&self.config), None)?;
+        self._watcher = Some(watcher);
+        tracing::info!("配置热加载监听已启动: {}", self.config_path.display());
+        Ok(())
+    }
+
+    /// 启动热加载监听，并通过 `ready` 信号通知调用者监听已建立
+    ///
+    /// 测试使用：替代固定延时，等待信号后再写入文件，避免竞态。
+    pub fn start_watching_with_ready(&mut self, ready: Sender<()>) -> Result<(), ConfigError> {
+        let watcher = ConfigWatcher::new(&self.config_path, Arc::clone(&self.config), Some(ready))?;
         self._watcher = Some(watcher);
         tracing::info!("配置热加载监听已启动: {}", self.config_path.display());
         Ok(())

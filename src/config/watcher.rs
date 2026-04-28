@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::path::Path;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, Config as NotifyConfig};
 use crate::config::types::AppConfig;
@@ -12,9 +13,13 @@ pub struct ConfigWatcher {
 
 impl ConfigWatcher {
     /// 启动配置文件监听。变更时重新解析并更新 Arc<RwLock<AppConfig>>。
+    ///
+    /// `ready_signal` — 可选的信号发送器，在 `watch()` 成功返回后立即发送，
+    /// 用于测试等场景中确认监听已建立（替代固定延时）。
     pub fn new(
         path: &Path,
         config: Arc<RwLock<AppConfig>>,
+        ready_signal: Option<Sender<()>>,
     ) -> Result<Self, ConfigError> {
         let watched_path = path.to_path_buf();
         let parent_dir = path.parent().unwrap_or(path).to_path_buf();
@@ -50,6 +55,11 @@ impl ConfigWatcher {
         watcher
             .watch(&parent_dir, RecursiveMode::NonRecursive)
             .map_err(|e| ConfigError::WatchError(e.to_string()))?;
+
+        // 通知调用者监听已建立
+        if let Some(tx) = ready_signal {
+            let _ = tx.send(());
+        }
 
         Ok(Self { _watcher: watcher })
     }
