@@ -123,13 +123,13 @@ impl OpenAiCompatibleProvider {
     }
 
     /// 从 chat completion 响应中提取文本内容
-    fn extract_text(response: &CreateChatCompletionResponse) -> String {
+    fn extract_text(response: &CreateChatCompletionResponse) -> Result<String, LLMError> {
         response
             .choices
             .first()
             .and_then(|c| c.message.content.as_deref())
-            .unwrap_or("")
-            .to_string()
+            .map(|s| s.to_string())
+            .ok_or_else(|| LLMError::APICall("响应中没有有效文本内容".to_string()))
     }
 
     /// 带 JSON response_format 回退的文本生成（D-19）
@@ -249,7 +249,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 .map_err(LLMError::from)?
         };
 
-        Ok(Self::extract_text(&response))
+        Self::extract_text(&response)
     }
 
     async fn generate_text_stream(
