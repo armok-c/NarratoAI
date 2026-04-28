@@ -184,20 +184,48 @@ impl EdgeTtsEngine {
             buf_reader.get_mut().flush().await
                 .map_err(|e| TTSError::ConnectionFailed(format!("刷新 CONNECT 请求失败: {}", e)))?;
 
-            // Read CONNECT response
-            let mut response_line = String::new();
+            // Read CONNECT response (handle interim 1xx responses per RFC 7231 Section 4.3.6)
             use tokio::io::AsyncBufReadExt;
-            buf_reader.read_line(&mut response_line).await
-                .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+            loop {
+                let mut response_line = String::new();
+                buf_reader.read_line(&mut response_line).await
+                    .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
 
-            if !response_line.contains("200") {
-                return Err(TTSError::ConnectionFailed(format!(
-                    "代理 CONNECT 失败: {}",
-                    response_line.trim()
-                )));
+                let trimmed = response_line.trim();
+                if trimmed.is_empty() {
+                    return Err(TTSError::ConnectionFailed("代理响应为空".to_string()));
+                }
+
+                // Extract HTTP status code
+                let status_code: u16 = trimmed
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+
+                if (200..300).contains(&status_code) {
+                    // 2xx — success
+                    break;
+                }
+                if status_code < 100 || status_code >= 300 {
+                    // Not an interim 1xx — permanent failure
+                    return Err(TTSError::ConnectionFailed(format!(
+                        "代理 CONNECT 失败: {}",
+                        trimmed
+                    )));
+                }
+                // Interim 1xx: skip its trailing headers, then loop for the next response
+                loop {
+                    let mut line = String::new();
+                    buf_reader.read_line(&mut line).await
+                        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应头失败: {}", e)))?;
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                }
             }
 
-            // Skip response headers
+            // Skip final response headers
             loop {
                 let mut line = String::new();
                 buf_reader.read_line(&mut line).await
