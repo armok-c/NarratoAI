@@ -127,6 +127,21 @@ async fn test_clip_video_async() {
         "裁剪后的输出文件大小应大于 0，实际: {}",
         file_size
     );
+
+    // 用 ffprobe 验证输出的视频有效性（时长、分辨率、编码器）
+    let info = probe_video(&output_path)
+        .expect("裁剪后的输出文件应能被 ffprobe 探测");
+    assert!(
+        info.duration_secs > 0.0,
+        "输出视频时长应大于 0，实际: {}",
+        info.duration_secs
+    );
+    assert!(info.width > 0, "输出视频宽度应大于 0，实际: {}", info.width);
+    assert!(info.height > 0, "输出视频高度应大于 0，实际: {}", info.height);
+    assert!(
+        !info.codec_name.is_empty(),
+        "输出视频编码器不应为空"
+    );
 }
 
 /// 检测系统可用硬件编码器
