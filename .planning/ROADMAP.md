@@ -84,7 +84,11 @@ Plans:
   1. 能加载 Python 版生成的 JSON 脚本文件，所有字段正确反序列化为 Rust 结构体
   2. 能修改脚本的段落文案、OST 类型（使用 Rust 枚举）、时间戳并保存回 JSON
   3. 脚本校验能检测缺失必要字段和不合理的时间戳，返回明确的错误描述
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — 数据模型 + 加载/保存/校验（ScriptClip, OstType, ScriptError, load/save/validate）
+- [ ] 05-02-PLAN.md — 编辑 API + 集成测试（不可变更新方法 + round-trip 测试）
 
 ### Phase 6: Documentary Pipeline
 **Goal**: 纪录片模式完整流水线可端到端运行——从视频输入到最终合成输出，验证整体架构
