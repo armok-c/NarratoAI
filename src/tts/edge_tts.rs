@@ -285,7 +285,7 @@ impl EdgeTtsEngine {
                                 ) {
                                     word_boundaries.push(WordBoundary {
                                         start_offset: offset,
-                                        end_offset: offset + duration_100ns,
+                                        end_offset: offset.saturating_add(duration_100ns),
                                         text: text.to_string(),
                                     });
                                 } else {
