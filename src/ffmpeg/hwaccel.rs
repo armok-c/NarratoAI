@@ -44,7 +44,7 @@ fn profile_map() -> &'static HashMap<HwAccelProfile, FFmpegProfileInfo> {
                 description: "高性能（NVIDIA/AMD 硬件编码）",
                 hwaccel_enabled: true,
                 hwaccel_type: Some("auto"),
-                encoder: "auto",
+                encoder: "libx264",
                 quality_preset: "fast",
                 pixel_format: "yuv420p",
                 additional_args: &["-preset", "fast"],
