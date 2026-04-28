@@ -1,12 +1,16 @@
 ---
 phase: 02-llm-service-layer
-reviewed: 2026-04-28T14:30:00Z
+reviewed: 2026-04-28T08:45:00Z
 depth: standard
-files_reviewed: 13
+files_reviewed: 14
 files_reviewed_list:
   - Cargo.toml
+  - Cargo.lock
   - src/error.rs
   - src/lib.rs
+  - src/config/types.rs
+  - src/config/defaults.rs
+  - src/config/mod.rs
   - src/llm/mod.rs
   - src/llm/types.rs
   - src/llm/provider.rs
@@ -16,248 +20,53 @@ files_reviewed_list:
   - src/llm/register.rs
   - src/llm/test_utils.rs
   - tests/llm_test.rs
-  - src/config/types.rs
-  - src/config/defaults.rs
 findings:
-  critical: 1
-  warning: 9
-  info: 3
-  total: 13
+  critical: 3
+  warning: 7
+  info: 4
+  total: 14
 status: issues_found
 ---
 
-# Phase 02: LLM Service Layer — Code Review Report
+# Phase 02: LLM Service Layer -- Code Review Report
 
-**Reviewed:** 2026-04-28T14:30:00Z
+**Reviewed:** 2026-04-28T08:45:00Z
 **Depth:** standard
-**Files Reviewed:** 13
+**Files Reviewed:** 14
 **Status:** issues_found
 
 ## Summary
 
-This review covers the Phase 02 LLM Service Layer implementation: provider trait definition, error types, OpenAI-compatible provider, registry, image preprocessing, provider registration factory, test utilities, and integration tests. The architecture and design are sound, but there is **1 critical compilation-blocking issue** stemming from the code being written against a non-existent async-openai API (`OpenAIClientConfig`, `RetryConfig`), plus **9 warnings** spanning untested assertions, code duplication, missed input validation, misleading conventions, and a documentation mismatch.
+Reviewed the LLM service layer: provider trait, OpenAI-compatible provider, registry, image preprocessing, error types, registration factory, test utilities, and integration tests. The architecture and design are sound, but there are **3 critical compilation-blocking issues** (wrong async-openai 0.36.1 API usage, missing `status_code` field on `ApiError`, and conflicting `Default` implementations), **7 warnings** (logic/runtime risks and test quality issues), and **4 info items**.
+
+Verified via `cargo check` -- the codebase currently has **12 compile errors**.
 
 ## Critical Issues
 
-### CR-01: `OpenAIClientConfig` and `RetryConfig` do not exist in async-openai 0.36.1; `Client::build` takes a different third argument type
+### CR-01: `OpenAIClientConfig`/`RetryConfig` do not exist in async-openai 0.36.1; `Client::build` third-arg type mismatch
 
-**File:** `src/llm/openai_compatible.rs:8-9, 63-68, 91, 98`
+**File:** `src/llm/openai_compatible.rs:7-9, 63-69, 91, 98`
 
-**Issue:** Three interrelated compile errors caused by code written against a different version of `async-openai`:
+**Issue:** Three interrelated compile errors from code written for a different async-openai version:
 
-1. **Lines 8-9**: `OpenAIClientConfig` and `RetryConfig` are imported from `async_openai::config`. Neither type exists in async-openai 0.36.1. Verified by grepping the entire async-openai 0.36.1 source tree — zero matches.
+1. **Lines 7-8:** `OpenAIClientConfig` and `RetryConfig` are imported from `async_openai::config`. Neither type exists in async-openai 0.36.1 (as resolved by `Cargo.lock`). Verified against the actual crate source.
 
-2. **Lines 63-68**: The code constructs `OpenAIClientConfig` with a `RetryConfig` field, but no such struct exists. The client configuration in async-openai 0.36.1 uses `backoff::ExponentialBackoff` directly.
+2. **Lines 63-69:** The constructor stores `OpenAIClientConfig { retry: RetryConfig { max_retries, .. }, .. }`. No such struct exists. In async-openai 0.36.1, retry backoff is configured via a dedicated `backoff::ExponentialBackoff` field on `Client`, accessed via the `with_backoff()` builder method.
 
-3. **Lines 91, 98**: `Client::build(http_client, config, client_config)` — the `Client::build` method **does exist** in async-openai 0.36.1, but its third parameter is `backoff::ExponentialBackoff` (line 109 of the crate's `client.rs`), not `OpenAIClientConfig`. This is a type mismatch compile error.
+3. **Lines 91, 98:** `Client::build(http_client, config, client_config)` is called with `OpenAIClientConfig` as the third argument. The actual API is `Client::build(http_client: reqwest::Client, config: C, backoff: backoff::ExponentialBackoff)`. The third parameter type is `backoff::ExponentialBackoff`, not `OpenAIClientConfig`.
 
-**Root cause:** The async-openai v0.36 API was rewritten. Earlier versions (pre-0.35) had `OpenAIClientConfig`/`RetryConfig`, but version 0.36.1 (resolved by `Cargo.lock`) replaced them with `backoff::ExponentialBackoff` as a first-class field on the `Client` struct.
-
-**Fix:**
-
-Remove all references to `OpenAIClientConfig` and `RetryConfig`. Build the client using the safe builder pattern, which preserves custom timeouts and proxy settings through the `reqwest::Client`:
-
-```rust
-// Remove these imports (lines 8-9):
-//   OpenAIClientConfig, RetryConfig
-
-// Replace lines 63-99 with:
-let client = if proxy_http.is_some() || proxy_https.is_some() {
-    let mut http_client_builder = reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs));
-
-    if let Some(ref proxy_url) = proxy_http {
-        let proxy = reqwest::Proxy::http(proxy_url)
-            .map_err(|e| LLMError::Configuration(format!("HTTP 代理配置失败: {}", e)))?;
-        http_client_builder = http_client_builder.proxy(proxy);
-    }
-
-    if let Some(ref proxy_url) = proxy_https {
-        let proxy = reqwest::Proxy::https(proxy_url)
-            .map_err(|e| LLMError::Configuration(format!("HTTPS 代理配置失败: {}", e)))?;
-        http_client_builder = http_client_builder.proxy(proxy);
-    }
-
-    let http_client = http_client_builder
-        .build()
-        .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
-
-    Client::with_config(config).with_http_client(http_client)
-} else {
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
-
-    Client::with_config(config).with_http_client(http_client)
-};
+**Error (E0432, E0308):**
+```
+error[E0432]: unresolved imports `async_openai::config::OpenAIClientConfig`, `async_openai::config::RetryConfig`
+error[E0308]: mismatched types (third argument)
 ```
 
-The `Client::with_config` constructor uses `Default::default()` for the `backoff` field, giving sensible exponential backoff behaviour.
-
-## Warnings
-
-### WR-01: JPEG quality documentation comment does not match implementation
-
-**File:** `src/llm/image_utils.rs:21`
-
-**Issue:** The doc comment says "JPEG quality 85" (referencing D-20). However, `image::DynamicImage::write_to(&mut buf, ImageFormat::Jpeg)` uses the default quality of 75 (from the `image` crate's `JpegEncoder` defaults). To achieve quality 85, the code must use `JpegEncoder::new(&mut buf).with_quality(85)`:
+**Fix:** Replace the `OpenAIClientConfig`/`RetryConfig` approach with the async-openai 0.36.1 builder API. The `OpenAiCompatibleProvider::new` method should use the builder chain:
 
 ```rust
-use image::codecs::jpeg::JpegEncoder;
-let mut encoder = JpegEncoder::new_with_quality(&mut buf, 85);
-encoder.encode(
-    thumb.as_bytes(),
-    thumb.width(),
-    thumb.height(),
-    thumb.color().into(),
-)?;
-```
+// Remove lines 7-9 imports: OpenAIClientConfig, RetryConfig
 
-**Impact:** Low. The base64 output will be slightly larger at quality 85 vs. 75, but this is unlikely to affect LLM vision analysis results. Primarily a documentation fidelity issue.
-
-**Fix:** Either update the comment to "JPEG quality default (75)" or switch to `JpegEncoder` with explicit quality 85.
-
----
-
-### WR-02: `test_openai_error_mapping` does not verify error variants
-
-**File:** `tests/llm_test.rs:256-291`
-
-**Issue:** The test iterates over status codes (401, 429, 400, 500) and asserts `result.is_err()`, but does **not** verify that the returned `LLMError` variant matches expectation. The variable `_expected_variant` is ignored (prefixed with `_`). The test name says "error mapping" but the mapping logic (`From<OpenAIError> for LLMError` in `error.rs:99-112`) is never actually tested.
-
-```rust
-// Current test only checks is_err() — does NOT verify the variant:
-for (status_code, _expected_variant) in test_cases {
-    // ...
-    assert!(result.is_err(), "HTTP {} 应返回错误", status_code);
-}
-```
-
-**Fix:** Match against the expected variant. Example for the 401 case:
-
-```rust
-match result {
-    Err(LLMError::Authentication(_)) => {} // correct
-    _ => panic!("expected Authentication for 401, got {:?}", result),
-}
-```
-
----
-
-### WR-03: `test_analyze_images_result_ordering` does not actually verify ordering
-
-**File:** `tests/llm_test.rs:296-341`
-
-**Issue:** The test name claims to test result ordering, but all three mock responses return identical text `"batch analysis result"`. Even if results arrived out of order, the test would pass because all values are the same. The test only asserts `results.len() == 3`, not `results[0] == "... images[0] ..."` etc.
-
-**Fix:** Make each mock response return distinct text (e.g., "result for image 1", "result for image 2", "result for image 3") and assert that the returned results are in the correct order corresponding to the input image array.
-
----
-
-### WR-04: `test_utils.rs` helpers duplicated in `tests/llm_test.rs`
-
-**Files:** `src/llm/test_utils.rs:5-21`, `tests/llm_test.rs:366-380`
-
-**Issue:** The functions `write_test_jpeg` and `create_test_jpeg_path` are defined identically in two places. The `test_utils` module is gated with `#[cfg(test)]` in `mod.rs`, which makes it only available for unit tests within the crate, not for integration tests in `tests/`. The integration test therefore re-implements the same helpers.
-
-**Fix:** Move the test JPEG helpers to a conditional `pub mod test_utils` that is also available for integration tests. One approach is to add a `[[lib]]` section with `test = true` and use `#[cfg(any(test, feature = "test-helpers"))]`, or more simply, make the integration test import from `narratoai_core::llm::test_utils` by making the module `pub` without the `cfg(test)` gate (and document it as test-only).
-
----
-
-### WR-05: Underscore prefix on `_max_retries` is misleading — variable IS used
-
-**File:** `src/llm/openai_compatible.rs:53`
-
-**Issue:** The parameter is named `_max_retries` with a leading underscore, which in Rust conventionally means "intentionally unused". However, it IS used at line 65: `max_retries: _max_retries`. The `_` prefix is unnecessary and misleading.
-
-```rust
-pub fn new(
-    api_key: String,
-    model_name: String,
-    base_url: String,
-    _max_retries: u32,    // <-- misleading underscore
-    timeout_secs: u64,
-    proxy_http: Option<String>,
-    proxy_https: Option<String>,
-) -> Result<Self, LLMError> {
-    // ...
-    retry: RetryConfig {    // (NOTE: RetryConfig doesn't exist — see CR-01)
-        max_retries: _max_retries,
-```
-
-**Fix:** Rename `_max_retries` to `max_retries`.
-
----
-
-### WR-06: `create_test_provider` is unnecessarily `async`
-
-**File:** `tests/llm_test.rs:346`
-
-**Issue:** The function is declared `async fn` but contains no `await` calls. It performs purely synchronous work (string formatting, constructor call). Every test calls it with `.await`, which resolves immediately.
-
-```rust
-async fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
-    let api_base = format!("{}/v1", base_url.trim_end_matches('/'));
-    OpenAiCompatibleProvider::new(...)
-```
-
-**Fix:** Remove the `async` keyword and the `.await` at call sites:
-
-```rust
-fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
-```
-
----
-
-### WR-07: Base URL not validated at provider registration — silent runtime failure
-
-**File:** `src/llm/register.rs:30-45`
-
-**Issue:** When registering providers, the code validates that `api_key` and `model_name` are non-empty, but does **not** validate that `base_url` is non-empty. If the config has `vision_openai_base_url = ""` (or `text_openai_base_url = ""`) while the other fields are filled, the provider is created with an empty API base URL. All subsequent API calls will fail at runtime with opaque errors, rather than failing loudly at registration time.
-
-```rust
-// Lines 30-31: checks api_key and model_name but NOT base_url
-if !config.app.vision_openai_api_key.is_empty()
-    && !config.app.vision_openai_model_name.is_empty()
-{
-    // base_url could be empty here — still creates the provider
-```
-
-**Fix:** Add base URL validation:
-
-```rust
-if !config.app.vision_openai_api_key.is_empty()
-    && !config.app.vision_openai_model_name.is_empty()
-    && !config.app.vision_openai_base_url.is_empty()
-{
-```
-
----
-
-### WR-08: `batch_size = 0` causes panic via `slice::chunks(0)`
-
-**File:** `src/llm/openai_compatible.rs:334`
-
-**Issue:** The `analyze_images` method calls `data_urls.chunks(batch_size)` without validating that `batch_size >= 1`. In Rust, `slice::chunks(0)` panics with "chunk size must be non-zero". While the default is 10 and current callers always pass positive values, the function signature accepts `Option<usize>` which allows a caller to pass `Some(0)`.
-
-**Fix:** Add a guard at line 329:
-
-```rust
-let batch_size = batch_size.unwrap_or(10).max(1);
-```
-
----
-
-### WR-09: Code duplication between proxy and non-proxy branches in `new()`
-
-**File:** `src/llm/openai_compatible.rs:71-99`
-
-**Issue:** The proxy-conditional branch (lines 72-91) and the non-proxy branch (lines 93-99) share nearly identical `reqwest::Client::builder().timeout(...).build()` logic. The only difference is the proxy setup. This duplication makes the code harder to maintain (both branches must be kept in sync).
-
-**Fix:** Build the `reqwest::Client` once, conditionally adding proxy:
-
-```rust
+// Replace lines 62-99 with:
 let mut http_client_builder = reqwest::Client::builder()
     .timeout(Duration::from_secs(timeout_secs));
 
@@ -276,77 +85,335 @@ let http_client = http_client_builder
     .build()
     .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
 
-let client = Client::with_config(config).with_http_client(http_client);
+let client = Client::with_config(config)
+    .with_http_client(http_client);
+```
+
+The retry backoff uses `Default::default()` (exponential backoff, initial interval 500ms, max interval 60s, randomization factor 0.5, multiplier 1.5), which is sensible. Use `.with_backoff(...)` if custom backoff is needed.
+
+---
+
+### CR-02: `ApiError` has no `status_code` field -- `From<OpenAIError>` impl won't compile
+
+**File:** `src/error.rs:99-112`
+
+**Issue:** The `From<OpenAIError>` implementation for `LLMError` matches on `api_err.status_code`, but `async_openai::error::ApiError` (in version 0.36.1) does NOT have a `status_code` field. The actual `ApiError` struct is:
+
+```rust
+pub struct ApiError {
+    pub message: String,
+    pub r#type: Option<String>,
+    pub param: Option<String>,
+    pub code: Option<String>,
+}
+```
+
+The HTTP status code is handled inside `Client::execute_raw` (in async-openai's `client.rs`, lines 519-536) before the `ApiError` is returned. By the time the error reaches user code, the status code is no longer available.
+
+**Error (E0609):**
+```
+error[E0609]: no field `status_code` on type `&async_openai::error::ApiError`
+```
+
+**Fix:** The status-based dispatch for 401/429 must be removed. Instead, match on `api_error.r#type` and `api_error.code` strings to determine the error category:
+
+```rust
+impl From<OpenAIError> for LLMError {
+    fn from(err: OpenAIError) -> Self {
+        match err {
+            OpenAIError::ApiError(api_err) => {
+                let msg = api_err.message;
+                match api_err.code.as_deref() {
+                    Some("insufficient_quota") => LLMError::RateLimit(msg),
+                    Some("invalid_api_key") | Some("invalid_header") => LLMError::Authentication(msg),
+                    _ => {
+                        // Fall back to message-based heuristics
+                        let lower = msg.to_lowercase();
+                        if lower.contains("rate limit") || lower.contains("too many requests") {
+                            LLMError::RateLimit(msg)
+                        } else if lower.contains("auth") || lower.contains("key") {
+                            LLMError::Authentication(msg)
+                        } else {
+                            LLMError::APICall(msg)
+                        }
+                    }
+                }
+            }
+            OpenAIError::Reqwest(e) => {
+                if e.is_timeout() {
+                    LLMError::APICall(format!("请求超时: {}", e))
+                } else if e.is_status() {
+                    let status = e.status().unwrap_or_default();
+                    match status.as_u16() {
+                        401 => LLMError::Authentication(e.to_string()),
+                        429 => LLMError::RateLimit(e.to_string()),
+                        _ => LLMError::APICall(e.to_string()),
+                    }
+                } else {
+                    LLMError::APICall(e.to_string())
+                }
+            }
+            _ => LLMError::APICall(err.to_string()),
+        }
+    }
+}
+```
+
+Alternatively, use `#[cfg(test)]` or sim-only mocking for the error mapping if full API status dispatch is not critical for the current phase.
+
+---
+
+### CR-03: Conflicting `Default` implementations -- `#[derive(Default)]` in `types.rs` clashes with manual `impl Default` in `defaults.rs`
+
+**Files:** `src/config/types.rs:30,62,100,112,126,136,159,181,193`, `src/config/defaults.rs:4,24,42,52,63,72,88,103`
+
+**Issue:** Every config section struct (`AppSection`, `UiSection`, `TencentSection`, `SoulVoiceSection`, `TtsQwenSection`, `IndexTTS2Section`, `DoubaoTTSSection`, `ProxySection`, `FramesSection`) has `#[derive(Default)]` in `types.rs`, BUT also has a manual `impl Default` in `defaults.rs`. The derive macro generates an `impl Default` that conflicts with the manual implementation.
+
+**Error (E0119 -- 9 occurrences):**
+```
+error[E0119]: conflicting implementations of trait `std::default::Default` for type `config::types::AppSection`
+error[E0119]: conflicting implementations of trait `std::default::Default` for type `config::types::UiSection`
+...
+```
+
+**Fix:** Remove `Default` from the `#[derive(...)]` attribute for every section struct in `types.rs`. Keep only `#[derive(Debug, Clone, Serialize, Deserialize)]`:
+
+```rust
+// Before (types.rs):
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppSection { ... }
+
+// After:
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSection { ... }
+```
+
+Apply the same change to `UiSection`, `TencentSection`, `SoulVoiceSection`, `TtsQwenSection`, `IndexTTS2Section`, `DoubaoTTSSection`, `ProxySection`, and `FramesSection`.
+
+Note: The `ProxySection` at line 181 has `#[derive(Default)]` but there is NO manual `impl Default for ProxySection` in `defaults.rs`. The `ProxySection` manual implementation might have been omitted by oversight. Either add a manual impl, or remove `Default` from the derive and verify the defaults match expectations.
+
+---
+
+## Warnings
+
+### WR-01: `data_urls.chunks(batch_size)` panics when `batch_size` is zero
+
+**File:** `src/llm/openai_compatible.rs:334`
+
+**Issue:** `Vec::chunks(0)` panics at runtime with "chunks size must be non-zero". The `batch_size` parameter is derived from caller input (eventually from user configuration in `config.toml` `frames.vision_batch_size`), and there is no validation guard. The `max_concurrency` parameter is guarded with `.max(1)` at line 331, but `batch_size` is not.
+
+```rust
+let batch_size = batch_size.unwrap_or(10);
+let max_concurrency = max_concurrency.unwrap_or(1);
+let bounded_concurrency = max_concurrency.max(1);      // guarded
+
+let chunks: Vec<Vec<String>> = data_urls.chunks(batch_size).map(|c| c.to_vec()).collect();
+//                                          ^^^^^^^^^^ -- panic if 0
+```
+
+**Fix:**
+```rust
+let batch_size = batch_size.unwrap_or(10).max(1);
 ```
 
 ---
 
-### WR-10: Unused `VisionBatchConfig` type — defined but never used
+### WR-02: `_max_retries` naming is misleading -- variable IS used
 
-**File:** `src/llm/types.rs:13-28`
+**File:** `src/llm/openai_compatible.rs:53`
 
-**Issue:** `VisionBatchConfig` is defined with `batch_size` and `max_concurrency` fields, but the `LlmProvider` trait's `analyze_images` method accepts individual `Option<usize>` parameters instead. The type is never referenced anywhere in the codebase (no function takes it as input, no struct uses it as a field).
-
-**Fix:** Either use `VisionBatchConfig` in the trait method signature to avoid dead code, or remove it:
+**Issue:** The parameter is named `_max_retries` with a leading underscore, which by Rust convention means "intentionally unused." However, it IS used at line 65 (`max_retries: _max_retries`). While the leading underscore does not affect compilation when the variable IS used, it communicates the wrong intent to maintainers. Note that this parameter (and the retry logic around it) will need to be reworked due to CR-01.
 
 ```rust
-// Option A: use it in the trait
-async fn analyze_images(
-    &self,
-    images: &[PathBuf],
-    prompt: &str,
-    batch_config: Option<VisionBatchConfig>,
-) -> Result<Vec<String>, LLMError>;
-
-// Option B: remove the dead type
+pub fn new(
+    ...
+    _max_retries: u32,   // <-- prefix implies unused, but IS used at line 65
+    ...
 ```
+
+**Fix:** Rename to `max_retries` (and adopt into the async-openai 0.36.1 `with_backoff()` API after resolving CR-01).
+
+---
+
+### WR-03: `test_openai_error_mapping` does not verify error variants
+
+**File:** `tests/llm_test.rs:256-291`
+
+**Issue:** The test iterates over HTTP status codes and asserts `result.is_err()`, but never verifies that the returned `LLMError` variant matches the expected type. The variable `_expected_variant` in the test case tuples is prefixed with underscore and ignored. The test name claims to test "error mapping" but the actual mapping logic in `error.rs:99-112` is never validated.
+
+```rust
+for (status_code, _expected_variant) in test_cases {
+    ...
+    assert!(result.is_err(), "HTTP {} 应返回错误", status_code);
+}
+```
+
+**Fix:** Match each result against the expected variant:
+
+```rust
+let result = provider.generate_text("test", None, None, None, None).await;
+match (&result, status_code) {
+    (Err(LLMError::Authentication(_)), 401) => {}
+    (Err(LLMError::RateLimit(_)), 429) => {}
+    (Err(LLMError::APICall(_)), 400 | 500) => {}
+    _ => panic!("Unexpected result for HTTP {}: {:?}", status_code, result),
+}
+```
+
+Note: This test will also need a structural rework due to CR-02 (the underlying `From<OpenAIError>` impl will no longer match on HTTP status codes -- the new matching logic will depend on the `ApiError.code` or message heuristics).
+
+---
+
+### WR-04: `test_analyze_images_result_ordering` does not actually verify ordering
+
+**File:** `tests/llm_test.rs:296-341`
+
+**Issue:** All three mock responses return identical text `"batch analysis result"`. Even if the results arrived in the wrong order, the test would pass because all values are the same. The test only asserts `results.len() == 3`, not `results[0]` through `results[2]` in the correct order.
+
+**Fix:** Make each mock response return distinct content and assert ordering:
+
+```rust
+// Use a counter-based response that varies per request
+Mock::given(method("POST"))
+    .and(path("/v1/chat/completions"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(
+        serde_json::json!({
+            "id": format!("resp-{}", /* request counter */),
+            "choices": [{
+                "index": 0,
+                "message": { "content": "batch-X", "role": "assistant" },
+                "finish_reason": "stop"
+            }]
+        }),
+    ))
+    .mount(&mock_server)
+    .await;
+```
+
+---
+
+### WR-05: `create_test_provider` is unnecessarily `async`
+
+**File:** `tests/llm_test.rs:346`
+
+**Issue:** The function is declared `async fn` but contains no `.await` calls. It performs purely synchronous work (string formatting, constructor call). Every test calls it with `.await`, which resolves trivially.
+
+**Fix:**
+```rust
+fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
+    let api_base = format!("{}/v1", base_url.trim_end_matches('/'));
+    OpenAiCompatibleProvider::new(
+        "test-key".to_string(),
+        "test-model".to_string(),
+        api_base,
+        3,
+        30,
+        None,
+        None,
+    )
+    .expect("test provider creation failed")
+}
+```
+Then remove `.await` from all call sites.
+
+---
+
+### WR-06: JPEG quality documentation comment does not match implementation
+
+**File:** `src/llm/image_utils.rs:21`
+
+**Issue:** The comment says `// JPEG 编码 quality=85`, but `image::DynamicImage::write_to(&mut buf, ImageFormat::Jpeg)` uses the default JPEG quality of 75 (from the `image` crate's `JpegEncoder`). To use quality 85, the code must explicitly pass the quality parameter.
+
+**Fix:** Either update the comment to reflect the true default (75), or switch to explicit quality-85 encoding:
+
+```rust
+use image::codecs::jpeg::JpegEncoder;
+
+let mut encoder = JpegEncoder::new_with_quality(&mut buf, 85);
+thumb.write_to(&mut encoder, image::ImageFormat::Jpeg)
+    .map_err(|e| LLMError::General(format!("JPEG 编码失败: {}", e)))?;
+```
+
+---
+
+### WR-07: `test_utils.rs` helpers duplicated in `tests/llm_test.rs`
+
+**Files:** `src/llm/test_utils.rs:5-21`, `tests/llm_test.rs:366-380`
+
+**Issue:** The functions `write_test_jpeg` and `create_test_jpeg_path` are defined identically in two places. The `test_utils` module is `#[cfg(test)]`-gated in `src/llm/mod.rs:8-9`, which makes it available in integration tests (since integration tests compile the crate with `--cfg test`). The integration test at `tests/llm_test.rs` should import from `test_utils` instead of redefining them:
+
+```rust
+// Remove lines 366-380 and add:
+use narratoai_core::llm::test_utils::{write_test_jpeg, create_test_jpeg_path};
+```
+
+Note: The integration test already has `image_utils` imported but not `test_utils`. This appears to be an oversight.
 
 ---
 
 ## Info
 
-### IN-01: Redundant `use crate::config::types::AppConfig` in test module
+### IN-01: `VisionBatchConfig` struct is dead code
 
-**File:** `src/llm/register.rs:69`
+**File:** `src/llm/types.rs:13-28`
 
-**Issue:** The test module's `use crate::config::types::AppConfig;` is redundant because `use super::*;` (line 68) already brings `AppConfig` into scope from the parent module (line 2).
+**Issue:** `VisionBatchConfig` is defined with `batch_size` and `max_concurrency` fields and a `Default` impl, but is never referenced anywhere in the codebase. The `LlmProvider` trait's `analyze_images` method uses separate `Option<usize>` parameters instead. Either remove the struct or refactor the trait to consume it.
 
-**Fix:** Remove line 69.
+### IN-02: Code duplication between proxy and non-proxy branches in `OpenAiCompatibleProvider::new`
 
----
+**File:** `src/llm/openai_compatible.rs:71-99`
 
-### IN-02: Unnecessary `request.clone()` before first API attempt in JSON fallback
+**Issue:** The proxy-conditional and non-proxy branches both build a `reqwest::Client`, set timeout, call `Client::build(...)`, and handle errors identically. The only difference is the proxy configuration. Refactoring to build a single `reqwest::Client` with optional proxy setup (as shown in CR-01's fix) eliminates this duplication.
 
-**File:** `src/llm/openai_compatible.rs:157`
+### IN-03: Unnecessary `request.clone()` before first API attempt in JSON fallback
 
-**Issue:** `request.clone()` is called before the first `self.client.chat().create(request.clone())` call. The cloned copy is only needed on error (for the JSON-deserialization-based retry). Clone only when the error path is taken.
+**File:** `src/llm/openai_compatible.rs:153`
 
+**Issue:** `request.clone()` is called before the initial API call in `generate_text_with_json_fallback`, but the clone is only needed on the error path (for the JSON-deserialization-based retry modification). This is a speculative allocation in the success case.
+
+**Fix (post CR-01 resolution):** Move the clone into the error handling path:
 ```rust
-// Current: clone speculatively before the first call
-let result = self.client.chat().create(request.clone()).await;
-
-// Better: clone only on error
 let result = self.client.chat().create(request).await;
 match result {
     Ok(response) => Ok(response),
-    Err(OpenAIError::ApiError(api_err)) => {
-        // Clone the original request here for retry, if needed
+    Err(OpenAIError::ApiError(api_err)) if api_err.message.to_lowercase().contains("response_format") => {
+        // Clone and modify only when needed for retry
     }
+    ...
 }
 ```
 
----
-
-### IN-03: Redundant `futures-util` dependency
+### IN-04: Redundant `futures-util` dependency
 
 **File:** `Cargo.toml:19`
 
-**Issue:** Both `futures = "0.3"` and `futures-util = "0.3.32"` are listed separately. The `futures` crate re-exports `futures-util` (and `futures-core`, `futures-task`, etc.). The project never imports directly from `futures_util`. The duplicate dependency is harmless but unnecessary.
-
-**Fix:** Remove `futures-util` from `[dependencies]`.
+**Issue:** Both `futures = "0.3"` (line 24) and `futures-util = "0.3.32"` (line 19) are listed. The `futures` crate re-exports `futures-util` internally. The codebase never imports from `futures_util` directly (all stream usage goes through `futures::stream::*`). Remove `futures-util` from `[dependencies]`.
 
 ---
 
-_Reviewed: 2026-04-28T14:30:00Z_
+## Appendix: Full Compile Error Summary
+
+Verified via `cargo check --lib`:
+
+| Error | Kind | Description | Source File |
+|-------|------|-------------|-------------|
+| E0432 | import | `OpenAIClientConfig`/`RetryConfig` not in `async_openai::config` | `openai_compatible.rs:7` |
+| E0119 | conflict | `Default` impl conflict for `AppSection` | `config/types.rs:30`, `config/defaults.rs:4` |
+| E0119 | conflict | `Default` impl conflict for `UiSection` | `config/types.rs:62`, `config/defaults.rs:24` |
+| E0119 | conflict | `Default` impl conflict for `TencentSection` | `config/types.rs:100`, `config/defaults.rs:42` |
+| E0119 | conflict | `Default` impl conflict for `SoulVoiceSection` | `config/types.rs:112`, `config/defaults.rs:52` |
+| E0119 | conflict | `Default` impl conflict for `TtsQwenSection` | `config/types.rs:126`, `config/defaults.rs:63` |
+| E0119 | conflict | `Default` impl conflict for `IndexTTS2Section` | `config/types.rs:136`, `config/defaults.rs:72` |
+| E0119 | conflict | `Default` impl conflict for `DoubaoTTSSection` | `config/types.rs:159`, `config/defaults.rs:88` |
+| E0119 | conflict | `Default` impl conflict for `FramesSection` | `config/types.rs:193`, `config/defaults.rs:103` |
+| E0609 | missing field | `ApiError` has no `status_code` field | `error.rs:103` |
+| E0308 | type mismatch | `Client::build` third arg type wrong | `openai_compatible.rs:91` |
+| E0308 | type mismatch | `Client::build` third arg type wrong | `openai_compatible.rs:98` |
+
+Total: **12 compile errors** blocking all subsequent logic/runtime reviews.
+
+---
+
+_Reviewed: 2026-04-28T08:45:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
