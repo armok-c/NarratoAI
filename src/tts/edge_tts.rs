@@ -109,12 +109,17 @@ impl EdgeTtsEngine {
             };
 
             // Parse proxy URL for host:port (strip scheme, split host:port)
+            let default_proxy_port = if proxy_url.starts_with("https://") {
+                "443"
+            } else {
+                "80"
+            };
             let proxy_addr = proxy_url
                 .trim_start_matches("http://")
                 .trim_start_matches("https://");
             let (proxy_host, proxy_port_str) = proxy_addr
                 .split_once(':')
-                .unwrap_or((proxy_addr, "80"));
+                .unwrap_or((proxy_addr, default_proxy_port));
             let proxy_port: u16 = proxy_port_str
                 .parse()
                 .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
