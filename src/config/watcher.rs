@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, Config as NotifyConfig};
@@ -16,19 +17,27 @@ impl ConfigWatcher {
         config: Arc<RwLock<AppConfig>>,
     ) -> Result<Self, ConfigError> {
         let watched_path = path.to_path_buf();
+        let parent_dir = path.parent().unwrap_or(path).to_path_buf();
+        let file_name: Option<OsString> = path.file_name().map(|n| n.to_os_string());
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
                 if let Ok(event) = res {
-                    // 仅响应文件修改事件
-                    if matches!(event.kind, EventKind::Modify(_)) {
-                        match Self::reload_file(&watched_path) {
-                            Ok(new_config) => {
-                                let mut guard = config.write().unwrap_or_else(|e| e.into_inner());
-                                *guard = new_config;
-                                tracing::info!("配置文件已热加载更新");
-                            }
-                            Err(e) => {
-                                tracing::error!("配置热加载失败: {}", e);
+                    // 响应文件修改和创建事件（原子保存工具常用 Create 事件）
+                    if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
+                        // 按文件名过滤：父目录监听可能收到不相关的事件
+                        let is_target = file_name.as_ref().map_or(true, |name| {
+                            event.paths.iter().any(|p| p.file_name() == Some(name.as_os_str()))
+                        });
+                        if is_target {
+                            match Self::reload_file(&watched_path) {
+                                Ok(new_config) => {
+                                    let mut guard = config.write().unwrap_or_else(|e| e.into_inner());
+                                    *guard = new_config;
+                                    tracing::info!("配置文件已热加载更新");
+                                }
+                                Err(e) => {
+                                    tracing::error!("配置热加载失败: {}", e);
+                                }
                             }
                         }
                     }
@@ -39,7 +48,7 @@ impl ConfigWatcher {
         .map_err(|e| ConfigError::WatchError(e.to_string()))?;
 
         watcher
-            .watch(path, RecursiveMode::NonRecursive)
+            .watch(&parent_dir, RecursiveMode::NonRecursive)
             .map_err(|e| ConfigError::WatchError(e.to_string()))?;
 
         Ok(Self { _watcher: watcher })
