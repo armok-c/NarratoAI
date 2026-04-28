@@ -124,8 +124,9 @@ mod tests {
     /// 对不存在的输入文件调用 clip_video 应返回 FFmpegError
     #[tokio::test]
     async fn test_clip_video_invalid_input() {
-        let input = Path::new("/tmp/nonexistent_video_12345.mp4");
-        let output = Path::new("/tmp/nonexistent_output.mp4");
+        let temp_dir = std::env::temp_dir();
+        let input = temp_dir.join("narratoai_test_nonexistent_video.mp4");
+        let output = temp_dir.join("narratoai_test_nonexistent_output.mp4");
 
         let result = clip_video(input, output, 0.0, 10.0, None).await;
 

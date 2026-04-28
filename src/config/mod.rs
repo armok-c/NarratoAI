@@ -71,8 +71,8 @@ mod tests {
 
     #[test]
     fn test_config_manager_load_nonexistent_file() {
-        let path = Path::new("/nonexistent/config.toml");
-        let result = ConfigManager::load(path);
+        let temp_path = std::env::temp_dir().join("narratoai_test_nonexistent_config.toml");
+        let result = ConfigManager::load(&temp_path);
         assert!(result.is_err(), "不存在的文件应返回错误");
         match result {
             Err(ConfigError::NotFound { path: _ }) => { /* 正确 */ }
