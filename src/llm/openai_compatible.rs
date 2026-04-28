@@ -30,11 +30,7 @@ use crate::llm::types::LlmResponseFormat;
 /// 支持任意符合 OpenAI /v1/chat/completions 协议的 API 网关。
 /// 通过在构造函数中传入不同的 api_key / base_url / model_name 创建多个实例。
 pub struct OpenAiCompatibleProvider {
-    #[allow(dead_code)]
-    api_key: String,
     model_name: String,
-    #[allow(dead_code)]
-    base_url: String,
     client: Client<OpenAIConfig>,
 }
 
@@ -94,9 +90,7 @@ impl OpenAiCompatibleProvider {
         };
 
         Ok(Self {
-            api_key,
             model_name,
-            base_url: base_url.trim_end_matches('/').to_string(),
             client,
         })
     }
