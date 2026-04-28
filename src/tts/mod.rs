@@ -1,3 +1,5 @@
+mod edge_tts;
+
 use async_trait::async_trait;
 use std::path::Path;
 use std::path::PathBuf;
