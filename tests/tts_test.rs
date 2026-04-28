@@ -84,6 +84,7 @@ async fn test_synthesize_unknown_engine_error() {
         1.0,
         0.0,
         Path::new("output.mp3"),
+        None,
     )
     .await;
     assert!(result.is_err());
@@ -105,6 +106,7 @@ async fn test_synthesize_unknown_engine_message_contains_name() {
         1.0,
         0.0,
         Path::new("out.mp3"),
+        None,
     )
     .await;
     let err_msg = result.unwrap_err().to_string();

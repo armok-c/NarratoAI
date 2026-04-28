@@ -100,7 +100,7 @@ impl EdgeTtsEngine {
 
         if self.proxy_enabled {
             // 通过代理连接
-            let _proxy_url = if !self.proxy_https.is_empty() {
+            let proxy_url = if !self.proxy_https.is_empty() {
                 &self.proxy_https
             } else if !self.proxy_http.is_empty() {
                 &self.proxy_http
@@ -108,7 +108,74 @@ impl EdgeTtsEngine {
                 return Err(TTSError::ConnectionFailed("代理已启用但未配置代理地址".to_string()));
             };
 
-            let (ws_stream, _) = connect_async(request)
+            // Parse proxy URL for host:port
+            let proxy_uri: http::Uri = proxy_url
+                .parse()
+                .map_err(|e| TTSError::ConnectionFailed(format!("代理 URL 解析失败: {}", e)))?;
+            let proxy_host = proxy_uri.host()
+                .ok_or_else(|| TTSError::ConnectionFailed("代理 URL 缺少主机名".to_string()))?;
+            let proxy_port = proxy_uri.port_u16().unwrap_or(80);
+
+            // Parse target WSS URL
+            let target_uri: http::Uri = EDGE_TTS_WSS_URL
+                .parse()
+                .map_err(|e| TTSError::ConnectionFailed(format!("目标 URL 解析失败: {}", e)))?;
+            let target_host = target_uri.host()
+                .ok_or_else(|| TTSError::ConnectionFailed("目标 URL 缺少主机名".to_string()))?;
+            let target_port = target_uri.port_u16().unwrap_or(443);
+
+            // HTTP CONNECT tunnel
+            let mut tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
+                .await
+                .map_err(|e| TTSError::ConnectionFailed(format!("连接代理失败: {}", e)))?;
+
+            let connect_req = format!(
+                "CONNECT {}:{} HTTP/1.1
+Host: {}:{}
+
+",
+                target_host, target_port, target_host, target_port
+            );
+
+            use tokio::io::AsyncWriteExt;
+            tcp.write_all(connect_req.as_bytes()).await
+                .map_err(|e| TTSError::ConnectionFailed(format!("发送 CONNECT 请求失败: {}", e)))?;
+
+            // Read CONNECT response
+            let mut buf_reader = tokio::io::BufReader::new(&mut tcp);
+            let mut response_line = String::new();
+            use tokio::io::AsyncBufReadExt;
+            buf_reader.read_line(&mut response_line).await
+                .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+
+            if !response_line.contains("200") {
+                return Err(TTSError::ConnectionFailed(format!(
+                    "代理 CONNECT 失败: {}",
+                    response_line.trim()
+                )));
+            }
+
+            // Skip response headers
+            loop {
+                let mut line = String::new();
+                buf_reader.read_line(&mut line).await
+                    .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应头失败: {}", e)))?;
+                if line.trim().is_empty() {
+                    break;
+                }
+            }
+
+            // TLS + WebSocket upgrade over tunnel
+            let tls_connector = native_tls::TlsConnector::builder()
+                .build()
+                .map_err(|e| TTSError::ConnectionFailed(format!("TLS 构建失败: {}", e)))?;
+            let tls_stream = tokio_tungstenite::Connector::NativeTls(tls_connector);
+
+            let (ws_stream, _) = tokio_tungstenite::client_async_tls_with_config(
+                request,
+                Some(tls_stream),
+                buf_reader.into_inner(),
+            )
                 .await
                 .map_err(|e| TTSError::ConnectionFailed(format!("WebSocket 代理连接失败: {}", e)))?;
             Ok(ws_stream)
@@ -181,7 +248,6 @@ impl EdgeTtsEngine {
         let mut audio_data: Vec<u8> = Vec::new();
         let mut word_boundaries: Vec<WordBoundary> = Vec::new();
         let mut duration: f64 = 0.0;
-        let mut is_turn_start = false;
         while let Some(msg_result) = ws_stream.next().await {
             let msg =
                 msg_result.map_err(|e| TTSError::SynthesisFailed(format!("接收消息失败: {}", e)))?;
@@ -194,29 +260,24 @@ impl EdgeTtsEngine {
                         if content.path == "audio" {
                             audio_data.extend_from_slice(&content.payload);
                         } else if content.path == "turn.start" {
-                            // 解析 metadata JSON 中的词边界信息
-                            if let Ok(metadata) =
-                                serde_json::from_str::<serde_json::Value>(
-                                    &String::from_utf8_lossy(&content.payload),
-                                )
-                            {
-                                if let Some(wbs) = metadata["wordboundary"].as_array() {
-                                    for wb in wbs {
-                                        if let (Some(start), Some(end), Some(text)) = (
-                                            wb["offset"].as_u64(),
-                                            wb["duration"].as_u64(),
-                                            wb["text"].as_str(),
-                                        ) {
-                                            word_boundaries.push(WordBoundary {
-                                                start_offset: start,
-                                                end_offset: start + end,
-                                                text: text.to_string(),
-                                            });
-                                        }
-                                    }
+                            // turn.start metadata — word boundaries arrive as separate wordboundary messages
+                        } else if content.path == "wordboundary" {
+                            // Parse individual WordBoundary event
+                            if let Ok(wb_json) = serde_json::from_str::<serde_json::Value>(
+                                &String::from_utf8_lossy(&content.payload),
+                            ) {
+                                if let (Some(offset), Some(duration_100ns), Some(text)) = (
+                                    wb_json["offset"].as_u64(),
+                                    wb_json["duration"].as_u64(),
+                                    wb_json["text"].as_str(),
+                                ) {
+                                    word_boundaries.push(WordBoundary {
+                                        start_offset: offset,
+                                        end_offset: offset + duration_100ns,
+                                        text: text.to_string(),
+                                    });
                                 }
                             }
-                            is_turn_start = true;
                         } else if content.path == "turn.end" {
                             // 解析结束事件中的音频时长
                             if let Ok(metadata) =
@@ -224,9 +285,15 @@ impl EdgeTtsEngine {
                                     &String::from_utf8_lossy(&content.payload),
                                 )
                             {
-                                duration = metadata["audio_duration"]
-                                    .as_f64()
-                                    .unwrap_or(0.0);
+                                duration = if let Some(d) = metadata["audio_duration"].as_f64() {
+                                    d
+                                } else if let Some(s) = metadata["audio_duration"].as_str() {
+                                    s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
+                                } else if let Some(ticks) = metadata["audio_duration"]["ticks"].as_u64() {
+                                    ticks as f64 / 10_000_000.0
+                                } else {
+                                    0.0
+                                };
                             } else {
                                 duration = 0.0;
                             }
@@ -249,7 +316,7 @@ impl EdgeTtsEngine {
         }
 
         // 写入音频文件（对应 D-04: MP3 格式）
-        if audio_data.is_empty() && !is_turn_start {
+        if audio_data.is_empty() {
             return Err(TTSError::SynthesisFailed("未收到音频数据".to_string()));
         }
 

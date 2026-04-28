@@ -76,10 +76,15 @@ pub async fn synthesize(
     rate: f64,
     pitch: f64,
     output_path: &Path,
+    proxy: Option<&crate::config::types::ProxySection>,
 ) -> Result<TtsOutput, TTSError> {
     match engine {
         "edge_tts" => {
-            let edge_engine = EdgeTtsEngine::new(false, String::new(), String::new());
+            let (proxy_enabled, proxy_http, proxy_https) = match proxy {
+                Some(p) => (p.enabled, p.http.clone(), p.https.clone()),
+                None => (false, String::new(), String::new()),
+            };
+            let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
             edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
