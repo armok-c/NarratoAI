@@ -227,7 +227,7 @@ impl EdgeTtsEngine {
         ssml: &str,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        let max_retries = 3;
+        let max_retries = 4; // 1 initial + 3 retries (D-03: 3 次重试)
         let mut last_error = None;
 
         for attempt in 1..=max_retries {
@@ -247,7 +247,7 @@ impl EdgeTtsEngine {
 
         Err(TTSError::RetryExhausted(format!(
             "Edge-TTS 重试 {} 次后仍失败: {}",
-            max_retries,
+            max_retries - 1,
             last_error.map_or("未知错误".to_string(), |e| e.to_string())
         )))
     }
