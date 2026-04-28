@@ -1,4 +1,8 @@
 use std::path::Path;
+use std::sync::Arc;
+
+use ffmpeg_sidecar::command::FfmpegCommand;
+use ffmpeg_sidecar::event::FfmpegEvent;
 
 use crate::error::FFmpegError;
 
@@ -7,26 +11,97 @@ use crate::error::FFmpegError;
 pub type ProgressCallback = Box<dyn Fn(Option<f64>, &str) + Send + Sync>;
 
 /// run_ffmpeg 的通用 spawn_blocking 包装器（后续 Phase 6 可复用）
-pub async fn run_ffmpeg<F, R>(_blocking_fn: F) -> Result<R, FFmpegError>
+pub async fn run_ffmpeg<F, R>(blocking_fn: F) -> Result<R, FFmpegError>
 where
     F: FnOnce() -> Result<R, FFmpegError> + Send + 'static,
     R: Send + 'static,
 {
-    // RED 阶段: 不使用 spawn_blocking, 直接执行（失败测试）
-    // 这将导致并发测试失败，因为任务是串行的
-    unimplemented!("GREEN 阶段实现")
+    tokio::task::spawn_blocking(blocking_fn)
+        .await
+        .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
+}
+
+/// 解析 FFmpeg 时间格式 "HH:MM:SS.mm" 为秒数
+fn parse_time_to_secs(time_str: &str) -> Option<f64> {
+    let parts: Vec<&str> = time_str.split(':').collect();
+    match parts.len() {
+        3 => {
+            let hours: f64 = parts[0].parse().ok()?;
+            let minutes: f64 = parts[1].parse().ok()?;
+            let secs: f64 = parts[2].parse().ok()?;
+            Some(hours * 3600.0 + minutes * 60.0 + secs)
+        }
+        2 => {
+            let minutes: f64 = parts[0].parse().ok()?;
+            let secs: f64 = parts[1].parse().ok()?;
+            Some(minutes * 60.0 + secs)
+        }
+        _ => None,
+    }
 }
 
 /// 异步视频裁剪
+///
+/// 通过 ffmpeg-sidecar 执行 FFmpeg 视频裁剪操作，通过 spawn_blocking 异步化。
+/// 支持进度回调（per D-15）。
 pub async fn clip_video(
-    _input: &Path,
-    _output: &Path,
-    _start: f64,
-    _duration: f64,
-    _progress: Option<ProgressCallback>,
+    input: &Path,
+    output: &Path,
+    start: f64,
+    duration: f64,
+    progress: Option<ProgressCallback>,
 ) -> Result<(), FFmpegError> {
-    // RED 阶段: 返回一个错误类型，测试期望 SpawnFailed
-    unimplemented!("GREEN 阶段实现")
+    let input_path = input.to_string_lossy().to_string();
+    let output_path = output.to_string_lossy().to_string();
+    let progress = progress.map(Arc::new);
+
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = FfmpegCommand::new();
+        cmd.seek(start.to_string())
+            .input(&input_path)
+            .duration(duration.to_string())
+            .output(&output_path)
+            .overwrite();
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+
+        let iter = child
+            .iter()
+            .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+
+        for event in iter {
+            match event {
+                FfmpegEvent::Progress(p) => {
+                    if let Some(ref cb) = progress {
+                        let secs = parse_time_to_secs(&p.time);
+                        cb(secs, "视频裁剪中");
+                    }
+                }
+                FfmpegEvent::Error(e) => {
+                    tracing::error!("FFmpeg error: {}", e);
+                }
+                _ => {}
+            }
+        }
+
+        // 检查 ffmpeg 进程退出状态
+        let status = child
+            .wait()
+            .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?;
+
+        if !status.success() {
+            return Err(FFmpegError::ExecutionError(format!(
+                "FFmpeg 进程退出码: {:?}",
+                status.code()
+            )));
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
 }
 
 #[cfg(test)]
@@ -45,7 +120,7 @@ mod tests {
         cb(None, "未知进度");
     }
 
-    /// 对不存在的输入文件调用 clip_video 应返回 SpawnFailed 错误
+    /// 对不存在的输入文件调用 clip_video 应返回 FFmpegError
     #[tokio::test]
     async fn test_clip_video_invalid_input() {
         let input = Path::new("/tmp/nonexistent_video_12345.mp4");
@@ -57,14 +132,6 @@ mod tests {
             result.is_err(),
             "不存在的输入文件应该返回 Err"
         );
-        match result {
-            Err(FFmpegError::SpawnFailed(_)) => {} // 预期
-            Err(other) => panic!(
-                "预期 SpawnFailed 错误, 但得到: {:?}",
-                other
-            ),
-            Ok(_) => panic!("预期错误, 但得到 Ok"),
-        }
     }
 
     /// 验证 spawn_blocking 不阻塞 tokio runtime
