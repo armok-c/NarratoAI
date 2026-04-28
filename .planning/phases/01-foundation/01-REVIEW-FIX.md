@@ -1,82 +1,128 @@
 ---
 phase: 01-foundation
-fixed: 2026-04-28T20:10:00Z
-fix_scope: critical_warning
-findings_in_scope: 6
-fixed: 6
-skipped: 0
-iteration: 1
-status: all_fixed
+fixed: 2026-04-28
+fix_scope: all
+findings_in_scope: 13
+fixed: 9
+skipped: 4
+iteration: 2
+status: partial
 ---
 
-# Phase 01: Code Review Fix Report
+# Phase 01: Code Review Fix Report (Iteration 2)
 
-**Fixed at:** 2026-04-28T20:10:00Z
-**Source review:** .planning/phases/01-foundation/01-REVIEW.md
-**Iteration:** 1
+**Fixed at:** 2026-04-28T22:00:00Z
+**Source review:** `.planning/phases/01-foundation/01-REVIEW.md`
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope: 6
-- Fixed: 6
-- Skipped: 0
+
+| Metric | Count |
+|--------|-------|
+| Findings in scope | 13 |
+| Fixed | 9 |
+| Skipped | 4 |
+| Status | partial |
 
 ## Fixed Issues
 
-### CR-01: ProgressCallback 传入时间位置而非进度分数
+### IN-04: test_hot_reload uses 1700ms total sleep
 
-**Files modified:** `src/ffmpeg/command.rs`
-**Commit:** e0d7d8e
+**Files modified:** `tests/config_test.rs`
+**Commit:** `4566a80`
+**Applied fix:** Replaced the fixed 1500ms sleep after config write with a polling loop (50ms interval, 5s timeout). The test now succeeds immediately after the watcher fires instead of always waiting 1.5s. Config integration tests complete in 0.25s (was ~1.9s).
 
-**Applied fix:** Updated `ProgressCallback` doc comment from "进度百分比" (percentage) to "0.0 到 1.0 的进度分数" (progress fraction 0.0-1.0). In `clip_video`, changed the progress callback invocation to normalize the parsed seconds by the clip duration: `let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 })` and passes `fraction` instead of raw seconds to the callback.
+### IN-05: NamedTempFile write-through pattern
 
-### WR-01: RwLock 中毒处理不一致
+**Files modified:** `src/config/mod.rs`, `tests/config_test.rs`
+**Commit:** `d6cced0`
+**Applied fix:** Replaced `NamedTempFile::new() + std::fs::write()` pattern with `TempDir + file path` in all three test locations. Avoids the potential Windows OS lock issue where creating an empty NamedTempFile then immediately overwriting it could cause file contention. The `NamedTempFile` import was also removed from `tests/config_test.rs` as it became unused.
 
-**Files modified:** `src/config/mod.rs`, `src/config/watcher.rs`
-**Commit:** 2c83165
+### IN-06: Clippy suggestions -- derivable Default impls + doc comment formatting
 
-**Applied fix:** Changed both `ConfigManager::get()` (mod.rs:50) and `ConfigWatcher` reload callback (watcher.rs:26) to use `.unwrap_or_else(|e| e.into_inner())` for consistent poisoning recovery. Previously, `get()` used `.unwrap()` (panics on poison) while the watcher used `if let Ok` (silently ignores poison). Now both recover the inner value and continue.
+**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`
+**Commits:** `bfcd268`, `e0edd4a`
+**Applied fix:**
+1. Added `#[derive(Default)]` to `AzureSection` and `ProxySection` struct definitions in `types.rs`. Removed the manual `impl Default` blocks from `defaults.rs` (21 lines of boilerplate eliminated). Resolves `clippy::derivable_impls`.
+2. Removed empty line between doc comment and the `impl Default for AppSection` block, resolving `clippy::empty_line_after_doc_comments`.
 
-### WR-02: 测试使用硬编码 Unix 路径
+### IN-07: f64-to-string precision in FFmpeg seek/duration
 
-**Files modified:** `src/config/mod.rs`, `src/ffmpeg/command.rs`, `tests/config_test.rs`
-**Commit:** ed0ae1e
+**File modified:** `src/ffmpeg/command.rs`
+**Commit:** `59da3c7`
+**Applied fix:** Changed `start.to_string()` to `format!("{:.3}", start)` and `duration.to_string()` to `format!("{:.3}", duration)`. This limits decimal precision to milliseconds, avoiding floating-point rounding artifacts like "0.30000000000000004".
 
-**Applied fix:** Replaced hardcoded Unix paths (`/tmp/nonexistent_*`, `/nonexistent/config.toml`) with `std::env::temp_dir().join("narratoai_test_...")` in three test locations to be cross-platform compatible. Also fixed a `Path` vs `PathBuf` type mismatch that was exposed by this change.
+### IN-08: Fast seek (keyframe-based) sacrifices frame accuracy
 
-### WR-03: spawn_blocking 测试时序断言可能不稳定
+**File modified:** `src/ffmpeg/command.rs`
+**Commit:** `59da3c7`
+**Applied fix:** Added inline comment `// -ss before -i = fast seek (keyframe-based, not frame-accurate)` before the seek call, documenting the tradeoff. Frame-accurate slow seek (`-i <input> -ss <start>`) can be added in a future phase if needed.
 
-**Files modified:** `src/ffmpeg/command.rs`
-**Commit:** b7fb8f4
+### IN-10: Integration tests do not validate output content
 
-**Applied fix:** Replaced timing-based concurrency assertion (`elapsed.as_millis() < 180`) with a `std::sync::Barrier`-based verification. Three-party barrier (2 tasks + main) proves concurrent execution: if `spawn_blocking` ran tasks serially, the first task would hold the blocking thread while blocked on the barrier, preventing the second task from ever starting, causing a deadlock. Concurrent execution allows both tasks to reach the barrier and proceed.
+**File modified:** `tests/ffmpeg_test.rs`
+**Commit:** `cafc36c`
+**Applied fix:** Added `probe_video()` call in `test_clip_video_async` after the file size check. The new assertions verify output has positive duration, positive width/height, and non-empty codec name, ensuring the clipped output is a valid video.
 
-### WR-04: probe_video 在 duration 字段缺失或非字符串时静默返回 0.0
+### IN-11: AppConfig manual Default impl is derivable
 
-**Files modified:** `src/ffmpeg/probe.rs`
-**Commit:** e4335d9
+**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`
+**Commit:** `4fe3d5f`
+**Applied fix:** Added `#[derive(Default)]` to the `AppConfig` struct definition in `types.rs`. Removed the manual `impl Default for AppConfig` block from `defaults.rs` (17 lines eliminated). All sub-fields already implement `Default`. Resolves `clippy::derivable_impls`.
 
-**Applied fix:** Changed the duration parsing chain from `.unwrap_or(0.0)` (silently returns 0.0 for missing/null/unparseable duration) to `.ok_or_else(|| FFmpegError::OutputParseError(...))?` which propagates the error to the caller. Three failure modes (missing field, non-string value, unparseable string) now all produce `FFmpegError::OutputParseError` instead of silent 0.0.
+### IN-12: bool_assert_comparison in test
 
-### WR-05: child.iter() 失败后 FFmpeg 子进程成为孤儿
+**File modified:** `src/config/types.rs`
+**Commit:** `3544b39`
+**Applied fix:** Changed `assert_eq!(config.proxy.enabled, false, ...)` to `assert!(!config.proxy.enabled, ...)`. Resolves `clippy::bool_assert_comparison`.
 
-**Files modified:** `src/ffmpeg/command.rs`
-**Commit:** 2f1fb5c
+### IN-13: useless_vec in test
 
-**Applied fix:** Replaced `.map_err(...)?` on `child.iter()` with a `match` expression that kills and reaps the already-spawned FFmpeg child process (`child.kill()` + `child.wait()`) before returning `FFmpegError::SpawnFailed`. Prevents resource leaks from orphaned subprocesses when the event iterator fails to initialize.
+**File modified:** `src/ffmpeg/hwaccel.rs`
+**Commit:** `e0ef670`
+**Applied fix:** Changed `let variants = vec![...]` to `let variants = [...]` (array literal). `.len()` is available on fixed-size arrays. Resolves `clippy::useless_vec`.
+
+## Skipped Issues
+
+### IN-01: notify dependency uses RC version
+
+**File:** `Cargo.toml:14`
+**Reason:** Defer -- RC version tracking is a maintenance task. `notify = "9.0.0-rc.3"` should be upgraded to the stable release when available. Not actionable without a known stable version.
+**Original issue:** notify = "9.0.0-rc.3" is a release candidate. API may change before stable.
+
+### IN-02: Config structs do not use deny_unknown_fields
+
+**File:** `src/config/types.rs:4-164`
+**Reason:** Defer -- requires a design decision on schema stabilization. Adding `#[serde(deny_unknown_fields)]` would cause failures if users have typos in their config files. Should be decided in a later phase with input from the project maintainer.
+**Original issue:** No `#[serde(deny_unknown_fields)]`. TOML typos are silently ignored.
+
+### IN-03: IndexTTS2Section repetition_penalty default 10.0
+
+**File:** `src/config/defaults.rs:93`
+**Reason:** Defer -- requires verification of whether 10.0 is intentional. The value is propagated from `config.example.toml` and may be correct for the specific TTS model used. Needs human decision to confirm or change.
+**Original issue:** repetition_penalty defaults to 10.0, far outside typical range (1.0-2.0).
+
+### IN-09: tokio features = ["full"]
+
+**File:** `Cargo.toml:7`
+**Reason:** Defer -- all tokio usage patterns are not yet known (current phase only uses `rt-multi-thread` and `macros`). Feature minimization should be done in a later phase when the complete tokio surface is visible.
+**Original issue:** features = ["full"] enables all tokio features, increasing compile time and binary size.
 
 ---
 
-## Verification Results
+## Build and Test Results
 
-| Check | Result |
-|-------|--------|
-| `cargo build` | Passes (0 errors, 0 warnings) |
-| `cargo test --lib` | 26/26 unit tests pass |
-| `cargo test --test config_test` | 6/6 integration tests pass |
-| `cargo test --test ffmpeg_test` | 3/5 pass, 2 skipped (FFmpeg not installed on test machine -- pre-existing) |
+| Suite | Before | After |
+|-------|--------|-------|
+| `cargo build` | 0 errors, 0 warnings | 0 errors, 0 warnings |
+| `cargo test --lib` (unit tests) | 26/26 pass | 26/26 pass |
+| `cargo test --test config_test` | 6/6 pass | 6/6 pass (0.25s, was ~1.9s) |
+| `cargo test --test ffmpeg_test` | 3/5 pass* | 3/5 pass* |
+
+*FFmpeg-dependent tests fail with clear install instruction when FFmpeg is absent (expected, not a regression).
 
 ---
 
-_Fixed: 2026-04-28T20:10:00Z_
+_Fixed: 2026-04-28_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
