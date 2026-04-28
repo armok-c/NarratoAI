@@ -6,9 +6,10 @@ use narratoai_core::llm::image_utils::image_to_base64_data_url;
 use narratoai_core::llm::openai_compatible::OpenAiCompatibleProvider;
 use narratoai_core::llm::provider::LlmProvider;
 use narratoai_core::llm::registry::Registry;
+use narratoai_core::llm::types::LlmResponseFormat;
 use tempfile::TempDir;
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, body_string_contains};
 
 // ---------------------------------------------------------------------------
 // 测试 1: Registry register / get / list_providers / ProviderNotFound
@@ -199,9 +200,10 @@ async fn test_generate_text_stream_token_extraction() {
 async fn test_json_response_format_fallback() {
     let mock_server = MockServer::start().await;
 
-    // 首次请求：400 + response_format error，触发回退
+    // 首次请求（包含 response_format 字段）：返回 400，触发回退
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
+        .and(body_string_contains("response_format"))
         .respond_with(ResponseTemplate::new(400).set_body_json(
             serde_json::json!({
                 "error": {
@@ -210,16 +212,11 @@ async fn test_json_response_format_fallback() {
                 }
             }),
         ))
-        .expect(1) // 仅第一次匹配
+        .expect(1) // 首次请求恰好 1 次
         .mount(&mock_server)
         .await;
 
-    // 第二个 mock：回退重试后返回成功（用不同 path 区分，因为两个请求 URL 相同但 body 不同）
-    // wiremock 按注册顺序和 specificity 匹配，第二次请求体不含 response_format 字段
-    // 我们直接用另一个 mock 服务器处理，或者使用更具体的 matcher
-    // 简单方式：用两个 mock server
-    let mock_server2 = MockServer::start().await;
-
+    // 回退重试请求（不含 response_format，prompt 含 JSON 指令）：返回成功
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(
@@ -238,25 +235,18 @@ async fn test_json_response_format_fallback() {
                 }]
             }),
         ))
-        .expect(1)
-        .mount(&mock_server2)
+        .expect(1) // 回退重试恰好 1 次
+        .mount(&mock_server)
         .await;
 
-    // 第一个 provider 指向会报错的 server，触发回退
-    let provider_fail = create_test_provider(&mock_server.uri()).await;
-    let provider_ok = create_test_provider(&mock_server2.uri()).await;
+    let provider = create_test_provider(&mock_server.uri()).await;
 
-    // 验证失败场景：第一个 server 返回 400
-    let result = provider_fail
-        .generate_text("test", None, None, None, None)
+    // 传入 response_format=Json 触发 JSON 回退路径
+    let result = provider
+        .generate_text("test", None, None, None, Some(LlmResponseFormat::Json))
         .await;
-    assert!(result.is_err(), "无 response_format 参数时应返回 API 错误");
-
-    // 验证正常场景：第二个 server 成功
-    let result = provider_ok
-        .generate_text("test", None, None, None, None)
-        .await;
-    assert!(result.is_ok(), "正常 server 应成功");
+    assert!(result.is_ok(), "JSON format 回退应成功: {:?}", result.err());
+    assert_eq!(result.unwrap(), "{\"result\": \"success\"}");
 }
 
 /// 测试 7: OpenAI 错误映射（wiremock）
