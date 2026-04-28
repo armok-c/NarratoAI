@@ -64,6 +64,44 @@ pub enum TTSError {
     RetryExhausted(String),
 }
 
+/// LLM 服务领域错误
+#[derive(Error, Debug)]
+pub enum LLMError {
+    #[error("LLM 调用失败: {0}")]
+    General(String),
+
+    #[error("未找到大模型供应商: {0}")]
+    ProviderNotFound(String),
+
+    #[error("配置错误: {0}")]
+    Configuration(String),
+
+    #[error("API 调用失败: {0}")]
+    APICall(String),
+
+    #[error("输出验证失败: {0}")]
+    Validation(String),
+
+    #[error("不支持的模型: {0}")]
+    ModelNotSupported(String),
+
+    #[error("API 速率限制: {0}")]
+    RateLimit(String),
+
+    #[error("API 认证失败: {0}")]
+    Authentication(String),
+
+    #[error("内容被安全过滤器阻止: {0}")]
+    ContentFilter(String),
+}
+
+/// 将 async-openai 的 OpenAIError 映射到 LLMError
+impl From<async_openai::error::OpenAIError> for LLMError {
+    fn from(err: async_openai::error::OpenAIError) -> Self {
+        LLMError::APICall(err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +209,68 @@ mod tests {
         let err = TTSError::RetryExhausted("test".to_string());
         let msg = err.to_string();
         assert!(msg.contains("TTS 重试耗尽"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_general_message_chinese() {
+        let err = LLMError::General("test".into());
+        let msg = err.to_string();
+        assert!(msg.contains("LLM 调用失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_provider_not_found_message_chinese() {
+        let err = LLMError::ProviderNotFound("unknown_provider".into());
+        let msg = err.to_string();
+        assert!(msg.contains("未找到大模型供应商"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_configuration_message_chinese() {
+        let err = LLMError::Configuration("bad config".into());
+        let msg = err.to_string();
+        assert!(msg.contains("配置错误"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_api_call_message_chinese() {
+        let err = LLMError::APICall("timeout".into());
+        let msg = err.to_string();
+        assert!(msg.contains("API 调用失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_validation_message_chinese() {
+        let err = LLMError::Validation("invalid output".into());
+        let msg = err.to_string();
+        assert!(msg.contains("输出验证失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_model_not_supported_message_chinese() {
+        let err = LLMError::ModelNotSupported("gpt-5".into());
+        let msg = err.to_string();
+        assert!(msg.contains("不支持的模型"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_rate_limit_message_chinese() {
+        let err = LLMError::RateLimit("too many requests".into());
+        let msg = err.to_string();
+        assert!(msg.contains("API 速率限制"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_authentication_message_chinese() {
+        let err = LLMError::Authentication("invalid key".into());
+        let msg = err.to_string();
+        assert!(msg.contains("API 认证失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_llm_error_content_filter_message_chinese() {
+        let err = LLMError::ContentFilter("blocked content".into());
+        let msg = err.to_string();
+        assert!(msg.contains("内容被安全过滤器阻止"), "消息应包含中文: {}", msg);
     }
 }
