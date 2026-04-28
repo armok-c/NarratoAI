@@ -1,10 +1,14 @@
 use std::path::Path;
+use std::time::Duration;
 use async_trait::async_trait;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use crate::error::TTSError;
 use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
+
+const WS_RECEIVE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Edge TTS WebSocket 端点 URL（硬编码，不可配置）
 const EDGE_TTS_WSS_URL: &str =
@@ -319,7 +323,9 @@ impl EdgeTtsEngine {
         let mut word_boundaries: Vec<WordBoundary> = Vec::new();
         let mut duration: f64 = 0.0;
         let mut received_turn_end = false;
-        while let Some(msg_result) = ws_stream.next().await {
+        while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, ws_stream.next()).await
+            .map_err(|_| TTSError::SynthesisFailed("接收消息超时: 服务器无响应".to_string()))?
+        {
             let msg =
                 msg_result.map_err(|e| TTSError::SynthesisFailed(format!("接收消息失败: {}", e)))?;
 
