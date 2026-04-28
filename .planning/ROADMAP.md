@@ -57,7 +57,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — 核心基础设施：依赖声明、LLMError（9变体）、LlmProvider trait、数据类型
 - [x] 02-02-PLAN.md — Provider 实现：Registry 注册中心、图片预处理、OpenAiCompatibleProvider（文本/流式/视觉）
-- [ ] 02-03-PLAN.md — 模块组装+测试：register_all_providers()、模块声明、完整集成测试套件
+- [x] 02-03-PLAN.md — 模块组装+测试：register_all_providers()、模块声明、完整集成测试套件
 
 ### Phase 3: TTS Core + Edge-TTS
 **Goal**: 系统能将文本通过 TTS 引擎转换为音频文件，默认的 Edge-TTS 引擎可正常工作
