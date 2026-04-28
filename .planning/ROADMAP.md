@@ -52,7 +52,12 @@ Plans:
   3. 流式请求通过 SSE 解析逐 token 输出，调用方能拿到完整的 token 流
   4. 视觉请求能发送 base64 编码的图片+文本，获得 LLM 的分析结果
   5. API 错误、超时、限流场景下自动重试，重试耗尽后返回结构化错误信息
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — 核心基础设施：依赖声明、LLMError（9变体）、LlmProvider trait、数据类型
+- [ ] 02-02-PLAN.md — Provider 实现：Registry 注册中心、图片预处理、OpenAiCompatibleProvider（文本/流式/视觉）
+- [ ] 02-03-PLAN.md — 模块组装+测试：register_all_providers()、模块声明、完整集成测试套件
 
 ### Phase 3: TTS Core + Edge-TTS
 **Goal**: 系统能将文本通过 TTS 引擎转换为音频文件，默认的 Edge-TTS 引擎可正常工作
@@ -62,7 +67,12 @@ Plans:
   1. TtsProvider trait 定义了统一的 TTS 引擎接口（输入文本+参数，输出音频文件路径）
   2. 按引擎名字符串（如 `edge_tts`）通过路由器分发到对应 TTS 实现
   3. Edge-TTS 引擎通过 WebSocket 协议生成中文语音音频文件，音频可在播放器中正常播放
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — TTS Core: TTSError + WordBoundary/TtsOutput + TtsProvider trait + synthesize 路由器
+- [ ] 03-02-PLAN.md — Edge-TTS 引擎: 原生 WebSocket 实现（SSML/音频流/词边界/重试/代理）
+- [ ] 03-03-PLAN.md — TTS 集成测试: 8 项测试覆盖 TTS-01/02/03
 
 ### Phase 4: Prompt System + Visual Analyzer
 **Goal**: 系统能管理版本化 Prompt 模板并按需渲染，能从视频中提取关键帧并批量发送给视觉 LLM 获取结构化分析结果
@@ -169,9 +179,9 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planning complete | - |
-| 2. LLM Service Layer | 0/? | Not started | - |
-| 3. TTS Core + Edge-TTS | 0/? | Not started | - |
+| 1. Foundation | 3/3 | Complete | 2026-04-28 |
+| 2. LLM Service Layer | 0/3 | Planning complete | - |
+| 3. TTS Core + Edge-TTS | 0/3 | Planning complete | - |
 | 4. Prompt System + Visual Analyzer | 0/? | Not started | - |
 | 5. Script Management | 0/? | Not started | - |
 | 6. Documentary Pipeline | 0/? | Not started | - |
