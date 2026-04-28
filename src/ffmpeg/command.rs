@@ -7,7 +7,7 @@ use ffmpeg_sidecar::event::FfmpegEvent;
 use crate::error::FFmpegError;
 
 /// FFmpeg 进度回调类型
-/// 参数: Option<f64> 表示进度百分比（None 表示未知），&str 表示步骤描述
+/// 参数: Option<f64> 表示 0.0 到 1.0 的进度分数（None 表示未知），&str 表示步骤描述
 pub type ProgressCallback = Box<dyn Fn(Option<f64>, &str) + Send + Sync>;
 
 /// run_ffmpeg 的通用 spawn_blocking 包装器（后续 Phase 6 可复用）
@@ -76,7 +76,8 @@ pub async fn clip_video(
                 FfmpegEvent::Progress(p) => {
                     if let Some(ref cb) = progress {
                         let secs = parse_time_to_secs(&p.time);
-                        cb(secs, "视频裁剪中");
+                        let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
+                        cb(fraction, "视频裁剪中");
                     }
                 }
                 FfmpegEvent::Error(e) => {
