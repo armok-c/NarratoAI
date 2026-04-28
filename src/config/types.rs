@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// 顶层配置，与 config.toml 结构一一对应
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AppConfig {
     #[serde(default)]
     pub app: AppSection,
@@ -27,6 +28,7 @@ pub struct AppConfig {
 
 /// [app] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppSection {
     #[serde(default)]
     pub project_version: String,
@@ -58,6 +60,7 @@ pub struct AppSection {
 
 /// [ui] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UiSection {
     #[serde(default)]
     pub tts_engine: String,
@@ -85,6 +88,7 @@ pub struct UiSection {
 
 /// [azure] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AzureSection {
     #[serde(default)]
     pub speech_key: String,
@@ -94,6 +98,7 @@ pub struct AzureSection {
 
 /// [tencent] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TencentSection {
     #[serde(default)]
     pub secret_id: String,
@@ -105,6 +110,7 @@ pub struct TencentSection {
 
 /// [soulvoice] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SoulVoiceSection {
     #[serde(default)]
     pub api_key: String,
@@ -118,6 +124,7 @@ pub struct SoulVoiceSection {
 
 /// [tts_qwen] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TtsQwenSection {
     #[serde(default)]
     pub api_key: String,
@@ -127,6 +134,7 @@ pub struct TtsQwenSection {
 
 /// [indextts2] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IndexTTS2Section {
     #[serde(default)]
     pub api_url: String,
@@ -150,6 +158,7 @@ pub struct IndexTTS2Section {
 
 /// [doubaotts] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
     #[serde(default)]
     pub ak: String,
@@ -171,6 +180,7 @@ pub struct DoubaoTTSSection {
 
 /// [proxy] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ProxySection {
     #[serde(default)]
     pub http: String,
@@ -182,6 +192,7 @@ pub struct ProxySection {
 
 /// [frames] 配置段
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FramesSection {
     #[serde(default)]
     pub frame_interval_input: u64,
