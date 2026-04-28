@@ -1,4 +1,5 @@
 pub mod config;
+pub mod ffmpeg;
 pub mod error;
 
 /// 库版本号，编译时从 Cargo.toml 注入
