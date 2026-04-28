@@ -40,7 +40,7 @@
 Plans:
 - [x] 01-01-PLAN.md — 库骨架 + 配置系统（TOML 加载/默认值/校验/热加载）
 - [x] 01-02-PLAN.md — FFmpeg 操作层（异步裁剪/视频探测/硬件检测）
-- [ ] 01-03-PLAN.md — 集成测试（配置 + FFmpeg 端到端验证）
+- [x] 01-03-PLAN.md — 集成测试（配置 + FFmpeg 端到端验证）
 
 ### Phase 2: LLM Service Layer
 **Goal**: 系统能通过 OpenAI 兼容协议与任意 LLM provider 通信，支持纯文本和视觉（图片+文本）两种输入模式
