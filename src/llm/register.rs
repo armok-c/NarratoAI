@@ -30,7 +30,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) {
     if !config.app.vision_openai_api_key.is_empty()
         && !config.app.vision_openai_model_name.is_empty()
     {
-        if let Ok(provider) = OpenAiCompatibleProvider::new(
+        match OpenAiCompatibleProvider::new(
             config.app.vision_openai_api_key.clone(),
             config.app.vision_openai_model_name.clone(),
             config.app.vision_openai_base_url.clone(),
@@ -39,9 +39,8 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) {
             proxy_http.clone(),
             proxy_https.clone(),
         ) {
-            registry.register("openai_vision", Arc::new(provider));
-        } else {
-            tracing::warn!("vision provider 注册失败（配置错误）");
+            Ok(provider) => registry.register("openai_vision", Arc::new(provider)),
+            Err(e) => tracing::error!("vision provider 注册失败: {}", e),
         }
     }
 
@@ -49,7 +48,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) {
     if !config.app.text_openai_api_key.is_empty()
         && !config.app.text_openai_model_name.is_empty()
     {
-        if let Ok(provider) = OpenAiCompatibleProvider::new(
+        match OpenAiCompatibleProvider::new(
             config.app.text_openai_api_key.clone(),
             config.app.text_openai_model_name.clone(),
             config.app.text_openai_base_url.clone(),
@@ -58,9 +57,8 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) {
             proxy_http,
             proxy_https,
         ) {
-            registry.register("openai_text", Arc::new(provider));
-        } else {
-            tracing::warn!("text provider 注册失败（配置错误）");
+            Ok(provider) => registry.register("openai_text", Arc::new(provider)),
+            Err(e) => tracing::error!("text provider 注册失败: {}", e),
         }
     }
 }
