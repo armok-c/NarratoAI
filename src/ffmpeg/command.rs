@@ -62,7 +62,9 @@ pub async fn clip_video(
             .input(&input_path)
             .duration(format!("{:.3}", duration))
             .output(&output_path)
-            .overwrite();
+            .overwrite()
+            .codec_video("copy")
+            .codec_audio("copy");
 
         let mut child = cmd
             .spawn()
