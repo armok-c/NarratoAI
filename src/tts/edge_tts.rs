@@ -182,7 +182,6 @@ impl EdgeTtsEngine {
         let mut word_boundaries: Vec<WordBoundary> = Vec::new();
         let mut duration: f64 = 0.0;
         let mut is_turn_start = false;
-
         while let Some(msg_result) = ws_stream.next().await {
             let msg =
                 msg_result.map_err(|e| TTSError::SynthesisFailed(format!("接收消息失败: {}", e)))?;
