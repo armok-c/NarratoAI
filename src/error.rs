@@ -98,7 +98,16 @@ pub enum LLMError {
 /// 将 async-openai 的 OpenAIError 映射到 LLMError
 impl From<async_openai::error::OpenAIError> for LLMError {
     fn from(err: async_openai::error::OpenAIError) -> Self {
-        LLMError::APICall(err.to_string())
+        match &err {
+            async_openai::error::OpenAIError::ApiError(api_err) => {
+                match api_err.status_code {
+                    Some(401) => LLMError::Authentication(api_err.message.clone()),
+                    Some(429) => LLMError::RateLimit(api_err.message.clone()),
+                    _ => LLMError::APICall(err.to_string()),
+                }
+            }
+            _ => LLMError::APICall(err.to_string()),
+        }
     }
 }
 
