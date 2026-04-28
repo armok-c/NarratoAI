@@ -1,7 +1,6 @@
 use crate::config::types::*;
 
 /// 默认值来源：config.example.toml 中的注释值和 Python 版 defaults.py
-
 impl Default for AppSection {
     fn default() -> Self {
         Self {
