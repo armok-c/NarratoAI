@@ -1,128 +1,77 @@
 ---
 phase: 01-foundation
-fixed: 2026-04-28
-fix_scope: all
-findings_in_scope: 13
-fixed: 9
-skipped: 4
-iteration: 2
-status: partial
+fixed_at: 2026-04-28T08:02:18Z
+review_path: .planning/phases/01-foundation/01-REVIEW.md
+iteration: 1
+findings_in_scope: 6
+fixed: 6
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 01: Code Review Fix Report (Iteration 2)
+# Phase 01: Code Review Fix Report
 
-**Fixed at:** 2026-04-28T22:00:00Z
-**Source review:** `.planning/phases/01-foundation/01-REVIEW.md`
-**Iteration:** 2
+**Fixed at:** 2026-04-28T08:02:18Z
+**Source review:** .planning/phases/01-foundation/01-REVIEW.md
+**Iteration:** 1
 
 **Summary:**
-
-| Metric | Count |
-|--------|-------|
-| Findings in scope | 13 |
-| Fixed | 9 |
-| Skipped | 4 |
-| Status | partial |
+- Findings in scope: 6
+- Fixed: 6
+- Skipped: 0
 
 ## Fixed Issues
 
-### IN-04: test_hot_reload uses 1700ms total sleep
+### CR-01: HighPerformance profile has hwaccel_enabled=true but uses software-only encoder
+
+**Files modified:** `src/ffmpeg/hwaccel.rs`
+**Commit:** cb4a13e
+**Applied fix:** Changed `encoder: "libx264"` (software) to `encoder: "h264_nvenc"` (hardware) for the `HighPerformance` profile, matching its `hwaccel_enabled: true` flag and "NVIDIA/AMD 硬件编码" description. Now consistent with `WindowsNvidia` profile which also enables hwaccel and uses `h264_nvenc`.
+
+### WR-01: Two FFmpegError variants are dead code
+
+**Files modified:** `src/ffmpeg/hwaccel.rs`, `src/ffmpeg/command.rs`
+**Commit:** 76fe86c
+**Applied fix:** Wired both previously-dead error variants into production code paths:
+
+- `FFmpegError::BinaryNotFound`: In `detect_hw_encoders`, when `std::process::Command` fails with `std::io::ErrorKind::NotFound`, the function now returns `Err(FFmpegError::BinaryNotFound)` instead of silently returning an empty encoder list. Warnings for other IO error kinds (e.g., `PermissionDenied`) still return `Ok(Vec::new())`.
+
+- `FFmpegError::Timeout`: In `clip_video`, the `spawn_blocking` future is now wrapped with `tokio::time::timeout(Duration::from_secs(600), ...)`. If FFmpeg hangs for more than 10 minutes, the function returns `Err(FFmpegError::Timeout(...))` instead of blocking indefinitely.
+
+**Requires human verification:** The `BinaryNotFound` wiring changes `detect_hw_encoders` semantics -- the function now returns an `Err` when the binary is missing rather than `Ok(empty)`. The test `test_detect_encoders_format` asserts `result.is_ok()` and may need updating if ffmpeg is not installed in the test environment. The `Timeout` wiring introduces a 600-second hard timeout on clip operations; verify this default is appropriate for expected video lengths.
+
+### WR-02: test_load_example_config depends on external config.example.toml with no guard
 
 **Files modified:** `tests/config_test.rs`
-**Commit:** `4566a80`
-**Applied fix:** Replaced the fixed 1500ms sleep after config write with a polling loop (50ms interval, 5s timeout). The test now succeeds immediately after the watcher fires instead of always waiting 1.5s. Config integration tests complete in 0.25s (was ~1.9s).
+**Commit:** daeaf29
+**Applied fix:** Added a runtime existence check (`config_path.exists()`) before attempting to load `config.example.toml`. If the file is missing (deleted, renamed, partial checkout), the test prints a skip message and returns early instead of panicking.
 
-### IN-05: NamedTempFile write-through pattern
+### WR-03: test_hot_reload uses sleep-based synchronization that can be flaky
 
-**Files modified:** `src/config/mod.rs`, `tests/config_test.rs`
-**Commit:** `d6cced0`
-**Applied fix:** Replaced `NamedTempFile::new() + std::fs::write()` pattern with `TempDir + file path` in all three test locations. Avoids the potential Windows OS lock issue where creating an empty NamedTempFile then immediately overwriting it could cause file contention. The `NamedTempFile` import was also removed from `tests/config_test.rs` as it became unused.
+**Files modified:** `src/config/watcher.rs`, `src/config/mod.rs`, `tests/config_test.rs`
+**Commit:** 866178f
+**Applied fix:** Replaced the fixed `std::thread::sleep(Duration::from_millis(200))` with a proper readiness signal mechanism:
 
-### IN-06: Clippy suggestions -- derivable Default impls + doc comment formatting
+- Added an optional `ready_signal: Option<Sender<()>>` parameter to `ConfigWatcher::new()`. The signal is sent immediately after `watcher.watch()` succeeds, indicating the file-system listener is established.
+- Added `ConfigManager::start_watching_with_ready()` method for callers that need the readiness signal.
+- The test now creates a `std::sync::mpsc::channel()`, passes the sender to `start_watching_with_ready()`, and waits via `recv_timeout(Duration::from_secs(5))` instead of sleeping.
 
-**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`
-**Commits:** `bfcd268`, `e0edd4a`
-**Applied fix:**
-1. Added `#[derive(Default)]` to `AzureSection` and `ProxySection` struct definitions in `types.rs`. Removed the manual `impl Default` blocks from `defaults.rs` (21 lines of boilerplate eliminated). Resolves `clippy::derivable_impls`.
-2. Removed empty line between doc comment and the `impl Default for AppSection` block, resolving `clippy::empty_line_after_doc_comments`.
+### WR-04: Hardcoded credential-like value in SoulVoiceSection default
 
-### IN-07: f64-to-string precision in FFmpeg seek/duration
+**Files modified:** `src/config/defaults.rs`
+**Commit:** d66ee9b
+**Applied fix:** Replaced the credential-like `voice_uri` default value (`speech:mcg3fdnx:clzkyf4vy00e5qr6hywum4u84:bzznlkuhcjzpbosexitr`) with `String::new()`, preventing potential unauthorized use of shared TTS credentials in unconfigured deployments.
 
-**File modified:** `src/ffmpeg/command.rs`
-**Commit:** `59da3c7`
-**Applied fix:** Changed `start.to_string()` to `format!("{:.3}", start)` and `duration.to_string()` to `format!("{:.3}", duration)`. This limits decimal precision to milliseconds, avoiding floating-point rounding artifacts like "0.30000000000000004".
+### WR-05: FfmpegEvent::Error silently swallowed during clip_video progress loop
 
-### IN-08: Fast seek (keyframe-based) sacrifices frame accuracy
+**Files modified:** `src/ffmpeg/command.rs`
+**Commit:** 789f02f
+**Applied fix:** Added a `had_errors` flag that is set to `true` when `FfmpegEvent::Error` events are received during the progress iteration loop. After the loop completes, if `had_errors` is `true`, the function returns `Err(FFmpegError::ExecutionError(...))` instead of silently continuing. Errors are still logged via `tracing::error!`.
 
-**File modified:** `src/ffmpeg/command.rs`
-**Commit:** `59da3c7`
-**Applied fix:** Added inline comment `// -ss before -i = fast seek (keyframe-based, not frame-accurate)` before the seek call, documenting the tradeoff. Frame-accurate slow seek (`-i <input> -ss <start>`) can be added in a future phase if needed.
-
-### IN-10: Integration tests do not validate output content
-
-**File modified:** `tests/ffmpeg_test.rs`
-**Commit:** `cafc36c`
-**Applied fix:** Added `probe_video()` call in `test_clip_video_async` after the file size check. The new assertions verify output has positive duration, positive width/height, and non-empty codec name, ensuring the clipped output is a valid video.
-
-### IN-11: AppConfig manual Default impl is derivable
-
-**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`
-**Commit:** `4fe3d5f`
-**Applied fix:** Added `#[derive(Default)]` to the `AppConfig` struct definition in `types.rs`. Removed the manual `impl Default for AppConfig` block from `defaults.rs` (17 lines eliminated). All sub-fields already implement `Default`. Resolves `clippy::derivable_impls`.
-
-### IN-12: bool_assert_comparison in test
-
-**File modified:** `src/config/types.rs`
-**Commit:** `3544b39`
-**Applied fix:** Changed `assert_eq!(config.proxy.enabled, false, ...)` to `assert!(!config.proxy.enabled, ...)`. Resolves `clippy::bool_assert_comparison`.
-
-### IN-13: useless_vec in test
-
-**File modified:** `src/ffmpeg/hwaccel.rs`
-**Commit:** `e0ef670`
-**Applied fix:** Changed `let variants = vec![...]` to `let variants = [...]` (array literal). `.len()` is available on fixed-size arrays. Resolves `clippy::useless_vec`.
-
-## Skipped Issues
-
-### IN-01: notify dependency uses RC version
-
-**File:** `Cargo.toml:14`
-**Reason:** Defer -- RC version tracking is a maintenance task. `notify = "9.0.0-rc.3"` should be upgraded to the stable release when available. Not actionable without a known stable version.
-**Original issue:** notify = "9.0.0-rc.3" is a release candidate. API may change before stable.
-
-### IN-02: Config structs do not use deny_unknown_fields
-
-**File:** `src/config/types.rs:4-164`
-**Reason:** Defer -- requires a design decision on schema stabilization. Adding `#[serde(deny_unknown_fields)]` would cause failures if users have typos in their config files. Should be decided in a later phase with input from the project maintainer.
-**Original issue:** No `#[serde(deny_unknown_fields)]`. TOML typos are silently ignored.
-
-### IN-03: IndexTTS2Section repetition_penalty default 10.0
-
-**File:** `src/config/defaults.rs:93`
-**Reason:** Defer -- requires verification of whether 10.0 is intentional. The value is propagated from `config.example.toml` and may be correct for the specific TTS model used. Needs human decision to confirm or change.
-**Original issue:** repetition_penalty defaults to 10.0, far outside typical range (1.0-2.0).
-
-### IN-09: tokio features = ["full"]
-
-**File:** `Cargo.toml:7`
-**Reason:** Defer -- all tokio usage patterns are not yet known (current phase only uses `rt-multi-thread` and `macros`). Feature minimization should be done in a later phase when the complete tokio surface is visible.
-**Original issue:** features = ["full"] enables all tokio features, increasing compile time and binary size.
+**Requires human verification:** This changes error handling semantics -- previously, non-fatal FFmpeg errors during stream processing were logged but `clip_video` would still return `Ok(())` if the process exited with code 0. Now any `FfmpegEvent::Error` causes the function to fail. Verify this is the desired behavior for all callers.
 
 ---
 
-## Build and Test Results
-
-| Suite | Before | After |
-|-------|--------|-------|
-| `cargo build` | 0 errors, 0 warnings | 0 errors, 0 warnings |
-| `cargo test --lib` (unit tests) | 26/26 pass | 26/26 pass |
-| `cargo test --test config_test` | 6/6 pass | 6/6 pass (0.25s, was ~1.9s) |
-| `cargo test --test ffmpeg_test` | 3/5 pass* | 3/5 pass* |
-
-*FFmpeg-dependent tests fail with clear install instruction when FFmpeg is absent (expected, not a regression).
-
----
-
-_Fixed: 2026-04-28_
+_Fixed: 2026-04-28T08:02:18Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 1_
