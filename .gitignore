@@ -37,6 +37,10 @@ app/models/bert/*
 
 bug清单.md
 task.md
+
+# Rust build artifacts
+target/
+
 .claude/*
 .serena/*
 .worktrees/
