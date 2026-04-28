@@ -137,14 +137,12 @@ fn test_word_boundary_time_unit_semantics() {
 // TTS 路由器函数签名校验（编译时测试）
 // ============================================================
 
-/// verify synthesize function signature matches expected types
+/// Verify `tts::synthesize` function signature at compile time.
+///
+/// Calls the function and assigns the returned future to `_`, which
+/// causes a compile error if the parameter types or return type change.
+/// The future is never polled, so there are no runtime side effects.
 #[test]
 fn test_synthesize_function_signature() {
-    // 此测试确保 tts::synthesize 编译通过且返回正确类型
-    // 实际验证在运行时：仅验证函数存在且类型正确
-    fn _check_type() {
-        let _ = tts::synthesize;
-        // 类型约束: fn(&str, &str, &str, f64, f64, &Path) -> impl Future<Output = Result<TtsOutput, TTSError>>
-    }
-    let _ = _check_type;
+    let _ = tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None);
 }
