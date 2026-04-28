@@ -57,9 +57,10 @@ pub async fn clip_video(
 
     tokio::task::spawn_blocking(move || {
         let mut cmd = FfmpegCommand::new();
-        cmd.seek(start.to_string())
+        // -ss before -i = fast seek (keyframe-based, not frame-accurate)
+        cmd.seek(format!("{:.3}", start))
             .input(&input_path)
-            .duration(duration.to_string())
+            .duration(format!("{:.3}", duration))
             .output(&output_path)
             .overwrite();
 
