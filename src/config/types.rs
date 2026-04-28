@@ -316,7 +316,7 @@ project_version = "0.7.8"
         // 缺失的 section 应使用默认值
         assert_eq!(config.app.project_version, "0.7.8");
         assert_eq!(config.azure.speech_key, "", "缺失的 azure section 应使用 Default");
-        assert_eq!(config.proxy.enabled, false, "缺失的 proxy section 应使用 Default");
+        assert!(!config.proxy.enabled, "缺失的 proxy section 应使用 Default");
     }
 
     /// 验证关键默认值是否正确
