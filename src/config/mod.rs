@@ -67,7 +67,7 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
+    use tempfile::TempDir;
 
     #[test]
     fn test_config_manager_load_nonexistent_file() {
@@ -88,9 +88,10 @@ mod tests {
 project_version = "0.7.8"
 vision_llm_provider = "openai"
 "#;
-        let file = NamedTempFile::new().expect("创建临时文件失败");
-        std::fs::write(file.path(), toml_content).expect("写入临时文件失败");
-        let config_manager = ConfigManager::load(file.path())
+        let dir = TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, toml_content).expect("写入临时文件失败");
+        let config_manager = ConfigManager::load(&path)
             .expect("有效 TOML 文件应加载成功");
         let config = config_manager.get();
         assert_eq!(config.app.project_version, "0.7.8");

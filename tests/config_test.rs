@@ -4,7 +4,7 @@ use std::time::Duration;
 use narratoai_core::config::ConfigManager;
 use narratoai_core::config::types::AppConfig;
 use narratoai_core::error::ConfigError;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::TempDir;
 
 /// 从 config.example.toml 加载完整配置，验证所有 10 个 section 的值
 #[test]
@@ -57,9 +57,10 @@ fn test_load_example_config() {
 /// 加载只含 [app] section 的最小配置，缺失的 section 应使用默认值
 #[test]
 fn test_load_minimal_config() {
-    let file = NamedTempFile::new().expect("创建临时文件失败");
+    let dir = TempDir::new().expect("创建临时文件失败");
+    let path = dir.path().join("config.toml");
     std::fs::write(
-        file.path(),
+        &path,
         r#"[app]
 project_version = "test"
 "#,
@@ -67,7 +68,7 @@ project_version = "test"
     .expect("写入临时文件失败");
 
     let config_manager =
-        ConfigManager::load(file.path()).expect("含 [app] 的 TOML 应加载成功");
+        ConfigManager::load(&path).expect("含 [app] 的 TOML 应加载成功");
     let config = config_manager.get();
 
     assert_eq!(config.app.project_version, "test");
@@ -81,11 +82,12 @@ project_version = "test"
 /// 加载空 TOML 文件，全部 section 使用默认值
 #[test]
 fn test_load_empty_config() {
-    let file = NamedTempFile::new().expect("创建临时文件失败");
-    std::fs::write(file.path(), "").expect("写入临时文件失败");
+    let dir = TempDir::new().expect("创建临时目录失败");
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "").expect("写入临时文件失败");
 
     let config_manager =
-        ConfigManager::load(file.path()).expect("空 TOML 应加载成功");
+        ConfigManager::load(&path).expect("空 TOML 应加载成功");
     let loaded = config_manager.get();
     let default = AppConfig::default();
 
