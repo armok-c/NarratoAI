@@ -3,39 +3,46 @@ use thiserror::Error;
 /// 配置领域错误
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("IO error: {0}")]
+    #[error("配置文件读取失败: {0}")]
     IoError(String),
 
-    #[error("Parse error: {0}")]
+    #[error("配置文件解析失败: {0}")]
     ParseError(String),
 
-    #[error("Validation error: {0}")]
+    #[error("配置校验失败: {0}")]
     ValidationError(String),
 
-    #[error("File not found: {path}")]
+    #[error("配置文件不存在: {path}")]
     NotFound { path: String },
 
-    #[error("Watch error: {0}")]
+    #[error("配置监听失败: {0}")]
     WatchError(String),
 }
 
 /// FFmpeg 领域错误
 #[derive(Error, Debug)]
 pub enum FFmpegError {
-    #[error("Spawn failed: {0}")]
+    #[error("FFmpeg 进程启动失败: {0}")]
     SpawnFailed(String),
 
-    #[error("Timeout: {0}")]
+    #[error("FFmpeg 执行超时: {0}")]
     Timeout(String),
 
-    #[error("Output parse error: {0}")]
+    #[error("FFmpeg 输出解析错误: {0}")]
     OutputParseError(String),
 
-    #[error("Execution error: {0}")]
+    #[error("FFmpeg 执行错误: {0}")]
     ExecutionError(String),
 
-    #[error("FFmpeg binary not found")]
+    #[error("未找到 FFmpeg 二进制文件")]
     BinaryNotFound,
+}
+
+/// 为 notify 错误实现 From trait，便于 ConfigManager 统一错误处理
+impl From<notify::Error> for ConfigError {
+    fn from(err: notify::Error) -> Self {
+        ConfigError::WatchError(err.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -47,13 +54,6 @@ mod tests {
         let err = ConfigError::IoError("test".into());
         let msg = err.to_string();
         assert!(msg.contains("配置文件读取失败"), "消息应包含中文: {}", msg);
-    }
-
-    #[test]
-    fn test_ffmpeg_error_spawn_failed_message_chinese() {
-        let err = FFmpegError::SpawnFailed("test".into());
-        let msg = err.to_string();
-        assert!(msg.contains("FFmpeg 进程启动失败"), "消息应包含中文: {}", msg);
     }
 
     #[test]
@@ -82,6 +82,13 @@ mod tests {
         let err = ConfigError::WatchError("watch issue".into());
         let msg = err.to_string();
         assert!(msg.contains("配置监听失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_ffmpeg_error_spawn_failed_message_chinese() {
+        let err = FFmpegError::SpawnFailed("test".into());
+        let msg = err.to_string();
+        assert!(msg.contains("FFmpeg 进程启动失败"), "消息应包含中文: {}", msg);
     }
 
     #[test]

@@ -3,7 +3,7 @@ pub mod error;
 
 /// 库版本号，编译时从 Cargo.toml 注入
 pub fn version() -> &'static str {
-    "" // RED phase: wrong value, will fail test
+    env!("CARGO_PKG_VERSION")
 }
 
 #[cfg(test)]
