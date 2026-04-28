@@ -49,9 +49,7 @@ target/
 openspec/*
 AGENTS.md
 CLAUDE.md
-tests/*
-!tests/config_test.rs
-!tests/ffmpeg_test.rs
+tests/*.py
 !tests/test_documentary_frame_analysis_service.py
 !tests/test_video_processor_documentary_unittest.py
 !tests/test_script_service_documentary_unittest.py
