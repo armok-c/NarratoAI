@@ -38,18 +38,38 @@ fn convert_pitch_to_hz(pitch: f64) -> String {
     }
 }
 
+/// 从 Edge TTS 音色名称中提取语言标签
+///
+/// "zh-CN-XiaoyiNeural" → "zh-CN"
+/// "en-US-JennyNeural"  → "en-US"
+/// "ja-JP-NanamiNeural" → "ja-JP"
+fn voice_name_to_lang(voice_name: &str) -> String {
+    if let Some(idx) = voice_name
+        .chars()
+        .enumerate()
+        .filter(|(_, c)| *c == '-')
+        .nth(1)
+        .map(|(i, _)| i)
+    {
+        voice_name[..idx].to_string()
+    } else {
+        "zh-CN".to_string()
+    }
+}
+
 /// 构建 Edge TTS SSML 请求 XML
 fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
     let rate_str = convert_rate_to_percent(rate);
     let pitch_str = convert_pitch_to_hz(pitch);
+    let voice_lang = voice_name_to_lang(voice_name);
     let escaped_text = text
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;");
 
     format!(
-        r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="zh-CN"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
-        voice_name, rate_str, pitch_str, escaped_text
+        r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
+        voice_lang, voice_name, rate_str, pitch_str, escaped_text
     )
 }
 
