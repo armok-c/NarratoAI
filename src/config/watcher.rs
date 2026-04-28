@@ -23,10 +23,9 @@ impl ConfigWatcher {
                     if matches!(event.kind, EventKind::Modify(_)) {
                         match Self::reload_file(&watched_path) {
                             Ok(new_config) => {
-                                if let Ok(mut guard) = config.write() {
-                                    *guard = new_config;
-                                    tracing::info!("配置文件已热加载更新");
-                                }
+                                let mut guard = config.write().unwrap_or_else(|e| e.into_inner());
+                                *guard = new_config;
+                                tracing::info!("配置文件已热加载更新");
                             }
                             Err(e) => {
                                 tracing::error!("配置热加载失败: {}", e);

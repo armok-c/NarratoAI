@@ -47,7 +47,7 @@ impl ConfigManager {
 
     /// 获取配置快照（读锁）
     pub fn get(&self) -> AppConfig {
-        self.config.read().unwrap().clone()
+        self.config.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// 返回 Arc clone 供其他模块使用
