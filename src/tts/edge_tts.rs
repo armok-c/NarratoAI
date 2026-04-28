@@ -26,7 +26,7 @@ fn convert_rate_to_percent(rate: f64) -> String {
 
 /// 将 pitch 转换为 Edge TTS Hz 格式
 /// 0 → "+0Hz", 50 → "+50Hz", -10 → "-10Hz"
-fn convert_pitch_to_percent(pitch: f64) -> String {
+fn convert_pitch_to_hz(pitch: f64) -> String {
     if pitch == 0.0 {
         return "+0Hz".to_string();
     }
@@ -41,7 +41,7 @@ fn convert_pitch_to_percent(pitch: f64) -> String {
 /// 构建 Edge TTS SSML 请求 XML
 fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
     let rate_str = convert_rate_to_percent(rate);
-    let pitch_str = convert_pitch_to_percent(pitch);
+    let pitch_str = convert_pitch_to_hz(pitch);
     let escaped_text = text
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -420,18 +420,18 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_pitch_to_percent_default() {
-        assert_eq!(convert_pitch_to_percent(0.0), "+0Hz");
+    fn test_convert_pitch_to_hz_default() {
+        assert_eq!(convert_pitch_to_hz(0.0), "+0Hz");
     }
 
     #[test]
-    fn test_convert_pitch_to_percent_positive() {
-        assert_eq!(convert_pitch_to_percent(50.0), "+50Hz");
+    fn test_convert_pitch_to_hz_positive() {
+        assert_eq!(convert_pitch_to_hz(50.0), "+50Hz");
     }
 
     #[test]
-    fn test_convert_pitch_to_percent_negative() {
-        assert_eq!(convert_pitch_to_percent(-10.0), "-10Hz");
+    fn test_convert_pitch_to_hz_negative() {
+        assert_eq!(convert_pitch_to_hz(-10.0), "-10Hz");
     }
 
     #[test]
