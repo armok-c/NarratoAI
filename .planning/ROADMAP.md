@@ -35,7 +35,12 @@
   3. 通过 ffmpeg-sidecar CLI 子进程成功执行一次视频信息探测（ffprobe）和一次视频裁剪操作
   4. FFmpeg 操作通过 spawn_blocking 执行，不阻塞 tokio 运行时
   5. 检测到系统 FFmpeg 支持的硬件加速编码器（NVIDIA/AMD/Intel profile 匹配）
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — 库骨架 + 配置系统（TOML 加载/默认值/校验/热加载）
+- [ ] 01-02-PLAN.md — FFmpeg 操作层（异步裁剪/视频探测/硬件检测）
+- [ ] 01-03-PLAN.md — 集成测试（配置 + FFmpeg 端到端验证）
 
 ### Phase 2: LLM Service Layer
 **Goal**: 系统能通过 OpenAI 兼容协议与任意 LLM provider 通信，支持纯文本和视觉（图片+文本）两种输入模式
@@ -164,7 +169,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 0/3 | Planning complete | - |
 | 2. LLM Service Layer | 0/? | Not started | - |
 | 3. TTS Core + Edge-TTS | 0/? | Not started | - |
 | 4. Prompt System + Visual Analyzer | 0/? | Not started | - |
