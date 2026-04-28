@@ -17,6 +17,12 @@ async-trait = "0.1.89"
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
 uuid = { version = "1.23.1", features = ["v4"] }
+async-openai = { version = "0.36", features = ["chat-completion"] }
+image = "0.25"
+base64 = "0.22"
+futures = "0.3"
+reqwest = "0.12"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+wiremock = "0.6"
