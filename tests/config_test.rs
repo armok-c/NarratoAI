@@ -179,12 +179,15 @@ project_version = "0.7.8"
     .expect("写入更新配置失败");
 
     // 等待 notify 检测到变更（Windows 上可能需要更长时间）
-    std::thread::sleep(Duration::from_millis(1500));
-
-    // 验证配置已更新
-    let updated = manager.get();
-    assert_eq!(
-        updated.app.project_version, "0.7.8",
-        "热加载应更新 project_version"
-    );
+    // 使用轮询替代固定 sleep，在成功时立即继续而非等待超时
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut updated = false;
+    while std::time::Instant::now() < deadline {
+        if manager.get().app.project_version == "0.7.8" {
+            updated = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(updated, "热加载应在超时前更新 project_version");
 }
