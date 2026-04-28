@@ -128,21 +128,31 @@ impl EdgeTtsEngine {
                 return Err(TTSError::ConnectionFailed("代理已启用但未配置代理地址".to_string()));
             };
 
-            // Parse proxy URL for host:port (strip scheme, split host:port)
+            // Parse proxy URL for host:port (strip scheme, strip credentials, split host:port)
             let default_proxy_port = if proxy_url.starts_with("https://") {
-                "443"
+                443u16
             } else {
-                "80"
+                80u16
             };
             let proxy_addr = proxy_url
                 .trim_start_matches("http://")
                 .trim_start_matches("https://");
-            let (proxy_host, proxy_port_str) = proxy_addr
-                .split_once(':')
-                .unwrap_or((proxy_addr, default_proxy_port));
-            let proxy_port: u16 = proxy_port_str
-                .parse()
-                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+            // Strip any user:pass@ prefix (use rsplit to handle @ in credentials)
+            let host_port = proxy_addr
+                .rsplit('@')
+                .next()
+                .unwrap_or(proxy_addr);
+            let (proxy_host, proxy_port) = match host_port.split_once(':') {
+                Some((host, port_str)) => {
+                    let port: u16 = port_str
+                        .parse()
+                        .map_err(|_| TTSError::ConnectionFailed(
+                            "代理端口格式错误，代理 URL 不支持认证凭据".to_string()
+                        ))?;
+                    (host, port)
+                }
+                None => (host_port, default_proxy_port),
+            };
 
             // Parse target WSS URL manually
             let target_addr = EDGE_TTS_WSS_URL.trim_start_matches("wss://");
