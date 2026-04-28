@@ -22,7 +22,7 @@ pub struct VideoInfo {
 pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
     let ffprobe_bin = ffmpeg_sidecar::ffprobe::ffprobe_path();
 
-    let output = Command::new(&ffprobe_bin)
+    let output = match Command::new(&ffprobe_bin)
         .args([
             "-v",
             "quiet",
@@ -33,7 +33,15 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
         ])
         .arg(path.as_os_str())
         .output()
-        .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+    {
+        Ok(o) => o,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Err(FFmpegError::BinaryNotFound);
+            }
+            return Err(FFmpegError::SpawnFailed(e.to_string()));
+        }
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
