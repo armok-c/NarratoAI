@@ -81,6 +81,7 @@ pub async fn clip_video(
             }
         };
 
+        let mut had_errors = false;
         for event in iter {
             match event {
                 FfmpegEvent::Progress(p) => {
@@ -92,9 +93,16 @@ pub async fn clip_video(
                 }
                 FfmpegEvent::Error(e) => {
                     tracing::error!("FFmpeg error: {}", e);
+                    had_errors = true;
                 }
                 _ => {}
             }
+        }
+
+        if had_errors {
+            return Err(FFmpegError::ExecutionError(
+                "FFmpeg reported errors during processing".into(),
+            ));
         }
 
         // 检查 ffmpeg 进程退出状态
