@@ -191,13 +191,6 @@ pub struct FramesSection {
     pub vision_max_concurrency: u32,
 }
 
-/// 预留的 validate 方法
-impl AppConfig {
-    pub fn validate(&self) -> Result<(), crate::error::ConfigError> {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

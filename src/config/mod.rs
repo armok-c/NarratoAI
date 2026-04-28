@@ -17,15 +17,32 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     /// 从 TOML 文件加载配置
-    /// RED phase: always returns NotFound error
-    pub fn load(_path: &Path) -> Result<Self, ConfigError> {
-        // RED phase: stub that always fails with wrong error type
-        Err(ConfigError::IoError("stub not implemented".into()))
+    pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        if !path.exists() {
+            return Err(ConfigError::NotFound {
+                path: path.display().to_string(),
+            });
+        }
+
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ConfigError::IoError(e.to_string()))?;
+
+        let config: AppConfig = toml::from_str(&content)
+            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
+
+        Ok(Self {
+            config: Arc::new(RwLock::new(config)),
+            config_path: path.to_path_buf(),
+            _watcher: None,
+        })
     }
 
     /// 启动文件变更监听（热加载）
     pub fn start_watching(&mut self) -> Result<(), ConfigError> {
-        Err(ConfigError::WatchError("stub not implemented".into()))
+        let watcher = ConfigWatcher::new(&self.config_path, Arc::clone(&self.config))?;
+        self._watcher = Some(watcher);
+        tracing::info!("配置热加载监听已启动: {}", self.config_path.display());
+        Ok(())
     }
 
     /// 获取配置快照（读锁）
@@ -36,6 +53,14 @@ impl ConfigManager {
     /// 返回 Arc clone 供其他模块使用
     pub fn config(&self) -> Arc<RwLock<AppConfig>> {
         Arc::clone(&self.config)
+    }
+}
+
+impl AppConfig {
+    /// 预留的配置校验方法
+    /// Phase 1 不要求 API key 必填，校验逻辑在后续 Phase 添加
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        Ok(())
     }
 }
 

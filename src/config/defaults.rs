@@ -1,24 +1,23 @@
 use crate::config::types::*;
 
-// RED phase: deliberately wrong defaults to make tests fail
+/// 默认值来源：config.example.toml 中的注释值和 Python 版 defaults.py
 
 impl Default for AppSection {
     fn default() -> Self {
         Self {
-            // wrong project_version — test expects "0.1.0" but RED returns "0.0.0"
-            project_version: "0.0.0".to_string(),
-            vision_llm_provider: String::new(),
-            vision_openai_model_name: String::new(),
+            project_version: "0.1.0".to_string(),
+            vision_llm_provider: "openai".to_string(),
+            vision_openai_model_name: "Qwen/Qwen3.5-122B-A10B".to_string(),
             vision_openai_api_key: String::new(),
-            vision_openai_base_url: String::new(),
-            text_llm_provider: String::new(),
-            text_openai_model_name: String::new(),
+            vision_openai_base_url: "https://api.siliconflow.cn/v1".to_string(),
+            text_llm_provider: "openai".to_string(),
+            text_openai_model_name: "Pro/zai-org/GLM-5".to_string(),
             text_openai_api_key: String::new(),
-            text_openai_base_url: String::new(),
-            llm_vision_timeout: 0,
-            llm_text_timeout: 0,
-            llm_max_retries: 0,
-            hide_config: false,
+            text_openai_base_url: "https://api.siliconflow.cn/v1".to_string(),
+            llm_vision_timeout: 120,
+            llm_text_timeout: 180,
+            llm_max_retries: 3,
+            hide_config: true,
         }
     }
 }
@@ -26,17 +25,17 @@ impl Default for AppSection {
 impl Default for UiSection {
     fn default() -> Self {
         Self {
-            tts_engine: String::new(),
-            edge_voice_name: String::new(),
-            edge_volume: 0,
-            edge_rate: 0.0,
+            tts_engine: "edge_tts".to_string(),
+            edge_voice_name: "zh-CN-XiaoyiNeural-Female".to_string(),
+            edge_volume: 80,
+            edge_rate: 1.0,
             edge_pitch: 0,
-            azure_voice_name: String::new(),
-            azure_volume: 0,
-            azure_rate: 0.0,
+            azure_voice_name: "zh-CN-XiaoyiNeural-Female".to_string(),
+            azure_volume: 80,
+            azure_rate: 1.0,
             azure_pitch: 0,
-            doubaotts_voice_type: String::new(),
-            doubaotts_rate: 0.0,
+            doubaotts_voice_type: "BV700_V2_streaming".to_string(),
+            doubaotts_rate: 1.0,
         }
     }
 }
@@ -55,7 +54,7 @@ impl Default for TencentSection {
         Self {
             secret_id: String::new(),
             secret_key: String::new(),
-            region: String::new(),
+            region: "ap-beijing".to_string(),
         }
     }
 }
@@ -64,9 +63,9 @@ impl Default for SoulVoiceSection {
     fn default() -> Self {
         Self {
             api_key: String::new(),
-            voice_uri: String::new(),
-            api_url: String::new(),
-            model: String::new(),
+            voice_uri: "speech:mcg3fdnx:clzkyf4vy00e5qr6hywum4u84:bzznlkuhcjzpbosexitr".to_string(),
+            api_url: "https://tts.scsmtech.cn/tts".to_string(),
+            model: "FunAudioLLM/CosyVoice2-0.5B".to_string(),
         }
     }
 }
@@ -75,7 +74,7 @@ impl Default for TtsQwenSection {
     fn default() -> Self {
         Self {
             api_key: String::new(),
-            model_name: String::new(),
+            model_name: "qwen3-tts-flash".to_string(),
         }
     }
 }
@@ -83,15 +82,15 @@ impl Default for TtsQwenSection {
 impl Default for IndexTTS2Section {
     fn default() -> Self {
         Self {
-            api_url: String::new(),
+            api_url: "http://127.0.0.1:8081/tts".to_string(),
             reference_audio: String::new(),
-            infer_mode: String::new(),
-            temperature: 0.0,
-            top_p: 0.0,
-            top_k: 0,
-            do_sample: false,
-            num_beams: 0,
-            repetition_penalty: 0.0,
+            infer_mode: "普通推理".to_string(),
+            temperature: 1.0,
+            top_p: 0.8,
+            top_k: 30,
+            do_sample: true,
+            num_beams: 3,
+            repetition_penalty: 10.0,
         }
     }
 }
@@ -103,10 +102,10 @@ impl Default for DoubaoTTSSection {
             sk: String::new(),
             appid: String::new(),
             token: String::new(),
-            cluster: String::new(),
-            volume: 0.0,
-            pitch: 0.0,
-            silence_duration: 0.0,
+            cluster: "volcano_tts".to_string(),
+            volume: 1.0,
+            pitch: 1.0,
+            silence_duration: 0.125,
         }
     }
 }
@@ -124,9 +123,9 @@ impl Default for ProxySection {
 impl Default for FramesSection {
     fn default() -> Self {
         Self {
-            frame_interval_input: 0,
-            vision_batch_size: 0,
-            vision_max_concurrency: 0,
+            frame_interval_input: 3,
+            vision_batch_size: 10,
+            vision_max_concurrency: 2,
         }
     }
 }
