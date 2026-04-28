@@ -24,3 +24,80 @@ pub struct TtsOutput {
     /// 音频总时长（秒）
     pub duration: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::path::Path;
+
+    /// Mock TTS 引擎——验证 TtsProvider trait 可被实现
+    struct MockTtsEngine;
+
+    #[async_trait]
+    impl TtsProvider for MockTtsEngine {
+        async fn synthesize(
+            &self,
+            text: &str,
+            _voice_name: &str,
+            _rate: f64,
+            _pitch: f64,
+            output_path: &Path,
+        ) -> Result<TtsOutput, TTSError> {
+            Ok(TtsOutput {
+                audio_file_path: output_path.to_path_buf(),
+                word_boundaries: vec![],
+                duration: 1.0,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_engine_implements_trait() {
+        let engine = MockTtsEngine;
+        let result = engine
+            .synthesize("hello", "voice", 1.0, 0.0, Path::new("test.mp3"))
+            .await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.duration, 1.0);
+        assert!(output.word_boundaries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_synthesize_unknown_engine() {
+        let result = synthesize(
+            "nonexistent_engine",
+            "hello",
+            "voice",
+            1.0,
+            0.0,
+            Path::new("test.mp3"),
+        )
+        .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            TTSError::UnknownEngine { engine } => {
+                assert_eq!(engine, "nonexistent_engine");
+            }
+            _ => panic!("应为 UnknownEngine 错误"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_synthesize_unknown_engine_message() {
+        let result = synthesize(
+            "bad_engine",
+            "hello",
+            "voice",
+            1.0,
+            0.0,
+            Path::new("test.mp3"),
+        )
+        .await;
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("未知 TTS 引擎"), "消息应包含中文: {}", msg);
+        assert!(msg.contains("bad_engine"), "消息应包含引擎名: {}", msg);
+    }
+}
