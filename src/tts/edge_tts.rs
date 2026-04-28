@@ -337,6 +337,13 @@ impl EdgeTtsEngine {
             return Err(TTSError::SynthesisFailed("未收到音频数据".to_string()));
         }
 
+        if duration == 0.0 {
+            tracing::warn!(
+                "Edge-TTS connection closed before turn.end; duration is 0.0, audio data size: {} bytes",
+                audio_data.len()
+            );
+        }
+
         tokio::fs::write(output_path, &audio_data)
             .await
             .map_err(|e| {
