@@ -206,7 +206,7 @@ mod tests {
     /// 验证 5 个 HwAccelProfile 变体存在
     #[test]
     fn test_hw_accel_profile_five_variants() {
-        let variants = vec![
+        let variants = [
             HwAccelProfile::HighPerformance,
             HwAccelProfile::Compatibility,
             HwAccelProfile::WindowsNvidia,
