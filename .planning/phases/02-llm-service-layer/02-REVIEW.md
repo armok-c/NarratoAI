@@ -1,286 +1,352 @@
 ---
 phase: 02-llm-service-layer
-reviewed: 2026-04-28T08:00:00Z
+reviewed: 2026-04-28T14:30:00Z
 depth: standard
-files_reviewed: 8
+files_reviewed: 13
 files_reviewed_list:
   - Cargo.toml
-  - src/llm/image_utils.rs
+  - src/error.rs
+  - src/lib.rs
   - src/llm/mod.rs
+  - src/llm/types.rs
+  - src/llm/provider.rs
+  - src/llm/registry.rs
+  - src/llm/image_utils.rs
   - src/llm/openai_compatible.rs
   - src/llm/register.rs
-  - src/llm/registry.rs
   - src/llm/test_utils.rs
   - tests/llm_test.rs
+  - src/config/types.rs
+  - src/config/defaults.rs
 findings:
-  critical: 3
-  warning: 6
-  info: 4
+  critical: 1
+  warning: 9
+  info: 3
   total: 13
 status: issues_found
 ---
 
 # Phase 02: LLM Service Layer — Code Review Report
 
-**Reviewed:** 2026-04-28T08:00:00Z
+**Reviewed:** 2026-04-28T14:30:00Z
 **Depth:** standard
-**Files Reviewed:** 8
+**Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-The codebase implements a Rust LLM service layer using async-openai, with provider registration, OpenAI-compatible API calls, and image preprocessing. The overall architecture is sound, but there are 3 critical compilation-blocking issues, 6 warnings of varying severity, and 4 informational items.
-
-The most severe issues are: missing `#[derive(Default)]` on 8 configuration structs that would prevent compilation, an incompatible `reqwest = "0.13"` dependency version, and a test that claims to test JSON response_format fallback but never triggers the fallback path.
-
----
+This review covers the Phase 02 LLM Service Layer implementation: provider trait definition, error types, OpenAI-compatible provider, registry, image preprocessing, provider registration factory, test utilities, and integration tests. The architecture and design are sound, but there is **1 critical compilation-blocking issue** stemming from the code being written against a non-existent async-openai API (`OpenAIClientConfig`, `RetryConfig`), plus **9 warnings** spanning untested assertions, code duplication, missed input validation, misleading conventions, and a documentation mismatch.
 
 ## Critical Issues
 
-### CR-01: Missing `#[derive(Default)]` on multiple config section structs causes compilation failure
+### CR-01: `OpenAIClientConfig` and `RetryConfig` do not exist in async-openai 0.36.1; `Client::build` takes a different third argument type
 
-**File:** `E:\GitLib\NarratoAI\src\config\types.rs:30`
-**Issue:** The following structs are missing `#[derive(Default)]`:
+**File:** `src/llm/openai_compatible.rs:8-9, 63-68, 91, 98`
 
-- `AppSection` (line 30) — no Default derive
-- `UiSection` (line 62) — no Default derive
-- `TencentSection` (line 100) — no Default derive
-- `SoulVoiceSection` (line 112) — no Default derive
-- `TtsQwenSection` (line 126) — no Default derive
-- `IndexTTS2Section` (line 136) — no Default derive
-- `DoubaoTTSSection` (line 159) — no Default derive
-- `FramesSection` (line 194) — no Default derive
+**Issue:** Three interrelated compile errors caused by code written against a different version of `async-openai`:
 
-`AppConfig` has `#[derive(Default)]`, which requires ALL of its fields to implement `Default`. Since 8 out of 10 section structs lack this derive, `AppConfig::default()` will not compile. The `#[serde(default)]` attribute on these fields inside `AppConfig` also requires `T: Default`, so deserialization of partial TOML (e.g., missing sections) will also fail to compile.
+1. **Lines 8-9**: `OpenAIClientConfig` and `RetryConfig` are imported from `async_openai::config`. Neither type exists in async-openai 0.36.1. Verified by grepping the entire async-openai 0.36.1 source tree — zero matches.
 
-Additionally, the test `test_both_providers_registered` in `register.rs:84` uses struct update syntax `..Default::default()` on an `AppSection` literal, which further confirms this is a compilation error.
+2. **Lines 63-68**: The code constructs `OpenAIClientConfig` with a `RetryConfig` field, but no such struct exists. The client configuration in async-openai 0.36.1 uses `backoff::ExponentialBackoff` directly.
 
-All 8 structs contain only primitive types (`String`, `u64`, `u32`, `bool`, `f64`, `i32`) — all of which implement `Default` — so adding the derive is safe and trivial.
+3. **Lines 91, 98**: `Client::build(http_client, config, client_config)` — the `Client::build` method **does exist** in async-openai 0.36.1, but its third parameter is `backoff::ExponentialBackoff` (line 109 of the crate's `client.rs`), not `OpenAIClientConfig`. This is a type mismatch compile error.
 
-**Fix:** Add `Default` to each struct's derive attribute:
-```rust
-// Before:
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AppSection {
-
-// After:
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-pub struct AppSection {
-```
-Apply to `AppSection`, `UiSection`, `TencentSection`, `SoulVoiceSection`, `TtsQwenSection`, `IndexTTS2Section`, `DoubaoTTSSection`, and `FramesSection`. Only `AzureSection` and `ProxySection` already have it.
-
----
-
-### CR-02: `reqwest = "0.13"` version likely incompatible with async-openai's reqwest 0.12.x
-
-**File:** `E:\GitLib\NarratoAI\Cargo.toml:25`
-**Issue:** The project depends on async-openai 0.36.x, which depends on reqwest 0.12.x. `Cargo.toml` specifies `reqwest = "0.13"`.
-
-If reqwest 0.13 does not exist on crates.io (the latest stable version as of this writing is 0.12.x), the build fails at dependency resolution.
-
-If reqwest 0.13 does exist, Rust's dependency resolver will pull in two distinct copies: reqwest 0.12.x for async-openai's internal use, and reqwest 0.13 for the direct dependency. The code at `openai_compatible.rs:86,93` calls:
-```rust
-Client::build(http_client, config, Default::default())
-```
-where `http_client` is `reqwest::Client`. If it was built with `reqwest::Client::builder()` from version 0.13, but `Client::build()` (async-openai) expects `reqwest::Client` from version 0.12.x, these are different types in Rust's type system, resulting in a type mismatch compilation error.
+**Root cause:** The async-openai v0.36 API was rewritten. Earlier versions (pre-0.35) had `OpenAIClientConfig`/`RetryConfig`, but version 0.36.1 (resolved by `Cargo.lock`) replaced them with `backoff::ExponentialBackoff` as a first-class field on the `Client` struct.
 
 **Fix:**
-```toml
-# Before:
-reqwest = "0.13"
 
-# After:
-reqwest = "0.12"
-```
+Remove all references to `OpenAIClientConfig` and `RetryConfig`. Build the client using the safe builder pattern, which preserves custom timeouts and proxy settings through the `reqwest::Client`:
 
----
-
-### CR-03: `test_json_response_format_fallback` never triggers the fallback path
-
-**File:** `E:\GitLib\NarratoAI\tests\llm_test.rs:198-260`
-**Issue:** The test claims to verify the JSON response_format fallback but calls:
 ```rust
-provider_fail.generate_text("test", None, None, None, None).await
+// Remove these imports (lines 8-9):
+//   OpenAIClientConfig, RetryConfig
+
+// Replace lines 63-99 with:
+let client = if proxy_http.is_some() || proxy_https.is_some() {
+    let mut http_client_builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs));
+
+    if let Some(ref proxy_url) = proxy_http {
+        let proxy = reqwest::Proxy::http(proxy_url)
+            .map_err(|e| LLMError::Configuration(format!("HTTP 代理配置失败: {}", e)))?;
+        http_client_builder = http_client_builder.proxy(proxy);
+    }
+
+    if let Some(ref proxy_url) = proxy_https {
+        let proxy = reqwest::Proxy::https(proxy_url)
+            .map_err(|e| LLMError::Configuration(format!("HTTPS 代理配置失败: {}", e)))?;
+        http_client_builder = http_client_builder.proxy(proxy);
+    }
+
+    let http_client = http_client_builder
+        .build()
+        .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
+
+    Client::with_config(config).with_http_client(http_client)
+} else {
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
+
+    Client::with_config(config).with_http_client(http_client)
+};
 ```
 
-The final `None` is the `response_format` parameter. Inside `generate_text` (openai_compatible.rs:238):
-```rust
-let use_json = matches!(response_format, Some(LlmResponseFormat::Json));
-```
-
-Since `response_format` is `None`, `use_json` is `false`, and the normal code path executes:
-```rust
-self.client.chat().create(request).await.map_err(LLMError::from)?
-```
-
-The `generate_text_with_json_fallback` method — which is the actual retry logic that strips `response_format` and appends JSON instructions — is NEVER called. The test merely confirms that a 400 error propagates without crashing, and that a separate provider on a separate mock server succeeds. It does not test the JSON fallback mechanism at all.
-
-**Fix:** Pass `Some(LlmResponseFormat::Json)` as the response_format argument, and restructure to use a single mock server where the first request (with `response_format`) returns 400 and the retry (without `response_format`) returns 200:
-```rust
-let result = provider_fail
-    .generate_text("test", None, None, None, Some(LlmResponseFormat::Json))
-    .await;
-```
-
----
+The `Client::with_config` constructor uses `Default::default()` for the `backoff` field, giving sensible exponential backoff behaviour.
 
 ## Warnings
 
-### WR-01: `From<OpenAIError>` maps all errors lossily — Authentication and RateLimit variants are dead code
+### WR-01: JPEG quality documentation comment does not match implementation
 
-**File:** `E:\GitLib\NarratoAI\src\error.rs:98-103`
-**Issue:** The `From<OpenAIError>` implementation unconditionally converts every `OpenAIError` to `LLMError::APICall(err.to_string())`. This means:
-- 401 authentication failures become `APICall` instead of `Authentication`.
-- 429 rate limit responses become `APICall` instead of `RateLimit`.
-- The `Authentication`, `RateLimit`, `ContentFilter`, and `ModelNotSupported` variants of `LLMError` can never be produced through any normal code path — they are dead variants.
-- The ignored test `test_openai_error_mapping` (llm_test.rs:266) was intended to verify this mapping but cannot because the variants are unreachable.
+**File:** `src/llm/image_utils.rs:21`
 
-**Fix:** Match on the `status_code` from `ApiError` to produce appropriate variants:
+**Issue:** The doc comment says "JPEG quality 85" (referencing D-20). However, `image::DynamicImage::write_to(&mut buf, ImageFormat::Jpeg)` uses the default quality of 75 (from the `image` crate's `JpegEncoder` defaults). To achieve quality 85, the code must use `JpegEncoder::new(&mut buf).with_quality(85)`:
+
 ```rust
-impl From<async_openai::error::OpenAIError> for LLMError {
-    fn from(err: async_openai::error::OpenAIError) -> Self {
-        match &err {
-            OpenAIError::ApiError(api_err) => {
-                match api_err.status_code {
-                    Some(401) => LLMError::Authentication(api_err.message.clone()),
-                    Some(429) => LLMError::RateLimit(api_err.message.clone()),
-                    _ => LLMError::APICall(err.to_string()),
-                }
-            }
-            _ => LLMError::APICall(err.to_string()),
-        }
-    }
+use image::codecs::jpeg::JpegEncoder;
+let mut encoder = JpegEncoder::new_with_quality(&mut buf, 85);
+encoder.encode(
+    thumb.as_bytes(),
+    thumb.width(),
+    thumb.height(),
+    thumb.color().into(),
+)?;
+```
+
+**Impact:** Low. The base64 output will be slightly larger at quality 85 vs. 75, but this is unlikely to affect LLM vision analysis results. Primarily a documentation fidelity issue.
+
+**Fix:** Either update the comment to "JPEG quality default (75)" or switch to `JpegEncoder` with explicit quality 85.
+
+---
+
+### WR-02: `test_openai_error_mapping` does not verify error variants
+
+**File:** `tests/llm_test.rs:256-291`
+
+**Issue:** The test iterates over status codes (401, 429, 400, 500) and asserts `result.is_err()`, but does **not** verify that the returned `LLMError` variant matches expectation. The variable `_expected_variant` is ignored (prefixed with `_`). The test name says "error mapping" but the mapping logic (`From<OpenAIError> for LLMError` in `error.rs:99-112`) is never actually tested.
+
+```rust
+// Current test only checks is_err() — does NOT verify the variant:
+for (status_code, _expected_variant) in test_cases {
+    // ...
+    assert!(result.is_err(), "HTTP {} 应返回错误", status_code);
+}
+```
+
+**Fix:** Match against the expected variant. Example for the 401 case:
+
+```rust
+match result {
+    Err(LLMError::Authentication(_)) => {} // correct
+    _ => panic!("expected Authentication for 401, got {:?}", result),
 }
 ```
 
 ---
 
-### WR-02: Provider registration failures silently swallowed
+### WR-03: `test_analyze_images_result_ordering` does not actually verify ordering
 
-**File:** `E:\GitLib\NarratoAI\src\llm\register.rs:33-41,52-63`
-**Issue:** Both `if let Ok(provider) = OpenAiCompatibleProvider::new(...)` branches discard the `Err` case, emitting only a `tracing::warn!` with no specific error detail. If provider construction fails (e.g., proxy configuration error, invalid base URL), the provider is silently not registered. Callers who later call `registry.get("openai_vision")` receive `LLMError::ProviderNotFound` — a misleading error that points to a missing registration rather than the underlying configuration problem.
+**File:** `tests/llm_test.rs:296-341`
 
-**Fix:** Log the actual error detail, and consider returning `Result` from `register_all_providers`:
-```rust
-match OpenAiCompatibleProvider::new(...) {
-    Ok(provider) => registry.register("openai_vision", Arc::new(provider)),
-    Err(e) => tracing::error!("vision provider 注册失败: {}", e),
-}
-```
+**Issue:** The test name claims to test result ordering, but all three mock responses return identical text `"batch analysis result"`. Even if results arrived out of order, the test would pass because all values are the same. The test only asserts `results.len() == 3`, not `results[0] == "... images[0] ..."` etc.
+
+**Fix:** Make each mock response return distinct text (e.g., "result for image 1", "result for image 2", "result for image 3") and assert that the returned results are in the correct order corresponding to the input image array.
 
 ---
 
-### WR-03: `api_key` and `base_url` retained in memory with `#[allow(dead_code)]`
+### WR-04: `test_utils.rs` helpers duplicated in `tests/llm_test.rs`
 
-**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:33-38`
-**Issue:** Both `api_key` and `base_url` are stored as `String` fields with `#[allow(dead_code)]`, meaning the compiler warns about them but the annotation suppresses it. These values are passed to `OpenAIConfig::with_api_key()` and `with_api_base()` during construction and never read again. The API key remains in the struct's memory for its entire lifetime, increasing the attack surface for memory disclosure vulnerabilities.
+**Files:** `src/llm/test_utils.rs:5-21`, `tests/llm_test.rs:366-380`
 
-**Fix:** Remove the fields or keep only `base_url` if it is needed for display/reference. The `#[allow(dead_code)]` attribute should be eliminated:
+**Issue:** The functions `write_test_jpeg` and `create_test_jpeg_path` are defined identically in two places. The `test_utils` module is gated with `#[cfg(test)]` in `mod.rs`, which makes it only available for unit tests within the crate, not for integration tests in `tests/`. The integration test therefore re-implements the same helpers.
+
+**Fix:** Move the test JPEG helpers to a conditional `pub mod test_utils` that is also available for integration tests. One approach is to add a `[[lib]]` section with `test = true` and use `#[cfg(any(test, feature = "test-helpers"))]`, or more simply, make the integration test import from `narratoai_core::llm::test_utils` by making the module `pub` without the `cfg(test)` gate (and document it as test-only).
+
+---
+
+### WR-05: Underscore prefix on `_max_retries` is misleading — variable IS used
+
+**File:** `src/llm/openai_compatible.rs:53`
+
+**Issue:** The parameter is named `_max_retries` with a leading underscore, which in Rust conventionally means "intentionally unused". However, it IS used at line 65: `max_retries: _max_retries`. The `_` prefix is unnecessary and misleading.
+
 ```rust
-pub struct OpenAiCompatibleProvider {
+pub fn new(
+    api_key: String,
     model_name: String,
-    client: Client<OpenAIConfig>,
-}
-```
-
----
-
-### WR-04: `extract_text` silently returns empty string for null/missing content
-
-**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:132-139`
-**Issue:** The function chains `.first()` -> `.and_then(...)` -> `.unwrap_or("")`. If the response has zero choices (possible in content-filtered responses) or the message content is null, the caller receives an empty string with no indication that the response was malformed. This masks API-level issues — callers cannot distinguish between "model output is genuinely empty" and "API returned an unexpected response structure."
-
-**Fix:** Return `Result<String, LLMError>` and map the missing-content case to a proper error:
-```rust
-fn extract_text(response: &CreateChatCompletionResponse) -> Result<String, LLMError> {
-    response.choices.first()
-        .and_then(|c| c.message.content.as_deref())
-        .map(|s| s.to_string())
-        .ok_or_else(|| LLMError::APICall("响应中没有有效文本内容".to_string()))
-}
-```
-
----
-
-### WR-05: Image processing errors misclassified as `LLMError::Configuration`
-
-**File:** `E:\GitLib\NarratoAI\src\llm\image_utils.rs:13-14,22-23`
-**Issue:** Both `image::open()` failures (file not found, corrupt image, unsupported format) and JPEG encoding failures are mapped to `LLMError::Configuration(...)`. Semantically, "image file not found" or "invalid image format" are runtime input errors, not configuration problems. Using `Configuration` for runtime errors misleads debugging: users see "配置错误: 图片加载失败" and check their config.toml, when the actual problem is a missing file or invalid image.
-
-**Fix:** Use `LLMError::General` or add a dedicated variant:
-```rust
-let img = image::open(path)
-    .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
-// ...
-thumb.write_to(&mut buf, image::ImageFormat::Jpeg)
-    .map_err(|e| LLMError::General(format!("JPEG 编码失败: {}", e)))?;
-```
-
----
-
-### WR-06: `test_openai_error_mapping` permanently `#[ignore]` — error mapping unverified
-
-**File:** `E:\GitLib\NarratoAI\tests\llm_test.rs:266-303`
-**Issue:** The test for HTTP error status to `LLMError` variant mapping (401 -> Authentication, 429 -> RateLimit, etc.) is annotated `#[ignore]`. The comment explains that async-openai's default 3 retries with exponential backoff make the test impractically slow. Since there is no CI configuration to run ignored tests, the entire error-mapping layer is untested. Combined with WR-01 (lossy `From` impl), a future change to async-openai's error types could silently break error handling.
-
-**Root cause:** The `_max_retries: u32` parameter in `OpenAiCompatibleProvider::new()` is never passed to the async-openai client configuration. The call `Client::build(http_client, config, Default::default())` at lines 86 and 93 of `openai_compatible.rs` uses the default retry config (max_retries=3).
-
-**Fix:** Thread `max_retries` into the async-openai client configuration:
-```rust
-Client::build(http_client, config, async_openai::config::OpenAIClientConfig {
-    retry: async_openai::config::RetryConfig {
+    base_url: String,
+    _max_retries: u32,    // <-- misleading underscore
+    timeout_secs: u64,
+    proxy_http: Option<String>,
+    proxy_https: Option<String>,
+) -> Result<Self, LLMError> {
+    // ...
+    retry: RetryConfig {    // (NOTE: RetryConfig doesn't exist — see CR-01)
         max_retries: _max_retries,
-        ..Default::default()
-    },
-    ..Default::default()
-})
+```
+
+**Fix:** Rename `_max_retries` to `max_retries`.
+
+---
+
+### WR-06: `create_test_provider` is unnecessarily `async`
+
+**File:** `tests/llm_test.rs:346`
+
+**Issue:** The function is declared `async fn` but contains no `await` calls. It performs purely synchronous work (string formatting, constructor call). Every test calls it with `.await`, which resolves immediately.
+
+```rust
+async fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
+    let api_base = format!("{}/v1", base_url.trim_end_matches('/'));
+    OpenAiCompatibleProvider::new(...)
+```
+
+**Fix:** Remove the `async` keyword and the `.await` at call sites:
+
+```rust
+fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
+```
+
+---
+
+### WR-07: Base URL not validated at provider registration — silent runtime failure
+
+**File:** `src/llm/register.rs:30-45`
+
+**Issue:** When registering providers, the code validates that `api_key` and `model_name` are non-empty, but does **not** validate that `base_url` is non-empty. If the config has `vision_openai_base_url = ""` (or `text_openai_base_url = ""`) while the other fields are filled, the provider is created with an empty API base URL. All subsequent API calls will fail at runtime with opaque errors, rather than failing loudly at registration time.
+
+```rust
+// Lines 30-31: checks api_key and model_name but NOT base_url
+if !config.app.vision_openai_api_key.is_empty()
+    && !config.app.vision_openai_model_name.is_empty()
+{
+    // base_url could be empty here — still creates the provider
+```
+
+**Fix:** Add base URL validation:
+
+```rust
+if !config.app.vision_openai_api_key.is_empty()
+    && !config.app.vision_openai_model_name.is_empty()
+    && !config.app.vision_openai_base_url.is_empty()
+{
+```
+
+---
+
+### WR-08: `batch_size = 0` causes panic via `slice::chunks(0)`
+
+**File:** `src/llm/openai_compatible.rs:334`
+
+**Issue:** The `analyze_images` method calls `data_urls.chunks(batch_size)` without validating that `batch_size >= 1`. In Rust, `slice::chunks(0)` panics with "chunk size must be non-zero". While the default is 10 and current callers always pass positive values, the function signature accepts `Option<usize>` which allows a caller to pass `Some(0)`.
+
+**Fix:** Add a guard at line 329:
+
+```rust
+let batch_size = batch_size.unwrap_or(10).max(1);
+```
+
+---
+
+### WR-09: Code duplication between proxy and non-proxy branches in `new()`
+
+**File:** `src/llm/openai_compatible.rs:71-99`
+
+**Issue:** The proxy-conditional branch (lines 72-91) and the non-proxy branch (lines 93-99) share nearly identical `reqwest::Client::builder().timeout(...).build()` logic. The only difference is the proxy setup. This duplication makes the code harder to maintain (both branches must be kept in sync).
+
+**Fix:** Build the `reqwest::Client` once, conditionally adding proxy:
+
+```rust
+let mut http_client_builder = reqwest::Client::builder()
+    .timeout(Duration::from_secs(timeout_secs));
+
+if let Some(ref proxy_url) = proxy_http {
+    let proxy = reqwest::Proxy::http(proxy_url)
+        .map_err(|e| LLMError::Configuration(format!("HTTP 代理配置失败: {}", e)))?;
+    http_client_builder = http_client_builder.proxy(proxy);
+}
+if let Some(ref proxy_url) = proxy_https {
+    let proxy = reqwest::Proxy::https(proxy_url)
+        .map_err(|e| LLMError::Configuration(format!("HTTPS 代理配置失败: {}", e)))?;
+    http_client_builder = http_client_builder.proxy(proxy);
+}
+
+let http_client = http_client_builder
+    .build()
+    .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
+
+let client = Client::with_config(config).with_http_client(http_client);
+```
+
+---
+
+### WR-10: Unused `VisionBatchConfig` type — defined but never used
+
+**File:** `src/llm/types.rs:13-28`
+
+**Issue:** `VisionBatchConfig` is defined with `batch_size` and `max_concurrency` fields, but the `LlmProvider` trait's `analyze_images` method accepts individual `Option<usize>` parameters instead. The type is never referenced anywhere in the codebase (no function takes it as input, no struct uses it as a field).
+
+**Fix:** Either use `VisionBatchConfig` in the trait method signature to avoid dead code, or remove it:
+
+```rust
+// Option A: use it in the trait
+async fn analyze_images(
+    &self,
+    images: &[PathBuf],
+    prompt: &str,
+    batch_config: Option<VisionBatchConfig>,
+) -> Result<Vec<String>, LLMError>;
+
+// Option B: remove the dead type
 ```
 
 ---
 
 ## Info
 
-### IN-01: `write_test_jpeg` and `create_test_jpeg_path` duplicated in integration test
+### IN-01: Redundant `use crate::config::types::AppConfig` in test module
 
-**File:** `E:\GitLib\NarratoAI\tests\llm_test.rs:378-392` vs `src/llm/test_utils.rs:5-21`
-**Issue:** The integration test file defines its own local copies of `write_test_jpeg()` and `create_test_jpeg_path()` that are identical to the public functions in `test_utils.rs`. Integration tests cannot access `#[cfg(test)]` items from library crates.
+**File:** `src/llm/register.rs:69`
 
-**Suggestion:** Either remove `#[cfg(test)]` from `test_utils` and gate it behind `#[cfg(any(test, feature = "test-utils"))]`, or accept the duplication with a sync comment. Remove the local copies if test_utils is made accessible.
+**Issue:** The test module's `use crate::config::types::AppConfig;` is redundant because `use super::*;` (line 68) already brings `AppConfig` into scope from the parent module (line 2).
+
+**Fix:** Remove line 69.
 
 ---
 
-### IN-02: JSON fallback instruction hardcoded in Chinese only
+### IN-02: Unnecessary `request.clone()` before first API attempt in JSON fallback
 
-**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:159-162`
-**Issue:** The fallback appends the Chinese instruction "请确保输出严格的JSON格式，不要包含任何其他文字或标记。" after the original prompt. This may be ineffective for English-only models or models that respond better to instructions in the original prompt's language.
+**File:** `src/llm/openai_compatible.rs:157`
 
-**Suggestion:** Use an English instruction that is language-neutral:
+**Issue:** `request.clone()` is called before the first `self.client.chat().create(request.clone())` call. The cloned copy is only needed on error (for the JSON-deserialization-based retry). Clone only when the error path is taken.
+
 ```rust
-let json_prompt = format!("{}\n\nPlease output valid JSON only, with no additional text or markdown.", original_prompt);
+// Current: clone speculatively before the first call
+let result = self.client.chat().create(request.clone()).await;
+
+// Better: clone only on error
+let result = self.client.chat().create(request).await;
+match result {
+    Ok(response) => Ok(response),
+    Err(OpenAIError::ApiError(api_err)) => {
+        // Clone the original request here for retry, if needed
+    }
+}
 ```
 
 ---
 
-### IN-03: `analyze_images` trait method lacks `system_prompt` parameter
+### IN-03: Redundant `futures-util` dependency
 
-**File:** `E:\GitLib\NarratoAI\src\llm\provider.rs:43-48`
-**Issue:** Unlike `generate_text`, the `analyze_images` method signature does not accept a `system_prompt`. Vision tasks often benefit from system-level role instructions (e.g., "You are a video frame analyst"). The only way to pass guidance is through the user-facing `prompt`, conflating role and query.
+**File:** `Cargo.toml:19`
 
-**Suggestion:** Add `system_prompt: Option<&str>` to `analyze_images` in the trait and implementation for API consistency.
+**Issue:** Both `futures = "0.3"` and `futures-util = "0.3.32"` are listed separately. The `futures` crate re-exports `futures-util` (and `futures-core`, `futures-task`, etc.). The project never imports directly from `futures_util`. The duplicate dependency is harmless but unnecessary.
 
----
-
-### IN-04: Default `project_version` (0.1.0) inconsistent with Python project (0.7.8)
-
-**File:** `E:\GitLib\NarratoAI\src\config\types.rs:340`
-**Issue:** The test `test_default_values` asserts `config.app.project_version == "0.1.0"`, but the Python NarratoAI project (as documented in `CLAUDE.md`) is at version 0.7.8. The Rust rewrite reports a mismatched version, which could cause confusion in logging and version-dependent behavior.
-
-**Suggestion:** Load the version from the `project_version` file at build time (e.g., `build.rs` or `include_str!`), or update the default to match 0.7.8.
+**Fix:** Remove `futures-util` from `[dependencies]`.
 
 ---
 
-_Reviewed: 2026-04-28T08:00:00Z_
+_Reviewed: 2026-04-28T14:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
