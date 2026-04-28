@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+use std::path::Path;
 use std::path::PathBuf;
 use crate::error::TTSError;
 
@@ -25,6 +27,61 @@ pub struct TtsOutput {
     pub duration: f64,
 }
 
+/// TTS 引擎统一接口
+///
+/// 对应 D-05: 使用 #[async_trait] 宏
+/// 对应 D-07: 独立参数 text/voice_name/rate/pitch/output_path
+/// 每个具体引擎（Edge-TTS、Azure 等）实现此 trait
+#[async_trait]
+pub trait TtsProvider: Send + Sync {
+    /// 将文本合成为语音音频文件
+    ///
+    /// # 参数
+    /// - text: 要合成的文本
+    /// - voice_name: TTS 音色名
+    /// - rate: 语速（1.0 为标准速度）
+    /// - pitch: 音调（0 为标准音调）
+    /// - output_path: 输出音频文件路径
+    ///
+    /// # 返回值
+    /// - Ok(TtsOutput): 包含音频文件路径、词边界时序和时长
+    /// - Err(TTSError): 合成失败
+    async fn synthesize(
+        &self,
+        text: &str,
+        voice_name: &str,
+        rate: f64,
+        pitch: f64,
+        output_path: &Path,
+    ) -> Result<TtsOutput, TTSError>;
+}
+
+/// TTS 路由器：按引擎名字符串分发到对应实现
+///
+/// 对应 D-11: 字符串匹配分发
+/// 对应 D-12: 模块级 pub async fn，不包装为结构体
+/// 对应 D-13: 未知引擎返回 TTSError::UnknownEngine
+/// 对应 D-14: Phase 3 只实现 Edge-TTS 分支
+///
+/// # 参数
+/// - engine: 引擎名称（如 "edge_tts"）
+/// - 其余参数同 TtsProvider::synthesize
+pub async fn synthesize(
+    engine: &str,
+    _text: &str,
+    _voice_name: &str,
+    _rate: f64,
+    _pitch: f64,
+    _output_path: &Path,
+) -> Result<TtsOutput, TTSError> {
+    match engine {
+        // Plan 03-02 将添加 "edge_tts" => EdgeTtsEngine::new(...).synthesize(...) 分支
+        _ => Err(TTSError::UnknownEngine {
+            engine: engine.to_string(),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -38,7 +95,7 @@ mod tests {
     impl TtsProvider for MockTtsEngine {
         async fn synthesize(
             &self,
-            text: &str,
+            _text: &str,
             _voice_name: &str,
             _rate: f64,
             _pitch: f64,
