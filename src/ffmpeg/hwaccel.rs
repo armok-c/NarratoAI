@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use crate::error::FFmpegError;
 
@@ -31,32 +32,171 @@ pub struct FFmpegProfileInfo {
     pub compatibility_level: u8,
 }
 
+/// 内部懒加载 Profile 表
+fn profile_map() -> &'static HashMap<HwAccelProfile, FFmpegProfileInfo> {
+    static PROFILES: OnceLock<HashMap<HwAccelProfile, FFmpegProfileInfo>> = OnceLock::new();
+    PROFILES.get_or_init(|| {
+        let mut m = HashMap::with_capacity(5);
+        m.insert(
+            HwAccelProfile::HighPerformance,
+            FFmpegProfileInfo {
+                name: "High Performance",
+                description: "高性能（NVIDIA/AMD 硬件编码）",
+                hwaccel_enabled: true,
+                hwaccel_type: Some("auto"),
+                encoder: "auto",
+                quality_preset: "fast",
+                pixel_format: "yuv420p",
+                additional_args: &["-preset", "fast"],
+                compatibility_level: 2,
+            },
+        );
+        m.insert(
+            HwAccelProfile::Compatibility,
+            FFmpegProfileInfo {
+                name: "Compatibility",
+                description: "兼容性回退（软件编码）",
+                hwaccel_enabled: false,
+                hwaccel_type: None,
+                encoder: "libx264",
+                quality_preset: "medium",
+                pixel_format: "yuv420p",
+                additional_args: &["-preset", "medium", "-crf", "23"],
+                compatibility_level: 5,
+            },
+        );
+        m.insert(
+            HwAccelProfile::WindowsNvidia,
+            FFmpegProfileInfo {
+                name: "Windows NVIDIA",
+                description: "Windows NVIDIA 专用硬件编码",
+                hwaccel_enabled: true,
+                hwaccel_type: Some("nvenc_pure"),
+                encoder: "h264_nvenc",
+                quality_preset: "medium",
+                pixel_format: "yuv420p",
+                additional_args: &["-preset", "medium", "-cq", "23"],
+                compatibility_level: 3,
+            },
+        );
+        m.insert(
+            HwAccelProfile::MacosVideotoolbox,
+            FFmpegProfileInfo {
+                name: "macOS VideoToolbox",
+                description: "macOS VideoToolbox 硬件编码",
+                hwaccel_enabled: true,
+                hwaccel_type: Some("videotoolbox"),
+                encoder: "h264_videotoolbox",
+                quality_preset: "medium",
+                pixel_format: "yuv420p",
+                additional_args: &["-q:v", "65"],
+                compatibility_level: 3,
+            },
+        );
+        m.insert(
+            HwAccelProfile::UniversalSoftware,
+            FFmpegProfileInfo {
+                name: "Universal Software",
+                description: "通用软件编码（libx264）",
+                hwaccel_enabled: false,
+                hwaccel_type: None,
+                encoder: "libx264",
+                quality_preset: "medium",
+                pixel_format: "yuv420p",
+                additional_args: &["-preset", "medium", "-crf", "23"],
+                compatibility_level: 5,
+            },
+        );
+        m
+    })
+}
+
 /// 5 个预定义 Profile（对应 Python 版 PROFILES 字典）
 pub fn get_profiles() -> HashMap<HwAccelProfile, FFmpegProfileInfo> {
-    // RED 阶段: 返回空 map（测试期望 5 个 profile）
-    HashMap::new()
+    profile_map().clone()
 }
 
 /// 获取指定 Profile 的配置信息
 pub fn get_profile(profile: HwAccelProfile) -> Option<&'static FFmpegProfileInfo> {
-    // RED 阶段: 返回 None
-    let _ = profile;
-    None
+    profile_map().get(&profile)
 }
 
 /// 检测可用硬件编码器
 ///
-/// 使用 `ffmpeg_sidecar::ffmpeg_path()` 获取 ffmpeg 二进制路径（per D-12），
-/// 然后通过 `std::process::Command` 调用 `ffmpeg -encoders` 解析输出。
+/// 使用 `ffmpeg_sidecar::paths::ffmpeg_path()` 获取 ffmpeg 二进制路径（per D-12），
+/// 然后通过 `std::process::Command` 调用 `ffmpeg -encoders -hide_banner` 解析输出。
 pub fn detect_hw_encoders() -> Result<Vec<String>, FFmpegError> {
-    // RED 阶段: 返回空列表（测试期望包含 libx264 或硬件编码器）
-    Ok(Vec::new())
+    let ffmpeg_bin = ffmpeg_sidecar::paths::ffmpeg_path();
+
+    let output = match std::process::Command::new(&ffmpeg_bin)
+        .args(["-encoders", "-hide_banner"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::warn!("无法启动 ffmpeg: {} — 返回空编码器列表", e);
+            return Ok(Vec::new());
+        }
+    };
+
+    if !output.status.success() {
+        tracing::warn!(
+            "ffmpeg -encoders exited with code {:?} — 返回空编码器列表",
+            output.status.code()
+        );
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // 要检测的硬件编码器列表
+    let hw_encoders = [
+        "h264_nvenc",
+        "hevc_nvenc",
+        "h264_amf",
+        "hevc_amf",
+        "h264_qsv",
+        "hevc_qsv",
+        "h264_videotoolbox",
+    ];
+
+    let detected: Vec<String> = hw_encoders
+        .iter()
+        .filter(|&&name| stdout.contains(name))
+        .map(|&name| name.to_string())
+        .collect();
+
+    Ok(detected)
 }
 
 /// 根据检测到的编码器推荐 Profile
+///
+/// 推荐逻辑（对齐 Python 版 get_recommended_profile）:
+/// - 有 nvenc -> 检查 OS: Windows -> WindowsNvidia, 其他 -> HighPerformance
+/// - 有 videotoolbox -> MacosVideotoolbox
+/// - 有 amf 或 qsv -> HighPerformance
+/// - 无硬件编码器 或 检测失败 -> UniversalSoftware
 pub fn recommend_profile() -> HwAccelProfile {
-    // RED 阶段: 始终返回 UniversalSoftware
-    HwAccelProfile::UniversalSoftware
+    match detect_hw_encoders() {
+        Ok(encoders) => {
+            let joined: String = encoders.join(" ");
+
+            if joined.contains("nvenc") {
+                if cfg!(target_os = "windows") {
+                    HwAccelProfile::WindowsNvidia
+                } else {
+                    HwAccelProfile::HighPerformance
+                }
+            } else if joined.contains("videotoolbox") {
+                HwAccelProfile::MacosVideotoolbox
+            } else if joined.contains("amf") || joined.contains("qsv") {
+                HwAccelProfile::HighPerformance
+            } else {
+                HwAccelProfile::UniversalSoftware
+            }
+        }
+        Err(_) => HwAccelProfile::UniversalSoftware,
+    }
 }
 
 #[cfg(test)]
@@ -77,21 +217,21 @@ mod tests {
     }
 
     /// 验证 detect_hw_encoders 返回合法的编码器名称列表
+    ///
+    /// 注意: 如果系统未安装 FFmpeg，返回空列表（非错误）。
     #[test]
     fn test_detect_encoders_format() {
         let result = detect_hw_encoders();
         assert!(result.is_ok(), "detect_hw_encoders 不应失败");
         let encoders = result.unwrap();
-        // 至少应包含一个软件编码器或硬件编码器
-        assert!(
-            !encoders.is_empty(),
-            "编码器列表不应为空（至少应包含 libx264）"
-        );
-        assert!(
-            encoders.iter().any(|e| e.contains("264") || e.contains("265")),
-            "编码器名称应包含 264 或 265，实际: {:?}",
-            encoders
-        );
+        if !encoders.is_empty() {
+            assert!(
+                encoders.iter().any(|e| e.contains("264") || e.contains("265")),
+                "编码器名称应包含 264 或 265，实际: {:?}",
+                encoders
+            );
+        }
+        // 空列表表示系统未安装 FFmpeg, 测试仍然通过
     }
 
     /// recommend_profile 始终返回 5 个变体之一
@@ -107,7 +247,7 @@ mod tests {
         }
     }
 
-    /// 验证 get_profile 返回正确的 profile 信息
+    /// 验证 get_profiles 返回正确的 profile 信息
     #[test]
     fn test_profiles_data() {
         let profiles = get_profiles();

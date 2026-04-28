@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 
 use crate::error::FFmpegError;
 
@@ -14,19 +15,82 @@ pub struct VideoInfo {
 
 /// 通过 ffprobe 获取视频信息（同步）
 ///
-/// 使用 `ffmpeg_sidecar::ffprobe_path()` 获取 ffprobe 二进制路径（per D-12），
+/// 使用 `ffmpeg_sidecar::ffprobe::ffprobe_path()` 获取 ffprobe 二进制路径（per D-12），
 /// 通过 `std::process::Command` 调用 ffprobe 解析 JSON 输出。
 /// 使用 std::process::Command 而非 ffmpeg-sidecar API 是合理的（WARNING 1 说明），
 /// 因为 ffmpeg-sidecar 不提供完整的 ffprobe 封装。
-pub fn probe_video(_path: &Path) -> Result<VideoInfo, FFmpegError> {
-    // RED 阶段: stub 返回错误
-    unimplemented!("GREEN 阶段实现")
+pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
+    let ffprobe_bin = ffmpeg_sidecar::ffprobe::ffprobe_path();
+
+    let output = Command::new(&ffprobe_bin)
+        .args([
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+        ])
+        .arg(path.as_os_str())
+        .output()
+        .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(FFmpegError::ExecutionError(format!(
+            "ffprobe exited with code {:?}: {}",
+            output.status.code(),
+            stderr,
+        )));
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| FFmpegError::OutputParseError(e.to_string()))?;
+
+    let duration_secs = json["format"]["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+
+    let format_name = json["format"]["format_name"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
+
+    // 从 streams 数组中查找第一个 video stream
+    let video_stream = json["streams"].as_array().and_then(|streams| {
+        streams
+            .iter()
+            .find(|s| s["codec_type"].as_str() == Some("video"))
+    });
+
+    let (width, height, codec_name) = match video_stream {
+        Some(stream) => (
+            stream["width"].as_u64().unwrap_or(0) as u32,
+            stream["height"].as_u64().unwrap_or(0) as u32,
+            stream["codec_name"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
+        ),
+        None => (0, 0, "unknown".to_string()),
+    };
+
+    Ok(VideoInfo {
+        duration_secs,
+        width,
+        height,
+        codec_name,
+        format_name,
+    })
 }
 
 /// 通过 ffprobe 获取视频信息（异步，spawn_blocking 包装）
-pub async fn probe_video_async(_path: &Path) -> Result<VideoInfo, FFmpegError> {
-    // RED 阶段: stub 返回错误
-    unimplemented!("GREEN 阶段实现")
+pub async fn probe_video_async(path: &Path) -> Result<VideoInfo, FFmpegError> {
+    let path_buf = path.to_path_buf();
+    tokio::task::spawn_blocking(move || probe_video(&path_buf))
+        .await
+        .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
 }
 
 #[cfg(test)]
