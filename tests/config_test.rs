@@ -9,7 +9,8 @@ use tempfile::TempDir;
 /// 从 config.example.toml 加载完整配置，验证所有 10 个 section 的值
 #[test]
 fn test_load_example_config() {
-    let config_manager = ConfigManager::load(Path::new("config.example.toml"))
+    let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml");
+    let config_manager = ConfigManager::load(&config_path)
         .expect("config.example.toml 应加载成功");
     let config = config_manager.get();
 
