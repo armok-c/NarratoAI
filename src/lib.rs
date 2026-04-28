@@ -1,6 +1,7 @@
 pub mod config;
 pub mod ffmpeg;
 pub mod error;
+pub mod tts;
 
 /// 库版本号，编译时从 Cargo.toml 注入
 pub fn version() -> &'static str {

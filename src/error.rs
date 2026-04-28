@@ -45,6 +45,25 @@ impl From<notify::Error> for ConfigError {
     }
 }
 
+/// TTS 领域错误
+#[derive(Error, Debug)]
+pub enum TTSError {
+    #[error("未知 TTS 引擎: {engine}")]
+    UnknownEngine { engine: String },
+
+    #[error("TTS 连接失败: {0}")]
+    ConnectionFailed(String),
+
+    #[error("TTS 认证失败: {0}")]
+    AuthenticationFailed(String),
+
+    #[error("TTS 合成失败: {0}")]
+    SynthesisFailed(String),
+
+    #[error("TTS 重试耗尽: {0}")]
+    RetryExhausted(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +136,40 @@ mod tests {
         let err = FFmpegError::BinaryNotFound;
         let msg = err.to_string();
         assert!(msg.contains("未找到 FFmpeg 二进制文件"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_tts_error_unknown_engine_message_chinese() {
+        let err = TTSError::UnknownEngine { engine: "test".to_string() };
+        let msg = err.to_string();
+        assert!(msg.contains("未知 TTS 引擎"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_tts_error_connection_failed_message_chinese() {
+        let err = TTSError::ConnectionFailed("test".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("TTS 连接失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_tts_error_authentication_failed_message_chinese() {
+        let err = TTSError::AuthenticationFailed("test".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("TTS 认证失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_tts_error_synthesis_failed_message_chinese() {
+        let err = TTSError::SynthesisFailed("test".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("TTS 合成失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_tts_error_retry_exhausted_message_chinese() {
+        let err = TTSError::RetryExhausted("test".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("TTS 重试耗尽"), "消息应包含中文: {}", msg);
     }
 }
