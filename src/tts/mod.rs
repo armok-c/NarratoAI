@@ -141,6 +141,7 @@ mod tests {
             1.0,
             0.0,
             Path::new("test.mp3"),
+            None,
         )
         .await;
         assert!(result.is_err());
@@ -161,6 +162,7 @@ mod tests {
             1.0,
             0.0,
             Path::new("test.mp3"),
+            None,
         )
         .await;
         let err = result.unwrap_err();
