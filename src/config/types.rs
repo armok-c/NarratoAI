@@ -27,7 +27,7 @@ pub struct AppConfig {
 }
 
 /// [app] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AppSection {
     #[serde(default)]
@@ -59,7 +59,7 @@ pub struct AppSection {
 }
 
 /// [ui] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct UiSection {
     #[serde(default)]
@@ -97,7 +97,7 @@ pub struct AzureSection {
 }
 
 /// [tencent] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct TencentSection {
     #[serde(default)]
@@ -109,7 +109,7 @@ pub struct TencentSection {
 }
 
 /// [soulvoice] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct SoulVoiceSection {
     #[serde(default)]
@@ -123,7 +123,7 @@ pub struct SoulVoiceSection {
 }
 
 /// [tts_qwen] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct TtsQwenSection {
     #[serde(default)]
@@ -133,7 +133,7 @@ pub struct TtsQwenSection {
 }
 
 /// [indextts2] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct IndexTTS2Section {
     #[serde(default)]
@@ -157,7 +157,7 @@ pub struct IndexTTS2Section {
 }
 
 /// [doubaotts] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
     #[serde(default)]
@@ -191,7 +191,7 @@ pub struct ProxySection {
 }
 
 /// [frames] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FramesSection {
     #[serde(default)]
