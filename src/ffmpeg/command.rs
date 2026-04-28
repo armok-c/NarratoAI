@@ -67,9 +67,15 @@ pub async fn clip_video(
             .spawn()
             .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
 
-        let iter = child
-            .iter()
-            .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+        let iter = match child.iter() {
+            Ok(iter) => iter,
+            Err(e) => {
+                // Kill the orphaned child process before returning error
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(FFmpegError::SpawnFailed(e.to_string()));
+            }
+        };
 
         for event in iter {
             match event {
