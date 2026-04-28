@@ -108,41 +108,47 @@ impl EdgeTtsEngine {
                 return Err(TTSError::ConnectionFailed("代理已启用但未配置代理地址".to_string()));
             };
 
-            // Parse proxy URL for host:port
-            let proxy_uri: http::Uri = proxy_url
+            // Parse proxy URL for host:port (strip scheme, split host:port)
+            let proxy_addr = proxy_url
+                .trim_start_matches("http://")
+                .trim_start_matches("https://");
+            let (proxy_host, proxy_port_str) = proxy_addr
+                .split_once(':')
+                .unwrap_or((proxy_addr, "80"));
+            let proxy_port: u16 = proxy_port_str
                 .parse()
-                .map_err(|e| TTSError::ConnectionFailed(format!("代理 URL 解析失败: {}", e)))?;
-            let proxy_host = proxy_uri.host()
-                .ok_or_else(|| TTSError::ConnectionFailed("代理 URL 缺少主机名".to_string()))?;
-            let proxy_port = proxy_uri.port_u16().unwrap_or(80);
+                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
 
-            // Parse target WSS URL
-            let target_uri: http::Uri = EDGE_TTS_WSS_URL
+            // Parse target WSS URL manually
+            let target_addr = EDGE_TTS_WSS_URL.trim_start_matches("wss://");
+            let (target_host, target_port_str) = target_addr
+                .split_once(':')
+                .and_then(|(h, p)| Some((h, p.split('/').next().unwrap_or("443"))))
+                .unwrap_or((target_addr, "443"));
+            let target_port: u16 = target_port_str
                 .parse()
-                .map_err(|e| TTSError::ConnectionFailed(format!("目标 URL 解析失败: {}", e)))?;
-            let target_host = target_uri.host()
-                .ok_or_else(|| TTSError::ConnectionFailed("目标 URL 缺少主机名".to_string()))?;
-            let target_port = target_uri.port_u16().unwrap_or(443);
+                .map_err(|_| TTSError::ConnectionFailed("目标端口格式错误".to_string()))?;
 
             // HTTP CONNECT tunnel
-            let mut tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
+            let tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
                 .await
                 .map_err(|e| TTSError::ConnectionFailed(format!("连接代理失败: {}", e)))?;
 
+            // Wrap in BufReader for line-based I/O (owned, not &mut)
+            let mut buf_reader = tokio::io::BufReader::new(tcp);
+
             let connect_req = format!(
-                "CONNECT {}:{} HTTP/1.1
-Host: {}:{}
-
-",
+                "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
                 target_host, target_port, target_host, target_port
             );
 
             use tokio::io::AsyncWriteExt;
-            tcp.write_all(connect_req.as_bytes()).await
+            buf_reader.get_mut().write_all(connect_req.as_bytes()).await
                 .map_err(|e| TTSError::ConnectionFailed(format!("发送 CONNECT 请求失败: {}", e)))?;
+            buf_reader.get_mut().flush().await
+                .map_err(|e| TTSError::ConnectionFailed(format!("刷新 CONNECT 请求失败: {}", e)))?;
 
             // Read CONNECT response
-            let mut buf_reader = tokio::io::BufReader::new(&mut tcp);
             let mut response_line = String::new();
             use tokio::io::AsyncBufReadExt;
             buf_reader.read_line(&mut response_line).await
@@ -165,16 +171,16 @@ Host: {}:{}
                 }
             }
 
-            // TLS + WebSocket upgrade over tunnel
+            // TLS + WebSocket upgrade over tunnel (get owned TcpStream back)
             let tls_connector = native_tls::TlsConnector::builder()
                 .build()
                 .map_err(|e| TTSError::ConnectionFailed(format!("TLS 构建失败: {}", e)))?;
-            let tls_stream = tokio_tungstenite::Connector::NativeTls(tls_connector);
 
             let (ws_stream, _) = tokio_tungstenite::client_async_tls_with_config(
                 request,
-                Some(tls_stream),
                 buf_reader.into_inner(),
+                None,
+                Some(tokio_tungstenite::Connector::NativeTls(tls_connector)),
             )
                 .await
                 .map_err(|e| TTSError::ConnectionFailed(format!("WebSocket 代理连接失败: {}", e)))?;
