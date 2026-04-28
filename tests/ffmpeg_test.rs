@@ -136,6 +136,11 @@ async fn test_clip_video_async() {
         "输出视频时长应大于 0，实际: {}",
         info.duration_secs
     );
+    assert!(
+        info.duration_secs <= 1.5,
+        "裁剪 1.0s 的视频时长不应超过 1.5s，实际: {}",
+        info.duration_secs
+    );
     assert!(info.width > 0, "输出视频宽度应大于 0，实际: {}", info.width);
     assert!(info.height > 0, "输出视频高度应大于 0，实际: {}", info.height);
     assert!(
