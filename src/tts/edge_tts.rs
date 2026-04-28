@@ -283,6 +283,11 @@ impl EdgeTtsEngine {
                                         end_offset: offset + duration_100ns,
                                         text: text.to_string(),
                                     });
+                                } else {
+                                    tracing::warn!(
+                                        "Failed to parse word boundary fields from JSON: {:?}",
+                                        wb_json
+                                    );
                                 }
                             }
                         } else if content.path == "turn.end" {
