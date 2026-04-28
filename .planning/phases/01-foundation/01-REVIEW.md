@@ -1,285 +1,219 @@
 ---
 phase: 01-foundation
-reviewed: 2026-04-28T13:40:00Z
+reviewed: 2026-04-28T14:00:00Z
 depth: standard
 files_reviewed: 15
 files_reviewed_list:
-  - Cargo.toml
-  - Cargo.lock
   - .gitignore
-  - src/lib.rs
-  - src/error.rs
-  - src/config/types.rs
+  - Cargo.lock
+  - Cargo.toml
   - src/config/defaults.rs
   - src/config/mod.rs
+  - src/config/types.rs
   - src/config/watcher.rs
-  - src/ffmpeg/mod.rs
+  - src/error.rs
   - src/ffmpeg/command.rs
-  - src/ffmpeg/probe.rs
   - src/ffmpeg/hwaccel.rs
+  - src/ffmpeg/mod.rs
+  - src/ffmpeg/probe.rs
+  - src/lib.rs
   - tests/config_test.rs
   - tests/ffmpeg_test.rs
 findings:
-  critical: 0
-  warning: 0
-  info: 13
-  total: 13
+  critical: 1
+  warning: 5
+  info: 4
+  total: 10
 status: issues_found
 ---
 
-# Phase 01: Code Review Re-Report (After Fixes)
+# Phase 01: Code Review Report
 
-**Reviewed:** 2026-04-28T13:40:00Z
+**Reviewed:** 2026-04-28T14:00:00Z
 **Depth:** standard
-**Files Reviewed:** 15 (10 Rust source files, 2 config files, 1 lock file, 1 gitignore, 1 manifest)
-**Status:** issues_found (all INFO items remain)
+**Files Reviewed:** 15
+**Status:** issues_found
 
 ## Summary
 
-Re-review of Phase 01 foundation Rust source files after fix commits e0d7d8e through ed1da8f.
+Reviewed the Rust core (`narratoai-core`) foundation layer. Key areas examined: config system (types, defaults, serde correctness, hot-reload), FFmpeg layer (command construction, hardware acceleration profiles, video probing), error type hierarchy, project configuration, and test reliability.
 
-**Verification of previous fixes: All 6 issues (CR-01, WR-01 through WR-05) are correctly resolved.** No regressions or new bugs were introduced by the fixes. All 32 library + config integration tests pass. Build produces zero compiler errors. The 2 FFmpeg-dependent integration tests correctly fail when FFmpeg is not installed.
-
-**Remaining issues:** The 10 INFO items from the initial review (IN-01 through IN-10) were unaffected by the fixes and persist. Additionally, 3 new clippy warnings were discovered during re-assessment (IN-11, IN-12, IN-13) that were present in the original code but not flagged in the first review.
-
----
+Found one critical data-model error in the hardware acceleration profiles (contradictory hwaccel/encoder metadata), several dead-code variants in the error enum, a fragile test dependency on an external file, a hardcoded credential-like value in defaults, and minor quality issues.
 
 ## Critical Issues
 
-No critical issues found. CR-01 (ProgressCallback duration normalization) has been verified as correctly fixed.
+### CR-01: HighPerformance profile has hwaccel_enabled=true but uses software-only encoder
+
+**File:** `src/ffmpeg/hwaccel.rs:41-53`
+**Issue:** The `HwAccelProfile::HighPerformance` entry sets `hwaccel_enabled: true` (claiming hardware acceleration is active) but uses `encoder: "libx264"`, which is a pure software encoder. The `WindowsNvidia` profile at line 75 correctly pairs `hwaccel_enabled: true` with `encoder: "h264_nvenc"` (a real hardware encoder). Any downstream code that inspects `hwaccel_enabled` to select encoding paths will incorrectly believe hardware acceleration is active for HighPerformance when software encoding is actually used. The profile data is self-contradictory.
+
+**Fix:** Change the encoder to match the hardware acceleration claim, or set `hwaccel_enabled: false` to match the actual software encoder:
+
+```rust
+// Option A: Use a real hardware encoder (NVIDIA/AMD)
+hwaccel_enabled: true,
+encoder: "h264_nvenc",   // or "h264_amf" for AMD
+
+// Option B: Be truthful about software encoding
+hwaccel_enabled: false,
+// keep encoder: "libx264"
+```
 
 ## Warnings
 
-No warnings found. WR-01 through WR-05 have all been verified as correctly fixed.
+### WR-01: Two FFmpegError variants are dead code
 
----
+**File:** `src/error.rs:29,38`
+**Issue:** Two variants of `FFmpegError` are defined but never constructed anywhere in the codebase:
 
-## Fix Verification Details
+- `FFmpegError::Timeout(String)` (line 29) -- no FFmpeg operation enforces a timeout.
+- `FFmpegError::BinaryNotFound` (line 38) -- `detect_hw_encoders` (hwaccel.rs line 128) returns `Ok(Vec::new())` on launch failure rather than raising this variant.
 
-### CR-01: ProgressCallback normalization (FIXED)
+Dead error variants mislead callers into writing unreachable error-handling branches and add unnecessary maintenance burden. The missing `Timeout` variant is especially concerning because `clip_video` in command.rs can hang indefinitely if FFmpeg stalls.
 
-**File:** `src/ffmpeg/command.rs:84-86`
+**Fix:** Remove both unused variants, or wire them into the appropriate code paths:
 
-The fix adds proper duration normalization:
 ```rust
-let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
-cb(fraction, "视频裁剪中");
-```
-
-Replaced `cb(secs, "视频裁剪中")` with the fraction calculation. The doc comment on `ProgressCallback` type was also updated from "进度百分比" to "0.0 到 1.0 的进度分数". The unit test `test_progress_callback_type` uses `Some(0.5)` which is consistent with the new 0.0-1.0 contract.
-
-**Verdict:** Correctly implemented. No edge cases missed.
-
-### WR-01: Consistent RwLock poisoning recovery (FIXED)
-
-**Files:**
-- `src/config/mod.rs:50` — Changed from `self.config.read().unwrap()` to `self.config.read().unwrap_or_else(|e| e.into_inner())`
-- `src/config/watcher.rs:26` — Changed from `if let Ok(mut guard) = config.write()` to `let mut guard = config.write().unwrap_or_else(|e| e.into_inner())`
-
-Both paths now use `unwrap_or_else(|e| e.into_inner())` consistently, recovering from lock poisoning by extracting the inner value from `PoisonError`.
-
-**Verdict:** Correctly implemented. Consistent strategy across both call sites.
-
-### WR-02: Hardcoded Unix paths replaced (FIXED)
-
-**Files:**
-- `src/config/mod.rs:74` — `/nonexistent/config.toml` replaced with `std::env::temp_dir().join("narratoai_test_nonexistent_config.toml")`
-- `src/ffmpeg/command.rs:133-134` — `/tmp/nonexistent_video_12345.mp4` and `/tmp/nonexistent_output.mp4` replaced with `temp_dir().join(...)` equivalents
-- `tests/config_test.rs:109` — `/nonexistent/config.toml` replaced with `temp_dir().join(...)` equivalent
-
-All paths are now cross-platform and use unique filenames to avoid collisions.
-
-**Verdict:** Correctly implemented. No borrow or lifetime issues in follow-up commit ed1da8f.
-
-### WR-03: Flaky timing assertion replaced (FIXED)
-
-**File:** `src/ffmpeg/command.rs:148-175`
-
-The previous test used `Instant::now() + sleep(100ms) x 2` and asserted `elapsed < 180ms`. This was replaced with a `std::sync::Barrier`-based concurrency verification. Two `spawn_blocking` tasks each block on `Barrier::new(3)`, and the main task also waits. If both tasks run concurrently on separate blocking threads, all barriers unblock. If only one blocking thread existed, task1 would block it and cause deadlock.
-
-**Verdict:** Correctly implemented. Eliminates all timing-dependent flakiness. Note: the test assumes `#[tokio::test]` defaults to multi-thread runtime (which it does), and the blocking thread pool has at least 2 threads (which it does by default).
-
-### WR-04: ffprobe duration parse failure propagated (FIXED)
-
-**File:** `src/ffmpeg/probe.rs:50-55`
-
-Changed from `.unwrap_or(0.0)` (silently returning 0.0 on all failure modes) to `.ok_or_else(|| FFmpegError::OutputParseError("Missing or invalid duration in ffprobe output".into()))?`. Now properly returns an error when duration is missing, non-string, or unparseable.
-
-**Verdict:** Correctly implemented. The error variant `OutputParseError` is the semantically correct choice for malformed ffprobe output.
-
-### WR-05: Orphaned FFmpeg child process killed (FIXED)
-
-**File:** `src/ffmpeg/command.rs:70-77`
-
-Changed from `child.iter().map_err(...)?` (child leaked on failure) to a `match` that kills and waits for the child before returning the error:
-```rust
-let iter = match child.iter() {
-    Ok(iter) => iter,
-    Err(e) => {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(FFmpegError::SpawnFailed(e.to_string()));
+// In detect_hw_encoders (hwaccel.rs), raise BinaryNotFound:
+Err(e) => {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return Err(FFmpegError::BinaryNotFound);
     }
-};
+    tracing::warn!("...");
+    return Ok(Vec::new());
+}
+
+// In clip_video (command.rs), wrap with timeout:
+// (requires tokio::time::timeout)
 ```
 
-The `let _ =` pattern appropriately discards errors from `kill()` and `wait()` since we are already in an error-handling path.
+### WR-02: test_load_example_config depends on external config.example.toml with no guard
 
-**Verdict:** Correctly implemented. The borrow checker is satisfied (`.iter()` takes `&mut self` so `child` is still usable after `iter()` fails). No ownership issues.
+**File:** `tests/config_test.rs:11-12`
+**Issue:** The integration test `test_load_example_config` loads `config.example.toml` from the project root via `env!("CARGO_MANIFEST_DIR")`. If the file is renamed, deleted, or absent (partial checkout), the test panics with an assertion failure that does not distinguish "file missing" from "parse error." This is a fragile external dependency for a test.
 
----
+**Fix:** Add an existence check with an early return, or embed a test-specific TOML string:
+
+```rust
+let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml");
+if !config_path.exists() {
+    eprintln!("Skipping: config.example.toml not found");
+    return;
+}
+```
+
+### WR-03: test_hot_reload uses sleep-based synchronization that can be flaky
+
+**File:** `tests/config_test.rs:149-194`
+**Issue:** The hot-reload test waits 200ms (`std::thread::sleep(200)`) for the filesystem watcher to initialize before writing the update. On a loaded system or under CI, the watcher may not be ready within 200ms, causing the write to be missed. The subsequent 5-second polling loop compensates, but the initial sleep is a race condition. Additionally, the `TempDir` is dropped at test end while the watcher may still hold a file handle, causing platform-dependent cleanup failures.
+
+**Fix:** Use a readiness signal (e.g., a `tokio::sync::oneshot` channel from the watcher) instead of a fixed sleep:
+
+```rust
+// Replace sleep(200) with:
+let (tx, rx) = oneshot::channel();
+// Pass tx into ConfigWatcher, which signals when watch is established
+// Then await the signal instead of sleeping
+```
+
+### WR-04: Hardcoded credential-like value in SoulVoiceSection default
+
+**File:** `src/config/defaults.rs:56-57`
+**Issue:** The default `voice_uri` value (`speech:mcg3fdnx:clzkyf4vy00e5qr6hywum4u84:bzznlkuhcjzpbosexitr`) follows the pattern `speech:<appid>:<userid>:<token>` and appears to contain a real identifier rather than a trivial placeholder. If this default is ever activated in an unconfigured deployment, it could lead to unauthorized use of a shared TTS credential or data leakage.
+
+**Fix:** Replace with an empty string or an obviously fake placeholder:
+
+```rust
+voice_uri: String::new(),
+```
+
+### WR-05: FfmpegEvent::Error silently swallowed during clip_video progress loop
+
+**File:** `src/ffmpeg/command.rs:92-95`
+**Issue:** When `FfmpegEvent::Error` events occur during the progress iteration loop, they are only logged via `tracing::error!` and processing continues unconditionally. If FFmpeg emits non-fatal errors mid-stream but eventually exits with code 0, the function returns `Ok(())` even though the output may be truncated or corrupt. Callers have no way to detect that FFmpeg reported errors.
+
+**Fix:** Accumulate error flags and return an error if any were received:
+
+```rust
+let mut had_errors = false;
+for event in iter {
+    match event {
+        FfmpegEvent::Progress(p) => { /* ... */ }
+        FfmpegEvent::Error(e) => {
+            tracing::error!("FFmpeg error: {}", e);
+            had_errors = true;
+        }
+        _ => {}
+    }
+}
+if had_errors {
+    return Err(FFmpegError::ExecutionError(
+        "FFmpeg reported errors during processing".into(),
+    ));
+}
+```
 
 ## Info
 
-### IN-01: notify dependency uses RC version (Unchanged)
+### IN-01: `_watcher` field naming convention is misleading
 
-**File:** `Cargo.toml:14`
-**Status:** Unchanged since prior review
+**File:** `src/config/mod.rs:15`
+**Issue:** The `_watcher` field uses a leading underscore, which Rust convention reserves for "intentionally unused" bindings. However, this field IS semantically important -- it owns the `ConfigWatcher`, and dropping it would stop the file-system listener, breaking hot-reload. The `_` prefix suppresses the dead-code warning and misleads readers.
 
-`notify = "9.0.0-rc.3"` is a release candidate. API may change before stable. Recommended to track stable release and upgrade.
-
-### IN-02: Config structs do not use deny_unknown_fields (Unchanged)
-
-**File:** `src/config/types.rs:4-164`
-**Status:** Unchanged since prior review
-
-No `#[serde(deny_unknown_fields)]`. TOML typos are silently ignored. Recommended to add once schema stabilizes.
-
-### IN-03: IndexTTS2Section repetition_penalty default 10.0 (Unchanged)
-
-**File:** `src/config/defaults.rs:93`
-**Status:** Unchanged since prior review
-
-`repetition_penalty` defaults to 10.0, far outside typical range (1.0-2.0). Verify if intentional. Propagated from `config.example.toml`.
-
-### IN-04: test_hot_reload uses 1700ms total sleep (Unchanged)
-
-**File:** `tests/config_test.rs:168,180`
-**Status:** Unchanged since prior review
-
-Sleeps 200ms + 1500ms for watcher initialization. Consider polling with retries for robustness and speed.
-
-### IN-05: NamedTempFile write-through pattern (Unchanged)
-
-**Files:** `src/config/mod.rs:91-93`, `tests/config_test.rs:60-67,84-86`
-**Status:** Unchanged since prior review
-
-Creates empty `NamedTempFile` then immediately overwrites with `std::fs::write`. On Windows, OS lock could cause issues. Consider `TempDir` instead.
-
-### IN-06: Clippy suggestions — derivable Default impls (Unchanged + new variants)
-
-**Files:**
-- `src/config/defaults.rs:3` — empty line after doc comment
-- `src/config/defaults.rs:43` — `AzureSection::Default` can be derived
-- `src/config/defaults.rs:113` — `ProxySection::Default` can be derived
-**Status:** Unchanged (3 original issues persist)
-
-### IN-07: f64-to-string precision in FFmpeg seek/duration (Unchanged)
-
-**File:** `src/ffmpeg/command.rs:60,62`
-**Status:** Unchanged since prior review
-
-`start.to_string()` and `duration.to_string()` on `f64` can produce long decimal strings (e.g., `"0.30000000000000004"`). FFmpeg is tolerant but round-tripping through `to_string()` is risky. Recommended: `format!("{:.3}", value)` for millisecond precision.
-
-### IN-08: Fast seek (keyframe-based) sacrifices frame accuracy (Unchanged)
-
-**File:** `src/ffmpeg/command.rs:60-64`
-**Status:** Unchanged since prior review
-
-Uses `-ss <start> -i <input>` (fast seek, keyframe-based). Not frame-accurate. Document tradeoff or support option for `-i <input> -ss <start>` (slow seek, frame-accurate).
-
-### IN-09: tokio features = ["full"] (Unchanged)
-
-**File:** `Cargo.toml:7`
-**Status:** Unchanged since prior review
-
-`features = ["full"]` enables all tokio features, increasing compile time and binary size. Minimal required set: `["rt-multi-thread", "macros"]` for current usage patterns. Defer minimization until all tokio usage is known.
-
-### IN-10: Integration tests do not validate output content (Unchanged)
-
-**File:** `tests/ffmpeg_test.rs:116-129`
-**Status:** Unchanged since prior review
-
-`test_clip_video_async` only checks file existence and non-zero size. Does not probe output to verify duration, resolution, or format validity. Add `probe_video` check on output.
-
-### IN-11: AppConfig manual Default impl is derivable (NEW in re-assessment)
-
-**File:** `src/config/defaults.rs:133`
-**Severity:** INFO
-
-`AppConfig` manual `Default` impl can be derived with `#[derive(Default)]` since all fields are themselves `Default`. This clippy warning (`clippy::derivable_impls`) was present pre-fix but not flagged in the initial review. Same pattern as IN-06 AzureSection/ProxySection.
-
-### IN-12: bool_assert_comparison in test (NEW in re-assessment)
-
-**File:** `src/config/types.rs:319`
-**Severity:** INFO
+**Fix:** Rename to `watcher`:
 
 ```rust
-assert_eq!(config.proxy.enabled, false, "缺失的 proxy section 应使用 Default");
+pub struct ConfigManager {
+    config: Arc<RwLock<AppConfig>>,
+    config_path: PathBuf,
+    watcher: Option<ConfigWatcher>,
+}
 ```
 
-Clippy recommends replacing with `assert!(!config.proxy.enabled, ...)`. Pre-existing test code, not introduced by fixes.
+### IN-02: AppConfig::validate() is a no-op stub
 
-### IN-13: useless_vec in test (NEW in re-assessment)
+**File:** `src/config/mod.rs:62-64`
+**Issue:** The `validate` method unconditionally returns `Ok(())` with no actual validation. While documented as Phase 1 behavior, the method can be called by downstream code that believes it has verified the configuration, giving false assurance. Invalid states (negative timeouts, empty required fields) pass silently.
 
-**File:** `src/ffmpeg/hwaccel.rs:209`
-**Severity:** INFO
+**Fix:** Add TODO markers and at minimum validate basic range constraints:
 
 ```rust
-let variants = vec![
-    HwAccelProfile::HighPerformance,
-    HwAccelProfile::Compatibility,
-    HwAccelProfile::WindowsNvidia,
-    HwAccelProfile::MacosVideotoolbox,
-    HwAccelProfile::UniversalSoftware,
-];
-assert_eq!(variants.len(), 5, ...);
+pub fn validate(&self) -> Result<(), ConfigError> {
+    // TODO(Phase 2): validate API key presence for configured providers
+    // TODO(Phase 2): validate timeout values > 0
+    Ok(())
+}
 ```
 
-Clippy recommends using an array directly: `let variants = [HwAccelProfile::HighPerformance, ...];`. Pre-existing test code, not introduced by fixes.
+### IN-03: test_load_empty_toml discards all parsed values without assertions
+
+**File:** `src/config/types.rs:311-317`
+**Issue:** The test parses an empty TOML string with `toml::from_str("")` and discards every field via `let _ =`. This verifies only that parsing does not panic, but cannot catch regressions where default values silently change. The test in `config_test.rs` (line 84-106) does a more thorough comparison against `AppConfig::default()`.
+
+**Fix:** Assert specific default values:
+
+```rust
+let config: AppConfig = toml::from_str("").expect("空 TOML 应成功解析");
+assert_eq!(config.app.project_version, AppConfig::default().app.project_version);
+assert_eq!(config.frames.frame_interval_input, 3);
+```
+
+### IN-04: .gitignore includes Python-project patterns irrelevant to the Rust crate
+
+**File:** `.gitignore:5-14`
+**Issue:** Multiple entries reference Python project paths (e.g., `/app/services/__pycache__`, `app/models/faster-whisper-large-v2/*`, `resource/scripts/*.json`) that do not exist in the `narratoai-core` Rust crate. While harmless, these clutter the file and could mask similarly-named Rust build artifacts. The entries were inherited from the shared project root with the Python codebase.
+
+**Fix:** Group Python-specific entries under a comment section for clarity, or remove them if the Python project is fully migrated:
+
+```gitignore
+# Python project (legacy)
+/app/services/__pycache__
+/app/__pycache__/
+# ...
+```
 
 ---
 
-## Build and Test Status
-
-| Test Suite | Count | Result | Notes |
-|-----------|-------|--------|-------|
-| `cargo build` | — | 0 errors, 0 warnings | Clean build |
-| `cargo clippy --all-targets` | 6 warnings | See IN-06, IN-11, IN-12, IN-13 | 2 new warnings since initial review |
-| `cargo test --lib` (unit tests) | 26 | 26/26 pass | All unit tests pass |
-| `cargo test --test config_test` | 6 | 6/6 pass | Config integration tests pass |
-| `cargo test --test ffmpeg_test` | 5 | 3/5 pass* | 2 tests require system FFmpeg |
-
-*FFmpeg-dependent tests (`test_probe_system_video`, `test_clip_video_async`) correctly fail with a clear install instruction when FFmpeg is absent.
-
----
-
-## Cross-Cutting Concerns After Fixes
-
-### API Contracts
-- **CR-01 resolved:** `ProgressCallback` now correctly passes 0.0-1.0 fraction instead of raw seconds. Doc comment updated to match.
-- No other API contract issues found.
-
-### Error Handling
-- **WR-04 resolved:** `probe_video` now propagates missing/invalid duration as `FFmpegError::OutputParseError`.
-- **WR-01 resolved:** `ConfigManager::get()` and `ConfigWatcher` both use consistent `unwrap_or_else(|e| e.into_inner())` for RwLock poisoning recovery.
-- No error handling regression found.
-
-### Resource Management
-- **WR-05 resolved:** Orphaned FFmpeg child process is killed before returning error on `iter()` failure.
-- No resource management regression found.
-
-### Portability
-- **WR-02 resolved:** All hardcoded Unix test paths replaced with `std::env::temp_dir()`.
-- No portability regression found.
-
-### Test Quality
-- **WR-03 resolved:** Flaky timing assertion replaced with deterministic Barrier-based concurrency test.
-- IN-04, IN-10 remain as pre-existing test quality concerns.
-
----
-
-_Reviewed: 2026-04-28T13:40:00Z_
+_Reviewed: 2026-04-28T14:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Build: cargo build passes (0 errors, 0 warnings)_
