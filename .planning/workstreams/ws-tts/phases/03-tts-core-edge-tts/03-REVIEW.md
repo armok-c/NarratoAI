@@ -1,6 +1,6 @@
 ---
 phase: 03-tts-core-edge-tts
-reviewed: 2026-04-28T00:00:00Z
+reviewed: 2026-04-28T12:15:00Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
@@ -11,160 +11,193 @@ files_reviewed_list:
   - src/tts/edge_tts.rs
   - tests/tts_test.rs
 findings:
-  critical: 1
-  warning: 3
-  info: 4
-  total: 8
+  critical: 0
+  warning: 2
+  info: 1
+  total: 3
 status: issues_found
 ---
 
-# Phase 03: TTS Core + Edge-TTS -- Code Review Report
+# Phase 03: TTS Core + Edge-TTS -- Code Review Report (Re-review)
 
-**Reviewed:** 2026-04-28T00:00:00Z
+**Reviewed:** 2026-04-28T12:15:00Z
 **Depth:** standard
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-Six files implementing the TTS core abstraction (Phase 03-01: `TtsProvider` trait, router, data types), Edge-TTS engine via WebSocket (Phase 03-02: tokio-tungstenite, SSML, retry loop, proxy tunnel), and integration tests (Phase 03-03: 8 tests) were reviewed at standard depth.
+Re-review of 6 files after 4 fixes were applied (CR-01: duration division, WR-01: CONNECT RFC 7231 compliance, WR-02: word boundary parse logging, WR-03: dead test replacement). All 4 fixes are verified correct and complete.
 
-The overall architecture is sound: clean `TtsProvider` trait with `Send + Sync`, proper thiserror error types, correct async patterns throughout, and a working retry loop. The proxy tunnel implementation via HTTP CONNECT is present and functionally correct in the non-proxy cases.
+Two new warnings were identified: (1) proxy port defaults to 80 even for HTTPS proxies without an explicit port, and (2) duration silently becomes 0.0 when the WebSocket connection closes before the `turn.end` message. One info-level issue was found: the version test is tied to a specific version string.
 
-One critical bug was found in the `turn.end` duration parsing where the numeric branch (likely dead code today) omits the required tick-to-seconds division. Three warnings were identified: the CONNECT tunnel target incorrectly includes the URL path and query string (which may break strict proxies), word boundary parse failures silently drop data, and one test performs no meaningful verification.
+The 4 previously known info items (IN-01 through IN-04: hardcoded TrustedClientToken, unwrap on header values, loose CONNECT response check, voice_name not XML-escaped) remain intentionally unfixed and are not re-reported here.
 
-## Critical Issues
+---
 
-### CR-01: Duration parsing in `turn.end` omits tick-to-seconds division for numeric `audio_duration`
+## Verdict on Previously Fixed Issues
 
-**File:** `src/tts/edge_tts.rs:294-296`
-**Issue:** In `synthesize_once()`, when parsing the `turn.end` binary message's JSON payload, three branches attempt to extract `audio_duration`:
+### CR-01: Duration tick-to-seconds division -- FIX VERIFIED CORRECT
 
-1. `as_f64()` (lines 294-295): If `audio_duration` is a JSON number, the value is used directly as seconds.
-2. `as_str()` (lines 296-298): If `audio_duration` is a JSON string, the value is parsed as `f64` and divided by 10,000,000.
-3. `["ticks"].as_u64()` (lines 299-300): If `audio_duration` is an object with a `ticks` field, it is divided by 10,000,000.
+**File:** `src/tts/edge_tts.rs:301`
 
-Branches 2 and 3 correctly convert from 100-ns tick units to seconds (division by 10,000,000). Branch 1 omits this division. Edge TTS's `audio_duration` is consistently documented as being in 100-ns tick units (matching the same unit used by `WordBoundary.start_offset`/`end_offset`). If the server returns a numeric JSON value instead of a string, the duration would be wrong by a factor of 10 million (e.g., 12,345,678 seconds instead of ~1.23 seconds).
-
-While Edge TTS currently appears to return `audio_duration` as a string (so branch 2 fires), the numeric branch is a latent bug that would produce catastrophically wrong results if ever triggered by a server schema change.
-
-**Fix:** Add the `/ 10_000_000.0` division to the `as_f64()` branch:
+The `as_f64()` branch at line 301 now correctly divides by `10_000_000.0`:
 ```rust
-duration = if let Some(d) = metadata["audio_duration"].as_f64() {
-    d / 10_000_000.0   // Add division here
-} else if let Some(s) = metadata["audio_duration"].as_str() {
-    s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
-} else if let Some(ticks) = metadata["audio_duration"]["ticks"].as_u64() {
-    ticks as f64 / 10_000_000.0
-} else {
-    0.0
-};
+d / 10_000_000.0
 ```
+
+All three branches (f64, str, ticks) are now consistent in dividing by 10,000,000. Previously this branch used the raw value `d` (the original code at commit `f7be7a9`), which would have produced a duration 10 million times too large if this branch had ever been exercised. The fix at commit `accc735` correctly adds the division.
+
+### WR-01: CONNECT tunnel target strips path/query for RFC 7231 -- FIX VERIFIED CORRECT
+
+**File:** `src/tts/edge_tts.rs:124-128`
+
+A `target_host_only` variable was added to strip the URL path and query string before the first `/`. The `unwrap_or` fallback at line 128 now uses `target_host_only` instead of the unsanitized `target_addr`:
+
+```rust
+.unwrap_or((target_host_only, "443"));
+```
+
+The `and_then` branch already stripped the path correctly. Both paths are now consistent. Previously, the CONNECT request line would have included the full URL path and query string (e.g., `speech.platform.bing.com/consumer/speech/.../v1?TrustedClientToken=...`), violating RFC 7231 Section 4.3.6 which requires only `host:port`. The fix at commit `790355f` resolves this.
+
+### WR-02: Word boundary parse failure logging -- FIX VERIFIED CORRECT
+
+**File:** `src/tts/edge_tts.rs:287-291`
+
+A `tracing::warn!` call was added in the `else` branch when `offset`, `duration`, or `text` fields are missing from the word boundary JSON:
+
+```rust
+tracing::warn!(
+    "Failed to parse word boundary fields from JSON: {:?}",
+    wb_json
+);
+```
+
+Previously these failures were silently dropped, making debugging server format changes difficult. The fix at commit `daa8b2f` adds diagnostic logging.
+
+Note: there is still a silent failure path -- if the JSON parse itself fails at line 273 (`serde_json::from_str` returns `Err`), the `if let Ok(...)` silently drops it. This was pre-existing and not in scope of WR-02.
+
+### WR-03: Dead test replacement -- FIX VERIFIED CORRECT
+
+**File:** `tests/tts_test.rs:145-148`
+
+The original test defined an inner function that was never called, producing zero runtime coverage. The replacement at commit `1892514` now calls `tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None)` and assigns the returned future to `_`:
+
+```rust
+#[test]
+fn test_synthesize_function_signature() {
+    let _ = tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None);
+}
+```
+
+This provides a genuine compile-time check of the full function signature (all 7 parameter types and the return type) while having no runtime side effects because the future is dropped without being polled. This is a correct improvement over the previous version.
+
+---
 
 ## Warnings
 
-### WR-01: CONNECT tunnel target includes URL path and query string, violating RFC 7231
+### WR-04: Proxy port defaults to 80 for HTTPS proxies without explicit port
 
-**File:** `src/tts/edge_tts.rs:123-129`
-**Issue:** When building the HTTP CONNECT request for the proxy tunneling path, the code parses the target URL by trimming the `wss://` prefix and checking for a colon. The constant `EDGE_TTS_WSS_URL` has no explicit port (no colon after the host), so `split_once(':')` returns `None`. The `unwrap_or` fallback then uses the **entire remaining URL** (including path `/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=...`) as `target_host`.
+**File:** `src/tts/edge_tts.rs:115-119`
 
-This produces an invalid CONNECT request line:
-```
-CONNECT speech.platform.bing.com/consumer/speech/.../v1?TrustedClientToken=...:443 HTTP/1.1
-```
+**Issue:** When parsing the proxy URL, the code strips the scheme prefix, then splits on `:`. If there is no explicit port, the `unwrap_or` fallback hardcodes port 80:
 
-Per RFC 7231 Section 4.3.6, the CONNECT method MUST contain only `host:port`. Many proxy servers are lenient and extract the hostname anyway, but strict proxies (e.g., corporate proxies with URL filtering) may reject this. The `Host` header in the CONNECT request also suffers from the same issue.
-
-The `and_then` branch (when the URL has an explicit port) correctly strips the path with `p.split('/').next()`, but the `unwrap_or` fallback does not.
-
-**Fix:** Strip the path in both code paths:
 ```rust
-let target_host_only = target_addr.split('/').next().unwrap_or(target_addr);
-let (target_host, target_port_str) = target_addr
+let (proxy_host, proxy_port_str) = proxy_addr
     .split_once(':')
-    .and_then(|(h, p)| Some((h, p.split('/').next().unwrap_or("443"))))
-    .unwrap_or((target_host_only, "443"));
+    .unwrap_or((proxy_addr, "80"));   // line 117: always 80
 ```
 
-### WR-02: Word boundary parse failures silently drop data without diagnostic log
+When `proxy_https` is set to a URL like `https://proxy.example.com` (no explicit port), the stripped URL `proxy.example.com` has no colon, triggering the port 80 fallback. However, the default port for HTTPS is 443, not 80.
 
-**File:** `src/tts/edge_tts.rs:272-286`
-**Issue:** When parsing a `wordboundary` binary message's JSON payload, if any of `offset`, `duration`, or `text` fields are missing (or have unexpected types), the entire word boundary is silently discarded. No `tracing::warn!` or `tracing::error!` is emitted.
+This is significant because the proxy selection logic (lines 103-106) prefers `proxy_https` over `proxy_http`. A user configuring `proxy_https = "https://proxy.example.com"` would silently fail to connect:
 
-If the Edge TTS server changes its response format even slightly, all word boundaries would silently disappear. Downstream consumers (Phase 6 subtitle generation) would receive an empty `word_boundaries` vector with no indication that data was lost. Debugging such an issue without the diagnostic log would require deep protocol inspection.
-
-**Fix:** Add a `tracing::warn!` call when word boundary parsing fails:
 ```rust
-if let (Some(offset), Some(duration_100ns), Some(text)) = (
-    wb_json["offset"].as_u64(),
-    wb_json["duration"].as_u64(),
-    wb_json["text"].as_str(),
-) {
-    word_boundaries.push(WordBoundary {
-        start_offset: offset,
-        end_offset: offset + duration_100ns,
-        text: text.to_string(),
-    });
+let proxy_url = if !self.proxy_https.is_empty() {
+    &self.proxy_https      // selected
+} else if !self.proxy_http.is_empty() {
+    &self.proxy_http
+};
+```
+
+**Fix:** Determine the default port from the proxy URL scheme before stripping it:
+
+```rust
+let default_port = if proxy_url.starts_with("https://") {
+    "443"
 } else {
+    "80"
+};
+let (proxy_host, proxy_port_str) = proxy_addr
+    .split_once(':')
+    .unwrap_or((proxy_addr, default_port));
+```
+
+### WR-05: Duration silently zero when WebSocket closes before turn.end
+
+**File:** `src/tts/edge_tts.rs:256-328`
+
+**Issue:** The `duration` variable is initialized to `0.0` at line 257 and only updated when the `turn.end` message is processed (lines 293-311). If the WebSocket connection terminates with a `Close` frame (line 320-323) before `turn.end` arrives, the loop breaks and the function proceeds to write whatever audio data was received and returns `Ok(TtsOutput { duration: 0.0, ... })`.
+
+The caller cannot distinguish between:
+- A valid zero-length synthesis (impossible in practice but represented as `0.0`)
+- A connection that dropped mid-stream with partial audio but no duration metadata
+
+This is a real scenario: if the Edge TTS server encounters an error after sending some audio data but before the final `turn.end` metadata, the `Close` frame causes the loop to exit (line 322), leaving `duration` at `0.0`. Downstream consumers using `duration` for timing (subtitle alignment, audio trimming) would silently operate on incorrect values.
+
+**Fix:** After the message loop (after line 328), check if duration is still `0.0` despite having received audio data. At minimum add a warning:
+
+```rust
+if duration == 0.0 && !audio_data.is_empty() {
     tracing::warn!(
-        "Failed to parse word boundary fields from JSON: {:?}",
-        wb_json
+        "Edge-TTS connection closed before turn.end; duration is 0.0, audio data size: {} bytes",
+        audio_data.len()
     );
 }
 ```
 
-### WR-03: `test_synthesize_function_signature` performs no meaningful runtime verification
-
-**File:** `tests/tts_test.rs:141-150`
-**Issue:** The test defines an inner function `_check_type` that references `tts::synthesize`, but this inner function is **never called**. The outer function body is:
-```rust
-fn _check_type() {
-    let _ = tts::synthesize;  // compile-time check only
-}
-let _ = _check_type;  // assigns function pointer to _, discarded
-```
-
-There are zero assertions and zero side effects. The test provides no runtime coverage and can never fail. The compile-time check it attempts (verifying `tts::synthesize` exists) is already guaranteed by the `use narratoai_core::tts::{self, ...};` import at line 2 of the same file.
-
-**Fix:** Either remove the test entirely, or replace it with a meaningful assertion:
-```rust
-// Removal:
-// Delete lines 141-150.
-
-// OR replacement:
-#[test]
-fn test_synthesize_returns_result_type() {
-    let _: fn(&str, &str, &str, f64, f64, &Path, Option<&ProxySection>) -> _ = tts::synthesize;
-}
-```
-
-## Info
-
-### IN-01: Hardcoded `TrustedClientToken` in WebSocket URL
-
-**File:** `src/tts/edge_tts.rs:11`
-**Issue:** The Microsoft Edge TTS authentication token (`6A5AA1D4EAFF4E9FB37E23D68491D6F4`) is hardcoded in the source. This is the same publicly-known token used by the Python edge-tts library and many other open-source implementations, so it is not a secret in the traditional sense. However, there is no mechanism to override or update it via configuration. If Microsoft rotates or revokes this token, the engine stops working and requires a source code change. Consider making this configurable or documenting the dependency.
-
-### IN-02: `unwrap()` used on hardcoded header values
-
-**File:** `src/tts/edge_tts.rs:92,97`
-**Issue:** `HeaderValue::parse()` is called on hardcoded string literals with `.unwrap()`. While these strings are valid HTTP header values that will never trigger a parse error, using `.expect("...")` would be more self-documenting and consistent with the explicit error handling patterns used elsewhere in the file (where every fallible operation is mapped to a `TTSError` variant).
-
-### IN-03: CONNECT response checked with loose `contains("200")`
-
-**File:** `src/tts/edge_tts.rs:157`
-**Issue:** The proxy CONNECT response is validated via `response_line.contains("200")`. This substring check would match `HTTP/1.1 1200 Something` or any line that happens to contain the substring "200". The intended check is `HTTP/1.1 2xx` on the status line. While extremely unlikely to false-positive in practice, a more precise check would be:
-```rust
-if !response_line.starts_with("HTTP/") || !response_line.contains("200 Connection") {
-```
-
-### IN-04: `voice_name` not XML-escaped for SSML attribute context
-
-**File:** `src/tts/edge_tts.rs:51-53`
-**Issue:** In `build_ssml()`, `voice_name` is interpolated directly into an XML attribute value (`<voice name="{}">`) without escaping `"` to `&quot;`. While voice names in Edge TTS are controlled values (e.g., `zh-CN-XiaoyiNeural`), the `TtsProvider::synthesize()` trait accepts any `&str`. A caller passing a voice name containing `"` would produce malformed SSML. For defense-in-depth, consider validating or escaping attribute values.
+For stronger guarantees, consider returning `Err(TTSError::SynthesisFailed(...))` when the connection drops mid-stream without duration metadata.
 
 ---
 
-_Reviewed: 2026-04-28T00:00:00Z_
+## Info
+
+### IN-05: Version test tied to hardcoded version string
+
+**File:** `src/lib.rs:17-19`
+
+**Issue:** The test `test_version_returns_0_1_0` asserts against the literal string `"0.1.0"`:
+
+```rust
+#[test]
+fn test_version_returns_0_1_0() {
+    assert_eq!(version(), "0.1.0");
+}
+```
+
+This test will fail whenever the version in `Cargo.toml` is bumped, requiring a coordinated update to both files. Consider comparing against the compile-time constant directly:
+
+```rust
+#[test]
+fn test_version_matches_cargo_toml() {
+    assert_eq!(version(), env!("CARGO_PKG_VERSION"));
+}
+```
+
+---
+
+## Pre-existing Info Items (Intentionally Deferred)
+
+The following 4 info-level items from the original review remain intentionally unfixed:
+
+- **IN-01:** Hardcoded `TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4` in WebSocket URL (not a secret, but no override mechanism)
+- **IN-02:** `unwrap()` on hardcoded header values at lines 92,97 (safe but not self-documenting)
+- **IN-03:** CONNECT response checked with loose `contains("200")` at line 158 (may match unexpected status lines)
+- **IN-04:** `voice_name` not XML-escaped in SSML attribute context at line 51 (controlled inputs mitigate risk)
+
+---
+
+_Reviewed: 2026-04-28T12:15:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Iteration: re-review (post-fix)_
