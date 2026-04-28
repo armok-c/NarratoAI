@@ -1,12 +1,9 @@
 ---
 phase: 01-foundation
-reviewed: 2026-04-28T14:00:00Z
+reviewed: 2026-04-28T16:30:00Z
 depth: standard
-files_reviewed: 15
+files_reviewed: 12
 files_reviewed_list:
-  - .gitignore
-  - Cargo.lock
-  - Cargo.toml
   - src/config/defaults.rs
   - src/config/mod.rs
   - src/config/types.rs
@@ -20,200 +17,113 @@ files_reviewed_list:
   - tests/config_test.rs
   - tests/ffmpeg_test.rs
 findings:
-  critical: 1
-  warning: 5
+  critical: 0
+  warning: 1
   info: 4
-  total: 10
+  total: 5
 status: issues_found
 ---
 
-# Phase 01: Code Review Report
+# Phase 01: Re-Review Report (Post-Fix Verification)
 
-**Reviewed:** 2026-04-28T14:00:00Z
+**Reviewed:** 2026-04-28T16:30:00Z
 **Depth:** standard
-**Files Reviewed:** 15
+**Files Reviewed:** 12
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Rust core (`narratoai-core`) foundation layer. Key areas examined: config system (types, defaults, serde correctness, hot-reload), FFmpeg layer (command construction, hardware acceleration profiles, video probing), error type hierarchy, project configuration, and test reliability.
+Re-reviewed all 12 source files from Phase 01 after fixes were applied for CR-01, WR-01 through WR-05. All 6 actionable fixes have been verified as correct and complete. One new WARNING-level issue was discovered during re-review: `probe_video` maps all `Command::new` spawn errors to `SpawnFailed`, including `NotFound`, creating an inconsistency with `detect_hw_encoders` which was fixed to return `BinaryNotFound` for the same case.
 
-Found one critical data-model error in the hardware acceleration profiles (contradictory hwaccel/encoder metadata), several dead-code variants in the error enum, a fragile test dependency on an external file, a hardcoded credential-like value in defaults, and minor quality issues.
+The 4 original Info items (IN-01 through IN-04) remain unchanged -- none were actioned, which is acceptable for Info-level findings.
 
-## Critical Issues
+## Fix Verification
 
-### CR-01: HighPerformance profile has hwaccel_enabled=true but uses software-only encoder
+### CR-01: HighPerformance profile encoder mismatch -- FIXED
 
-**File:** `src/ffmpeg/hwaccel.rs:41-53`
-**Issue:** The `HwAccelProfile::HighPerformance` entry sets `hwaccel_enabled: true` (claiming hardware acceleration is active) but uses `encoder: "libx264"`, which is a pure software encoder. The `WindowsNvidia` profile at line 75 correctly pairs `hwaccel_enabled: true` with `encoder: "h264_nvenc"` (a real hardware encoder). Any downstream code that inspects `hwaccel_enabled` to select encoding paths will incorrectly believe hardware acceleration is active for HighPerformance when software encoding is actually used. The profile data is self-contradictory.
+**File:** `src/ffmpeg/hwaccel.rs:47`
+**Verdict:** Correct. The `encoder` field now reads `"h264_nvenc"` (hardware encoder), which is consistent with `hwaccel_enabled: true` and `hwaccel_type: Some("auto")`. The profile data is no longer self-contradictory.
 
-**Fix:** Change the encoder to match the hardware acceleration claim, or set `hwaccel_enabled: false` to match the actual software encoder:
+### WR-01: Dead-code FFmpegError variants -- FIXED
 
-```rust
-// Option A: Use a real hardware encoder (NVIDIA/AMD)
-hwaccel_enabled: true,
-encoder: "h264_nvenc",   // or "h264_amf" for AMD
+**File:** `src/ffmpeg/command.rs:59,123` and `src/ffmpeg/hwaccel.rs:138`
+**Verdict:** Both variants are now wired into code paths:
+- `FFmpegError::Timeout`: `clip_video` wraps the entire `spawn_blocking` call with `tokio::time::timeout(Duration::from_secs(600), ...)`, mapping the timeout to `FFmpegError::Timeout`.
+- `FFmpegError::BinaryNotFound`: `detect_hw_encoders` now checks `e.kind() == std::io::ErrorKind::NotFound` and returns `Err(FFmpegError::BinaryNotFound)`.
+- No regressions introduced.
 
-// Option B: Be truthful about software encoding
-hwaccel_enabled: false,
-// keep encoder: "libx264"
-```
+### WR-02: test_load_example_config existence guard -- FIXED
+
+**File:** `tests/config_test.rs:13-16`
+**Verdict:** Correct. The test now checks `config_path.exists()` and returns early with an `eprintln` message if the file is absent. No panic on missing file.
+
+### WR-03: test_hot_reload readiness signal -- FIXED
+
+**File:** `tests/config_test.rs:172-176` and `src/config/watcher.rs:22,60-62`
+**Verdict:** Correct. The test uses `std::sync::mpsc::channel()` and passes the sender to `start_watching_with_ready()`. The watcher sends `()` on the channel after `watcher.watch()` succeeds. The test awaits the signal with `recv_timeout(Duration::from_secs(5))` before writing the updated config. The `ConfigManager` now exposes `start_watching_with_ready()` as a public method. No fixed sleep remains. No regressions.
+
+### WR-04: Hardcoded credential-like voice_uri default -- FIXED
+
+**File:** `src/config/defaults.rs:56`
+**Verdict:** Correct. `voice_uri` now defaults to `String::new()` (empty string). No credential-like value remains.
+
+### WR-05: FfmpegEvent::Error silently swallowed -- FIXED
+
+**File:** `src/ffmpeg/command.rs:84,94-96,102-106`
+**Verdict:** Correct. A `had_errors: bool` flag accumulates across the event loop. After the loop completes, if `had_errors` is true, the function returns `Err(FFmpegError::ExecutionError(...))`. This check runs before the `child.wait()` exit-status check, which is the correct order -- errors from FFmpeg stderr are surfaced regardless of exit code.
 
 ## Warnings
 
-### WR-01: Two FFmpegError variants are dead code
+### WR-06: probe_video does not return BinaryNotFound when ffprobe binary is missing
 
-**File:** `src/error.rs:29,38`
-**Issue:** Two variants of `FFmpegError` are defined but never constructed anywhere in the codebase:
-
-- `FFmpegError::Timeout(String)` (line 29) -- no FFmpeg operation enforces a timeout.
-- `FFmpegError::BinaryNotFound` (line 38) -- `detect_hw_encoders` (hwaccel.rs line 128) returns `Ok(Vec::new())` on launch failure rather than raising this variant.
-
-Dead error variants mislead callers into writing unreachable error-handling branches and add unnecessary maintenance burden. The missing `Timeout` variant is especially concerning because `clip_video` in command.rs can hang indefinitely if FFmpeg stalls.
-
-**Fix:** Remove both unused variants, or wire them into the appropriate code paths:
-
+**File:** `src/ffmpeg/probe.rs:36`
+**Issue:** The WR-01 fix correctly wired `FFmpegError::BinaryNotFound` into `detect_hw_encoders` (hwaccel.rs:138), checking `e.kind() == std::io::ErrorKind::NotFound`. However, `probe_video` in probe.rs performs the same `Command::new(&ffprobe_bin).output()` call but maps all IO errors uniformly to `SpawnFailed`:
 ```rust
-// In detect_hw_encoders (hwaccel.rs), raise BinaryNotFound:
-Err(e) => {
-    if e.kind() == std::io::ErrorKind::NotFound {
-        return Err(FFmpegError::BinaryNotFound);
-    }
-    tracing::warn!("...");
-    return Ok(Vec::new());
-}
-
-// In clip_video (command.rs), wrap with timeout:
-// (requires tokio::time::timeout)
+.output()
+.map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
 ```
+When ffprobe is not installed, the error is `io::ErrorKind::NotFound`, but the caller receives `SpawnFailed` instead of `BinaryNotFound`. This is an inconsistency within the FFmpeg subsystem -- two functions that invoke external FFmpeg binaries handle the same "binary not found" condition differently. A downstream caller handling `BinaryNotFound` to prompt the user to install FFmpeg would miss this case when it originates from `probe_video`.
 
-### WR-02: test_load_example_config depends on external config.example.toml with no guard
-
-**File:** `tests/config_test.rs:11-12`
-**Issue:** The integration test `test_load_example_config` loads `config.example.toml` from the project root via `env!("CARGO_MANIFEST_DIR")`. If the file is renamed, deleted, or absent (partial checkout), the test panics with an assertion failure that does not distinguish "file missing" from "parse error." This is a fragile external dependency for a test.
-
-**Fix:** Add an existence check with an early return, or embed a test-specific TOML string:
-
+**Fix:**
 ```rust
-let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml");
-if !config_path.exists() {
-    eprintln!("Skipping: config.example.toml not found");
-    return;
-}
-```
-
-### WR-03: test_hot_reload uses sleep-based synchronization that can be flaky
-
-**File:** `tests/config_test.rs:149-194`
-**Issue:** The hot-reload test waits 200ms (`std::thread::sleep(200)`) for the filesystem watcher to initialize before writing the update. On a loaded system or under CI, the watcher may not be ready within 200ms, causing the write to be missed. The subsequent 5-second polling loop compensates, but the initial sleep is a race condition. Additionally, the `TempDir` is dropped at test end while the watcher may still hold a file handle, causing platform-dependent cleanup failures.
-
-**Fix:** Use a readiness signal (e.g., a `tokio::sync::oneshot` channel from the watcher) instead of a fixed sleep:
-
-```rust
-// Replace sleep(200) with:
-let (tx, rx) = oneshot::channel();
-// Pass tx into ConfigWatcher, which signals when watch is established
-// Then await the signal instead of sleeping
-```
-
-### WR-04: Hardcoded credential-like value in SoulVoiceSection default
-
-**File:** `src/config/defaults.rs:56-57`
-**Issue:** The default `voice_uri` value (`speech:mcg3fdnx:clzkyf4vy00e5qr6hywum4u84:bzznlkuhcjzpbosexitr`) follows the pattern `speech:<appid>:<userid>:<token>` and appears to contain a real identifier rather than a trivial placeholder. If this default is ever activated in an unconfigured deployment, it could lead to unauthorized use of a shared TTS credential or data leakage.
-
-**Fix:** Replace with an empty string or an obviously fake placeholder:
-
-```rust
-voice_uri: String::new(),
-```
-
-### WR-05: FfmpegEvent::Error silently swallowed during clip_video progress loop
-
-**File:** `src/ffmpeg/command.rs:92-95`
-**Issue:** When `FfmpegEvent::Error` events occur during the progress iteration loop, they are only logged via `tracing::error!` and processing continues unconditionally. If FFmpeg emits non-fatal errors mid-stream but eventually exits with code 0, the function returns `Ok(())` even though the output may be truncated or corrupt. Callers have no way to detect that FFmpeg reported errors.
-
-**Fix:** Accumulate error flags and return an error if any were received:
-
-```rust
-let mut had_errors = false;
-for event in iter {
-    match event {
-        FfmpegEvent::Progress(p) => { /* ... */ }
-        FfmpegEvent::Error(e) => {
-            tracing::error!("FFmpeg error: {}", e);
-            had_errors = true;
+let output = match Command::new(&ffprobe_bin)
+    .args([...])
+    .arg(path.as_os_str())
+    .output()
+{
+    Ok(o) => o,
+    Err(e) => {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            return Err(FFmpegError::BinaryNotFound);
         }
-        _ => {}
+        return Err(FFmpegError::SpawnFailed(e.to_string()));
     }
-}
-if had_errors {
-    return Err(FFmpegError::ExecutionError(
-        "FFmpeg reported errors during processing".into(),
-    ));
-}
+};
 ```
 
 ## Info
 
-### IN-01: `_watcher` field naming convention is misleading
+### IN-01: `_watcher` field naming convention misleading -- STILL PRESENT
 
-**File:** `src/config/mod.rs:15`
-**Issue:** The `_watcher` field uses a leading underscore, which Rust convention reserves for "intentionally unused" bindings. However, this field IS semantically important -- it owns the `ConfigWatcher`, and dropping it would stop the file-system listener, breaking hot-reload. The `_` prefix suppresses the dead-code warning and misleads readers.
+**File:** `src/config/mod.rs:16`
+**Status:** Unchanged. The `_watcher` field still uses the leading-underscore convention. This is an Info item and its presence is acceptable.
 
-**Fix:** Rename to `watcher`:
+### IN-02: AppConfig::validate() is a no-op stub -- STILL PRESENT
 
-```rust
-pub struct ConfigManager {
-    config: Arc<RwLock<AppConfig>>,
-    config_path: PathBuf,
-    watcher: Option<ConfigWatcher>,
-}
-```
+**File:** `src/config/mod.rs:73-76`
+**Status:** Unchanged. The method returns `Ok(())` unconditionally with no TODO markers. This is an Info item and its presence is acceptable.
 
-### IN-02: AppConfig::validate() is a no-op stub
+### IN-03: test_load_empty_toml discards parsed values without assertions -- STILL PRESENT
 
-**File:** `src/config/mod.rs:62-64`
-**Issue:** The `validate` method unconditionally returns `Ok(())` with no actual validation. While documented as Phase 1 behavior, the method can be called by downstream code that believes it has verified the configuration, giving false assurance. Invalid states (negative timeouts, empty required fields) pass silently.
+**File:** `src/config/types.rs:312-317`
+**Status:** Unchanged. The test still uses `let _ =` for all parsed fields. This is an Info item and its presence is acceptable.
 
-**Fix:** Add TODO markers and at minimum validate basic range constraints:
+### IN-04: .gitignore includes Python-project patterns -- NOT IN REVIEW SCOPE
 
-```rust
-pub fn validate(&self) -> Result<(), ConfigError> {
-    // TODO(Phase 2): validate API key presence for configured providers
-    // TODO(Phase 2): validate timeout values > 0
-    Ok(())
-}
-```
-
-### IN-03: test_load_empty_toml discards all parsed values without assertions
-
-**File:** `src/config/types.rs:311-317`
-**Issue:** The test parses an empty TOML string with `toml::from_str("")` and discards every field via `let _ =`. This verifies only that parsing does not panic, but cannot catch regressions where default values silently change. The test in `config_test.rs` (line 84-106) does a more thorough comparison against `AppConfig::default()`.
-
-**Fix:** Assert specific default values:
-
-```rust
-let config: AppConfig = toml::from_str("").expect("空 TOML 应成功解析");
-assert_eq!(config.app.project_version, AppConfig::default().app.project_version);
-assert_eq!(config.frames.frame_interval_input, 3);
-```
-
-### IN-04: .gitignore includes Python-project patterns irrelevant to the Rust crate
-
-**File:** `.gitignore:5-14`
-**Issue:** Multiple entries reference Python project paths (e.g., `/app/services/__pycache__`, `app/models/faster-whisper-large-v2/*`, `resource/scripts/*.json`) that do not exist in the `narratoai-core` Rust crate. While harmless, these clutter the file and could mask similarly-named Rust build artifacts. The entries were inherited from the shared project root with the Python codebase.
-
-**Fix:** Group Python-specific entries under a comment section for clarity, or remove them if the Python project is fully migrated:
-
-```gitignore
-# Python project (legacy)
-/app/services/__pycache__
-/app/__pycache__/
-# ...
-```
+**Status:** `.gitignore` was excluded from this re-review's file list (only source files in scope). No assessment made.
 
 ---
 
-_Reviewed: 2026-04-28T14:00:00Z_
+_Reviewed: 2026-04-28T16:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
