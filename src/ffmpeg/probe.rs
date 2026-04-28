@@ -78,6 +78,12 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
         None => (0, 0, "unknown".to_string()),
     };
 
+    if width == 0 || height == 0 {
+        return Err(FFmpegError::OutputParseError(
+            "No video stream found in ffprobe output".into(),
+        ));
+    }
+
     Ok(VideoInfo {
         duration_secs,
         width,
