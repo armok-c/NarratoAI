@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use super::error::JianYingError;
 use super::material::{AudioMaterial, Speed, VideoMaterial};
-use super::time::{trange, Timerange};
+use super::time::Timerange;
 use super::types::{
     AudioSegmentJson, ClipTransform, HdrSettings, SegmentJson, UniformScale, VideoSegmentJson,
 };
@@ -213,6 +213,7 @@ impl AudioSegment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jianying::time::trange;
     use std::path::PathBuf;
 
     /// Test 1: VideoSegment::new 生成的 JSON 包含 target_timerange={start:0,duration:5000000}
