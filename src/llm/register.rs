@@ -2,7 +2,7 @@ use std::sync::Arc;
 use crate::config::types::AppConfig;
 use crate::error::LLMError;
 use crate::llm::registry::Registry;
-use crate::llm::openai_compatible::OpenAiCompatibleProvider;
+use crate::llm::openai_compatible::{OpenAiCompatibleProvider, ProviderConfig};
 
 /// Vision provider 在注册中心中的默认名称
 pub const VISION_PROVIDER_NAME: &str = "openai_vision";
@@ -65,7 +65,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
         } else {
             &config.app.vision_llm_provider
         };
-        match OpenAiCompatibleProvider::new(crate::llm::openai_compatible::ProviderConfig {
+        match OpenAiCompatibleProvider::new(ProviderConfig {
             api_key: config.app.vision_openai_api_key.clone(),
             model_name: config.app.vision_openai_model_name.clone(),
             base_url: config.app.vision_openai_base_url.clone(),
@@ -91,7 +91,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
         } else {
             &config.app.text_llm_provider
         };
-        match OpenAiCompatibleProvider::new(crate::llm::openai_compatible::ProviderConfig {
+        match OpenAiCompatibleProvider::new(ProviderConfig {
             api_key: config.app.text_openai_api_key.clone(),
             model_name: config.app.text_openai_model_name.clone(),
             base_url: config.app.text_openai_base_url.clone(),
