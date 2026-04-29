@@ -249,12 +249,32 @@ impl EdgeTtsEngine {
                 Some(tokio_tungstenite::Connector::NativeTls(tls_connector)),
             )
                 .await
-                .map_err(|e| TTSError::ConnectionFailed(format!("WebSocket 代理连接失败: {}", e)))?;
+                .map_err(|e| {
+                    let err_str = e.to_string();
+                    if err_str.contains("401")
+                        || err_str.contains("authentication")
+                        || err_str.contains("Unauthorized")
+                    {
+                        TTSError::AuthenticationFailed(err_str)
+                    } else {
+                        TTSError::ConnectionFailed(format!("WebSocket 代理连接失败: {}", e))
+                    }
+                })?;
             Ok(ws_stream)
         } else {
             let (ws_stream, _) = connect_async(request)
                 .await
-                .map_err(|e| TTSError::ConnectionFailed(format!("WebSocket 连接失败: {}", e)))?;
+                .map_err(|e| {
+                    let err_str = e.to_string();
+                    if err_str.contains("401")
+                        || err_str.contains("authentication")
+                        || err_str.contains("Unauthorized")
+                    {
+                        TTSError::AuthenticationFailed(err_str)
+                    } else {
+                        TTSError::ConnectionFailed(format!("WebSocket 连接失败: {}", e))
+                    }
+                })?;
             Ok(ws_stream)
         }
     }
@@ -324,8 +344,17 @@ impl EdgeTtsEngine {
         while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, ws_stream.next()).await
             .map_err(|_| TTSError::SynthesisFailed("接收消息超时: 服务器无响应".to_string()))?
         {
-            let msg =
-                msg_result.map_err(|e| TTSError::SynthesisFailed(format!("接收消息失败: {}", e)))?;
+            let msg = msg_result.map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("401")
+                    || err_str.contains("authentication")
+                    || err_str.contains("Unauthorized")
+                {
+                    TTSError::AuthenticationFailed(err_str)
+                } else {
+                    TTSError::SynthesisFailed(format!("接收消息失败: {}", e))
+                }
+            })?;
 
             match msg {
                 Message::Binary(data) => {
