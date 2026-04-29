@@ -11,6 +11,11 @@ use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
 const WS_RECEIVE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Edge TTS WebSocket 端点 URL（硬编码，不可配置）
+///
+/// # 安全说明
+/// `TrustedClientToken` 是公开令牌，广泛见于各类开源工具（如 edge-tts Python 库）。
+/// 此令牌用于微软 Edge 浏览器语音服务的客户端标识，不是秘密凭据。
+/// 若微软轮换此令牌，服务将中断直到本常量更新。
 const EDGE_TTS_WSS_URL: &str =
     "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
@@ -111,13 +116,13 @@ impl EdgeTtsEngine {
             "Origin",
             "chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
                 .parse()
-                .unwrap(),
+                .expect("Origin 值是硬编码字面量，解析 HeaderValue 不应失败"),
         );
         request.headers_mut().insert(
             "User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
                 .parse()
-                .unwrap(),
+                .expect("User-Agent 值是硬编码字面量，解析 HeaderValue 不应失败"),
         );
 
         if self.proxy_enabled {
@@ -161,7 +166,7 @@ impl EdgeTtsEngine {
             let target_host_only = target_addr.split('/').next().unwrap_or(target_addr);
             let (target_host, target_port_str) = target_addr
                 .split_once(':')
-                .and_then(|(h, p)| Some((h, p.split('/').next().unwrap_or("443"))))
+                .map(|(h, p)| (h, p.split('/').next().unwrap_or("443")))
                 .unwrap_or((target_host_only, "443"));
             let target_port: u16 = target_port_str
                 .parse()
