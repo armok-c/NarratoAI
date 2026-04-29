@@ -2,6 +2,7 @@
 phase: 03-tts-core-edge-tts
 reviewed: 2026-04-29
 depth: standard
+iteration: 4
 files_reviewed: 6
 files_reviewed_list:
   - Cargo.toml
@@ -13,165 +14,135 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 0
-  info: 5
-  total: 5
+  info: 0
+  total: 0
 status: clean
 ---
 
-# Phase 03: TTS Core + Edge-TTS Engine -- Code Review Report (Iteration 3)
+# Phase 03: TTS Core + Edge-TTS Engine — Code Review Report (Iteration 4, Re-review)
 
 **Reviewed:** 2026-04-29
 **Depth:** standard
+**Iteration:** 4 (re-review after Iteration 3 fixes)
 **Files Reviewed:** 6
-**Status:** clean -- 所有之前识别的 7 个问题均已修复
+**Status:** clean — 所有之前发现的 12 个问题（1 Critical + 6 Warning + 5 Info）均已正确修复或确认保留
 
 ## Summary
 
-对 Phase 03 的 6 个文件进行了标准深度审查。
+对 Phase 03 的 6 个文件进行了第 4 轮标准深度审查，重点验证第 3 轮发现的 5 个 Info 级别问题的修复正确性，确认前 3 轮所有修复保持，并排查是否引入新问题。
 
-**关键发现：当前 `main` 分支（commit `6ea0df0`，合并 `review-fix-03`）中，之前两轮审查识别的全部 7 个问题（CR-01 + WR-01 至 WR-06）均已正确修复且保持修复状态。**
+**关键结论：全部 12 个问题（CR-01 + WR-01~WR-06 + IN-01~IN-05）均处于正确状态。未发现任何新问题。代码质量合格。**
 
-| ID | 问题 | 修复状态 | 验证依据 |
-|---|---|---|---|
-| CR-01 | voice_name_to_lang 字符索引 vs 字节索引 | 已修复 | `char_indices()` 用于 `voice_name_to_lang()` (L51-52) |
-| WR-01 | 缺少认证错误检测 | 已修复 | 3 处认证检测：代理路径 (L254-259)、直连路径 (L267-272)、接收路径 (L346-351) |
-| WR-02 | turn.end 前关闭静默成功 | 已修复 | `!received_turn_end` 提前返回 Err (L428-432) |
-| WR-03 | max_retries 命名误导 | 已修复 | `max_attempts` 已使用 (L286) |
-| WR-04 | 重复测试用例 | 已修复 | `tests/tts_test.rs` 无重复测试函数 |
-| WR-05 | 缺少 clippy 抑制属性 | 已修复 | `#[allow(clippy::let_underscore_future)]` 存在于 L102 |
-| WR-06 | EdgeTtsEngine 可见度过于宽松 | 已修复 | `pub(super)` 用于 struct (L81)、字段 (L82-84)、new() (L88) |
+## Fix Verification
 
-**未发现新的 Critical 或 Warning 级别问题。** 仅存在 5 个 Info 级别的非阻塞建议。
+### 第 1-2 轮修复验证（CR-01, WR-01~WR-06）— 全部保持
 
-## Findings
+| ID | 问题 | 文件:Lines | 验证结果 | 确认 |
+|---|---|---|---|---|
+| CR-01 | voice_name_to_lang 字符索引 | `edge_tts.rs:56-60` | 使用 `char_indices()` 获取字节索引，正确 | 保持 |
+| WR-01 | 缺少认证错误检测 | `edge_tts.rs:258-264,271-277,350-355` | 3 处均检查 "401"/"authentication"/"unauthorized" | 保持 |
+| WR-02 | turn.end 前关闭静默成功 | `edge_tts.rs:431-435` | `!received_turn_end` 返回 `Err(SynthesisFailed)` | 保持 |
+| WR-03 | max_retries 命名误导 | `edge_tts.rs:291` | 已重命名为 `max_attempts`（值 4，注释说明 1 initial + 3 retries） | 保持 |
+| WR-04 | 重复测试用例 | `tests/tts_test.rs` | 无重复测试函数 | 保持 |
+| WR-05 | 缺少 clippy 抑制属性 | `tests/tts_test.rs:102` | `#[allow(clippy::let_underscore_future)]` 存在 | 保持 |
+| WR-06 | EdgeTtsEngine 可见度过于宽松 | `edge_tts.rs:86-89,93` | `pub(super)` 应用于 struct、字段、new() | 保持 |
 
-### Info
+### 第 3 轮修复验证（IN-01~IN-05）
 
-#### IN-01: 多余的 `.into()` 转换（未变）
-
-**文件：** `src/tts/edge_tts.rs:331`
-**严重度：** info
-**说明：** `Message::Text(stt_message.into())` 中，`stt_message` 已是 `String`，`Message::Text` 直接接收 `String`，`.into()` 是空操作。
-**影响：** 无运行时影响，编译器会优化掉。
-
-#### IN-02: `and_then` 应改为 `map`（未变）
-
-**文件：** `src/tts/edge_tts.rs:164`
-**严重度：** info
-**说明：** `.and_then(|(h, p)| Some(...))` 的闭包始终返回 `Some`，语义上等同于 `.map(...)`。前者暗示闭包可能返回 `None`，但实际不会。
-**建议：** 将 `and_then` 改为 `map`：
-
-```rust
-let (target_host, target_port_str) = target_addr
-    .split_once(':')
-    .map(|(h, p)| (h, p.split('/').next().unwrap_or("443")))
-    .unwrap_or((target_host_only, "443"));
-```
-
-#### IN-03: 硬编码的公开令牌（未变）
-
-**文件：** `src/tts/edge_tts.rs:14-15`
-**严重度：** info
-**说明：** WebSocket URL 中包含硬编码的 `TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4`。此令牌是公开的（广泛见于各类开源工具），但若微软轮换此令牌，服务将中断直到代码更新。
-**影响：** 设计约束，当前无法避免。可添加注释说明。
-
-#### IN-04: `.unwrap()` 无 `.expect()` 说明安全性原因（未变）
-
-**文件：** `src/tts/edge_tts.rs:114,120`
-**严重度：** info
-**说明：** 两处硬编码字符串字面量的 `.parse().unwrap()` 调用未附带理由说明。虽然字面量解析不可能失败，但使用 `.expect("...")` 可帮助读者确认此处安全。
-**建议：** 将 `.unwrap()` 替换为 `.expect("硬编码字面量解析不应失败")`。
-
-#### IN-05: 版本测试绑定硬编码字符串（未变）
-
-**文件：** `src/lib.rs:17-19`
-**严重度：** info
-**说明：** `test_version_returns_0_1_0` 使用 `assert_eq!(version(), "0.1.0")`，版本号变化时需要同步修改两处。可用编译时常量替代。
-**建议：**
-
-```rust
-#[test]
-fn test_version_matches_cargo_toml() {
-    assert_eq!(version(), env!("CARGO_PKG_VERSION"));
-}
-```
+| ID | 问题 | 文件:Lines | 修复状态 | 验证详情 |
+|---|---|---|---|---|
+| IN-01 | 多余的 `.into()` 转换 | `edge_tts.rs:336` | 跳过（回退） | **验证通过：保留正确。** tungstenite 0.29 的 `Message::Text` 接收 `Utf8Bytes` 而不是 `String`。`stt_message.into()` 执行必要的 `String` → `Utf8Bytes` 转换。移除会导致编译错误 E0308。回退决策正确。 |
+| IN-02 | `and_then` 应改为 `map` | `edge_tts.rs:167-170` | 已修复 (commit `5d9ee9d`) | **验证通过。** 原代码 `.and_then(|(h, p)| Some(...))` 已替换为 `.map(|(h, p)| (...))`。闭包始终有返回值，`map` 语义更准确。 |
+| IN-03 | 硬编码公开令牌缺少安全注释 | `edge_tts.rs:14-20` | 已修复 (commit `5d9ee9d`) | **验证通过。** 在 `EDGE_TTS_WSS_URL` 上方添加了详细的 `/// # 安全说明` 注释块，说明令牌性质（公开、非秘密）、来源（edge-tts Python 库）以及令牌轮换风险。 |
+| IN-04 | `.unwrap()` 无说明 | `edge_tts.rs:117-119,123-125` | 已修复 (commit `5d9ee9d`) | **验证通过。** 两处 `.parse().unwrap()` 均已替换为 `.parse().expect(...)`：L119 说明 "Origin 值是硬编码字面量，解析 HeaderValue 不应失败"；L125 说明 "User-Agent 值是硬编码字面量，解析 HeaderValue 不应失败"。 |
+| IN-05 | 版本测试绑定硬编码字符串 | `lib.rs:17-19` | 已修复 (commit `dc51713`) | **验证通过。** 测试函数重命名为 `test_version_matches_cargo_toml`，断言使用 `env!("CARGO_PKG_VERSION")` 编译时常量。`version()` 函数和测试使用同一来源，必然相等。 |
 
 ## File-by-File Review
 
 ### Cargo.toml
 
-- 依赖项版本锁定合理（tokio 1.52.1, serde 1.0.228, thiserror 2.0.18 等）
-- `tokio-tungstenite` 启用 `native-tls` feature，与手动 `native-tls` 依赖一致
-- `async-openai` 启用 `chat-completion` feature，符合使用场景
-- 无未使用的依赖项
-- 无缺少的必要依赖项
+- 版本 0.1.0，edition 2021
+- 依赖项版本锁定合理：tokio 1.52.1, serde 1.0.228, thiserror 2.0.18 等均为稳定版本
+- `tokio-tungstenite` 0.29.0 启用 `rustls-tls` feature（Cargo.lock 确认 tungstenite 0.29.0，其中 `Message::Text` 使用 `Utf8Bytes` 类型）
+- `async-openai` 启用 `chat-completion` feature
+- 无未使用或缺失的依赖项
 - **结论：** 通过，无问题
 
 ### src/error.rs
 
-- `TTSError` 包含 5 个变体：`UnknownEngine`、`ConnectionFailed`、`AuthenticationFailed`、`SynthesisFailed`、`RetryExhausted`
+- 5 个错误枚举（ConfigError、FFmpegError、TTSError、LLMError）定义清晰
 - `From<notify::Error>` 和 `From<async_openai::error::OpenAIError>` 实现正确
 - 所有 Display 消息使用中文，与项目规范一致
-- 测试覆盖所有变体的中文消息断言
+- 测试覆盖所有变体，中文消息断言完整
 - **结论：** 通过，无问题
 
 ### src/lib.rs
 
 - 模块声明清晰（config, ffmpeg, error, tts, llm）
 - `version()` 函数使用 `env!("CARGO_PKG_VERSION")` 编译时注入
-- 测试已验证版本号
-- **结论：** 通过，仅 IN-05 版本测试绑定问题
+- **IN-05 已验证修复：** 测试使用 `env!("CARGO_PKG_VERSION")` 而非硬编码版本号
+- **结论：** 通过，无问题
 
 ### src/tts/mod.rs
 
-- `WordBoundary` 结构体：偏移量使用 `u64`（与 100ns 单位一致），`text` 使用 `String`
-- `TtsOutput` 结构体：`audio_file_path` 使用 `PathBuf`、`word_boundaries` 使用 `Vec<WordBoundary>`、`duration` 使用 `f64`
-- `TtsProvider` trait：`Send + Sync` 约束正确，异步方法签名合理
-- `synthesize()` 路由器：`&str` 匹配分发，正确提取代理配置，创建 `EdgeTtsEngine` 实例
-- 内置测试覆盖 Mock 引擎、未知引擎分支、中文错误消息
+- `WordBoundary`（offset u64, text String）、`TtsOutput`（audio_file_path PathBuf, word_boundaries Vec, duration f64）结构体定义合理
+- `TtsProvider` trait 约束 `Send + Sync`，异步方法签名正确
+- `synthesize()` 路由器：字符串匹配分发，正确提取代理配置
+- 测试覆盖 Mock 引擎、未知引擎分支、中文错误消息
 - **结论：** 通过，无问题
 
 ### src/tts/edge_tts.rs
 
-- **CR-01 已修复：** `char_indices()` 替代 `chars().enumerate()`（L51-52）
-- **WR-01 已修复：** 3 处认证错误检测（L254-259, L267-272, L346-351）
-- **WR-02 已修复：** `!received_turn_end` 提前 Err 返回（L428-432），且仅在 `received_turn_end` 为 true 且 duration==0.0 时 warn
-- **WR-03 已修复：** `max_attempts` 命名（L286）
-- **WR-06 已修复：** `pub(super)` 可见度控制（L81-88）
-- SSML 构建中 XML 转义处理了 `&`、`<`、`>`（占位 99% 场景，`"` 和 `'` 未转义但风险极低）
-- 代理 CONNECT 通道正确处理 RFC 7231 1xx interim 响应
+- **CR-01 保持：** `char_indices()` 用于 `voice_name_to_lang()`（L56-60）
+- **WR-01 保持：** 3 处认证检测（L258-264, L271-277, L350-355）
+- **WR-02 保持：** `!received_turn_end` 提前返回 Err（L431-435）
+- **WR-03 保持：** `max_attempts = 4` 命名正确（L291）
+- **WR-06 保持：** `pub(super)` 可见度（L86-89, L93）
+- **IN-01 保留正确：** `Message::Text(stt_message.into())` — `.into()` 是必需的 `String` → `Utf8Bytes` 转换（L336）
+- **IN-02 已验证修复：** `.map()` 替代 `.and_then()`（L167-170）
+- **IN-03 已验证修复：** 安全文档注释块（L14-20）
+- **IN-04 已验证修复：** `.expect()` 替代 `.unwrap()`（L117-119, L123-125）
+- SSML 构建 XML 转义处理 `&`、`<`、`>`（覆盖 99% 场景）
+- 代理 CONNECT 通道处理 RFC 7231 1xx interim 响应
 - 超时处理使用 `tokio::time::timeout(120s)` 合理
-- 二进制消息解析器 `parse_edge_tts_binary()` 健壮
-- 单元测试覆盖 helper 函数的所有主要分支
+- `parse_edge_tts_binary()` 解析器健壮（分割符搜索、UTF-8 验证、Path 字段提取）
+- 单元测试覆盖 helper 函数所有主要分支
 - 集成测试标记为 `#[ignore]`，需网络环境
-- **结论：** 通过，仅 IN-01、IN-02、IN-03、IN-04 存在
+- **结论：** 通过，无问题
 
 ### tests/tts_test.rs
 
-- **WR-04 已修复：** 无重复测试函数（之前被移除的 `test_synthesize_unknown_engine_error` 和 `test_synthesize_unknown_engine_message_contains_name` 未再出现）
-- **WR-05 已修复：** `#[allow(clippy::let_underscore_future)]` 存在于 L102
+- **WR-04 保持：** 无重复测试函数
+- **WR-05 保持：** `#[allow(clippy::let_underscore_future)]` 存在于 L102
 - 测试覆盖：WordBoundary/TtsOutput 字段完整性、时间单位语义、所有 TTSError 变体中文字段、编译时签名验证
-- 测试设计合理：无冗余、边界覆盖完善
+- 测试设计合理，无冗余
 - **结论：** 通过，无问题
 
-## Appendix: Fix Verification Audit
+## New Issue Check
 
-验证之前两轮审查（Iteration 1: 03-REVIEW.md, Iteration 2: 03-REVIEW.md → 03-REVIEW-FIX.md）中识别的 7 个问题在 `main`（`6ea0df0`，merged `review-fix-03`）中的存在状态。
+未发现任何新的 Critical、Warning 或 Info 级别问题。
 
-| ID | 问题 | 文件:Lines | 修复验证 | 确认 |
+### 已排除的潜在疑点
+
+1. **`parse_edge_tts_binary()` 中 header 解析使用 `lines()` 而非针对 `\r\n` 显式分割。** 经审查：`lines()` 在 UTF-8 字符串上可以正确处理 `\r\n`（每行尾部 `\r` 会被 trim），不影响功能。不构成问题。
+
+2. **SSML 中 `"` 和 `'` 未转义。** 风险极低：文本内容中的引号在 XML 属性值（`rate="..." pitch="..."`）之外出现时不会破坏结构。99% 场景覆盖（`&`、`<`、`>`）。不构成问题。
+
+3. **`Message::Text(text)` 分支仅 logging。** 这是正确行为：Edge TTS 服务可能发送文本消息作为调试或连接信息，不应作为错误处理。不构成问题。
+
+## Appendix: Complete Fix History
+
+| 轮次 | 发现数 (C/W/I) | 已修复 | 跳过/保留 | 状态 |
 |---|---|---|---|---|
-| CR-01 | voice_name_to_lang 字符索引 | `edge_tts.rs:51-52` | 使用 `char_indices()` 返回字节索引 | 已修复 |
-| WR-01 | 认证错误检测 | `edge_tts.rs:254-259,267-272,346-351` | 三处均检查 "401"/"authentication"/"unauthorized" | 已修复 |
-| WR-02 | turn.end 前关闭 | `edge_tts.rs:428-432` | `!received_turn_end` → `Err(SynthesisFailed)` | 已修复 |
-| WR-03 | max_retries 命名 | `edge_tts.rs:286` | 重命名为 `max_attempts` | 已修复 |
-| WR-04 | 重复测试 | `tests/tts_test.rs` | 无重复 `test_synthesize_unknown_engine*` | 已修复 |
-| WR-05 | clippy 抑制缺失 | `tests/tts_test.rs:102` | `#[allow(clippy::let_underscore_future)]` 存在 | 已修复 |
-| WR-06 | pub 可见度 | `edge_tts.rs:81-88` | `pub(super)` 应用于 struct/fields/new() | 已修复 |
+| Iteration 1 | 7 (1C + 6W + 0I) | 7 | 0 | 全部修复合并到 `review-fix-03` |
+| Iteration 2 | — | — | — | (无独立审查，验证修复) |
+| Iteration 3 | 5 (0C + 0W + 5I) | 4 | 1 (IN-01 正确保留) | 修复提交 `5d9ee9d`, `dc51713` |
+| Iteration 4 (本轮) | 0 | — | — | **全部清零，无可追踪问题** |
 
-**全部 7 个问题已修复且保持修复状态。无回退迹象。**
+**全部轮次累计：12 个问题（1 Critical + 6 Warning + 5 Info），其中 11 个已修复，1 个确认保留（IN-01 `.into()` 为必要转换）。**
 
 ---
 
 _Reviewed: 2026-04-29_
-_Reviewer: Claude (gsd-code-reviewer)_
+_Reviewer: gsd-code-reviewer (Iteration 4)_
 _Depth: standard_
