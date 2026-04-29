@@ -226,7 +226,7 @@ impl OpenAiCompatibleProvider {
                 if msg_lower.contains("response_format") {
                     // 回退：使用 builder API 重建请求，避免 serde_json round-trip
                     let json_prompt = format!(
-                        "{}\n\n请确保输出严格的JSON格式，不要包含任何其他文字或标记。",
+                        "{}\n\nIMPORTANT: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks.",
                         original_prompt
                     );
 
@@ -280,7 +280,7 @@ impl OpenAiCompatibleProvider {
             Err(OpenAIError::ApiError(api_err)) => {
                 if api_err.message.to_lowercase().contains("response_format") {
                     let json_prompt = format!(
-                        "{}\n\n请确保输出严格的JSON格式，不要包含任何其他文字或标记。",
+                        "{}\n\nIMPORTANT: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks.",
                         original_prompt
                     );
                     let retry_messages = Self::build_vision_messages(
