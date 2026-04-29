@@ -27,3 +27,4 @@ serde_repr = "0.1.20"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+wiremock = "0.6"
