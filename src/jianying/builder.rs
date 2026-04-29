@@ -134,7 +134,9 @@ impl ScriptFile {
     }
 
     /// 添加视频 segment 到指定名称的轨道
-    pub fn add_video_segment(&mut self, seg: VideoSegment, track_name: &str) {
+    ///
+    /// 如果轨道名称不存在，回滚已添加的素材并返回 Validation 错误。
+    pub fn add_video_segment(&mut self, seg: VideoSegment, track_name: &str) -> Result<(), JianYingError> {
         // 收集素材
         self.video_materials.push(seg.material_json());
         self.speed_materials.push(seg.speed_json());
@@ -142,11 +144,21 @@ impl ScriptFile {
         // 添加到轨道
         if let Some(track) = self.tracks.iter_mut().find(|t| t.name() == track_name) {
             track.add_video_segment(seg);
+            Ok(())
+        } else {
+            // 回滚素材——segment 未被添加，对应的素材也应移除
+            self.video_materials.pop();
+            self.speed_materials.pop();
+            Err(JianYingError::Validation {
+                details: format!("视频轨道 '{}' 不存在", track_name),
+            })
         }
     }
 
     /// 添加音频 segment 到指定名称的轨道
-    pub fn add_audio_segment(&mut self, seg: AudioSegment, track_name: &str) {
+    ///
+    /// 如果轨道名称不存在，回滚已添加的素材并返回 Validation 错误。
+    pub fn add_audio_segment(&mut self, seg: AudioSegment, track_name: &str) -> Result<(), JianYingError> {
         // 收集素材
         self.audio_materials.push(seg.material_json());
         self.speed_materials.push(seg.speed_json());
@@ -154,6 +166,14 @@ impl ScriptFile {
         // 添加到轨道
         if let Some(track) = self.tracks.iter_mut().find(|t| t.name() == track_name) {
             track.add_audio_segment(seg);
+            Ok(())
+        } else {
+            // 回滚素材——segment 未被添加，对应的素材也应移除
+            self.audio_materials.pop();
+            self.speed_materials.pop();
+            Err(JianYingError::Validation {
+                details: format!("音频轨道 '{}' 不存在", track_name),
+            })
         }
     }
 
@@ -256,7 +276,7 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
         if let Some(ref video_path) = clip.video {
             let video_seg =
                 VideoSegment::new(video_path, target.clone(), req.width, req.height)?;
-            script_file.add_video_segment(video_seg, "视频轨道");
+            script_file.add_video_segment(video_seg, "视频轨道")?;
         } else {
             let source_start = parse_source_start_time(clip, i)?;
             let source = trange_from_secs(source_start, duration);
@@ -267,7 +287,7 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
                 req.width,
                 req.height,
             )?;
-            script_file.add_video_segment(video_seg, "视频轨道");
+            script_file.add_video_segment(video_seg, "视频轨道")?;
         }
 
         // 音频片段（per D-08 OST 映射）
@@ -278,7 +298,7 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
                 let safe_duration = duration.min(audio_duration); // per D-10
                 let audio_target = trange_from_secs(current_time_secs, safe_duration);
                 let audio_seg = AudioSegment::new(audio_path, audio_target)?;
-                script_file.add_audio_segment(audio_seg, "音频轨道");
+                script_file.add_audio_segment(audio_seg, "音频轨道")?;
             }
         }
 
