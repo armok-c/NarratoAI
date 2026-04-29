@@ -74,44 +74,7 @@ fn test_tts_error_all_variants_chinese() {
 // synthesize 路由器集成测试
 // ============================================================
 
-/// 未知引擎返回正确的错误类型
-#[tokio::test]
-async fn test_synthesize_unknown_engine_error() {
-    let result = tts::synthesize(
-        "invalid_engine",
-        "测试文本",
-        "zh-CN-XiaoyiNeural",
-        1.0,
-        0.0,
-        Path::new("output.mp3"),
-        None,
-    )
-    .await;
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        TTSError::UnknownEngine { ref engine } => {
-            assert_eq!(engine, "invalid_engine");
-        }
-        _ => panic!("应为 UnknownEngine 错误"),
-    }
-}
-
-/// 未知引擎的错误消息包含引擎名
-#[tokio::test]
-async fn test_synthesize_unknown_engine_message_contains_name() {
-    let result = tts::synthesize(
-        "bad_engine_name",
-        "测试",
-        "voice",
-        1.0,
-        0.0,
-        Path::new("out.mp3"),
-        None,
-    )
-    .await;
-    let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("bad_engine_name"));
-}
+// 未知引擎测试保留在 src/tts/mod.rs 中，避免重复维护
 
 // ============================================================
 // TTS 数据流完整性验证
