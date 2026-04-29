@@ -1,83 +1,61 @@
 ---
 phase: 09-jianying-export
-fixed_at: 2026-04-29T19:00:00Z
+fixed_at: 2026-04-29T13:00:00Z
 review_path: .planning/phases/09-jianying-export/09-REVIEW.md
-iteration: 3
-findings_in_scope: 8
-fixed: 8
+iteration: 4
+findings_in_scope: 4
+fixed: 4
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 09: Code Review Fix Report (Iteration 3)
+# Phase 09: Code Review Fix Report (Iteration 4)
 
-**Fixed at:** 2026-04-29T19:00:00Z
+**Fixed at:** 2026-04-29T13:00:00Z
 **Source review:** .planning/phases/09-jianying-export/09-REVIEW.md
-**Iteration:** 3
+**Iteration:** 4
 
 **Summary:**
-- Findings in scope: 8 (1 Critical + 4 Warning + 3 Info)
-- Fixed: 8
+- Findings in scope: 4 (2 Critical + 2 Warning)
+- Fixed: 4
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: `trange_from_secs` allows negative `start` without validation
+### CR-01: JSON injection via unescaped draft_name in DRAFT_META_INFO_TEMPLATE
+
+**Files modified:** `src/jianying/builder.rs`
+**Commit:** (uncommitted -- applied as working tree change)
+**Applied fix:** Replaced the naive `String::replace()` approach with `serde_json::Value` parsing. The `DRAFT_META_INFO_TEMPLATE` is now parsed as `serde_json::Value`, then `draft_id` and `draft_name` fields are set programmatically via `serde_json::json!()`. This eliminates JSON injection by ensuring all values are properly escaped through serde's serialization. The pattern matches the existing safe approach already used in `ScriptFile::save` for `draft_content.json`.
+
+### CR-02: Path traversal via unsanitized draft_name
+
+**Files modified:** `src/jianying/builder.rs`
+**Commit:** (uncommitted -- applied as working tree change)
+**Applied fix:** Added `validate_draft_name()` function that rejects draft names containing `/`, `\`, `..`, or `\0` characters. Called at the top of `DraftFolder::create_draft` before the name is used in `draft_path.join(draft_name)`. Added test `test_validate_draft_name_rejects_traversal` covering path traversal, forward/backslash, null byte, double-dot, and valid name acceptance.
+
+### WR-01: OST=NarrationOnly silently skips audio when clip.audio is None
+
+**Files modified:** `src/jianying/builder.rs`
+**Commit:** (uncommitted -- applied as working tree change)
+**Applied fix:** Replaced `if let Some(ref audio_path) = clip.audio` with `match clip.audio` that returns `JianYingError::MissingField { field: "audio", clip_index: i }` in the `None` arm. This ensures that when `OstType::NarrationOnly` or `OstType::Mixed` is declared but no audio is provided, the error is surfaced immediately instead of silently producing a semantically incorrect draft.
+
+### WR-02: trange() accepts negative start values
 
 **Files modified:** `src/jianying/time.rs`
-**Commit:** ca358ae
-**Applied fix:** Added `is_finite()` and `>= 0` checks for both `start_secs` and `duration_secs` before conversion. Added post-cast `i64` negative check for both values. Added 3 new tests: `test_trange_from_secs_negative_start_returns_none`, `test_trange_from_secs_nan_returns_none`, `test_trange_from_secs_inf_returns_none`.
-
-### WR-01: `calculate_total_duration` silently defaults to 60 seconds for empty timelines
-
-**Files modified:** `src/jianying/builder.rs`
-**Commit:** ca358ae
-**Applied fix:** Changed `unwrap_or(60_000_000)` to `unwrap_or(0)` — empty timelines now correctly report 0 duration instead of a silent 60-second default.
-
-### WR-02: `probe_audio` does not validate parsed duration is positive and finite
-
-**Files modified:** `src/ffmpeg/probe.rs`
-**Commit:** ca358ae
-**Applied fix:** Added `!duration.is_finite() || duration <= 0.0` validation after parsing, returning `FFmpegError::OutputParseError` with a descriptive message.
-
-### WR-03: `probe_video` does not validate `duration_secs` is positive and finite
-
-**Files modified:** `src/ffmpeg/probe.rs`
-**Commit:** ca358ae
-**Applied fix:** Added `!duration_secs.is_finite() || duration_secs <= 0.0` validation after parsing, returning `FFmpegError::OutputParseError` with a descriptive message.
-
-### WR-04: `export_draft` does not validate `video_origin_path` is non-empty
-
-**Files modified:** `src/jianying/builder.rs`
-**Commit:** ca358ae
-**Applied fix:** Added `video_origin_path.as_os_str().is_empty()` check in `validate_export_request`, returning `JianYingError::Validation` with "原始视频路径不能为空". Added test `test_validate_empty_video_origin_path`.
-
-### IN-01: `DraftFolder::create_draft` takes `&PathBuf` instead of `&Path`
-
-**Files modified:** `src/jianying/builder.rs`
-**Commit:** ca358ae
-**Applied fix:** Changed parameter type from `&PathBuf` to `&Path`, updated internal clone to `to_path_buf()`. Call sites auto-deref via `Deref<Target=Path>`.
-
-### IN-02: `parse_timestamp_start` uses `f64` for integer-valued hour/minute/second fields
-
-**Files modified:** `src/jianying/builder.rs`
-**Commit:** ca358ae
-**Applied fix:** Changed `h`, `m`, `s` from `f64` to `u32`. Removed now-unnecessary negative checks (`u32` is always non-negative). Cast to `f64` only for the final arithmetic. Fractional inputs like `"01.5:30:00"` now correctly fail.
-
-### IN-03: `calculate_total_duration` re-serializes track data to JSON just to read timeranges
-
-**Files modified:** `src/jianying/builder.rs`, `src/jianying/track.rs`
-**Commit:** ca358ae
-**Applied fix:** Added `Track::max_end_time()` method that computes max end time directly from `SegmentOutput`'s `base.target_timerange` without JSON serialization. Simplified `calculate_total_duration` to a one-liner that delegates to `max_end_time()`, changing return type from `Result<i64, JianYingError>` to `i64`.
+**Commit:** (uncommitted -- applied as working tree change)
+**Applied fix:** Added `start_us < 0` to the existing validation condition in `trange()`, changing `if duration_us < 0` to `if start_us < 0 || duration_us < 0`. This brings `trange()` into parity with `trange_from_secs()` which already validates both parameters. Added test `test_trange_negative_start_returns_none` confirming that `trange("-2s", "5s")` returns `None`.
 
 ## Verification Results
 
 - **cargo check**: All fixes compile cleanly.
-- **cargo test --lib**: 136 unit tests passed, 0 failed (4 new tests added).
-- **cargo test --test jianying_export**: 10 integration tests passed, 2 ignored (require actual audio files and ffmpeg).
+- **cargo test --lib**: 138 unit tests passed, 0 failed (2 new tests added).
+- New tests confirmed passing:
+  - `test_validate_draft_name_rejects_traversal` (CR-02)
+  - `test_trange_negative_start_returns_none` (WR-02)
 
 ---
 
-_Fixed: 2026-04-29T19:00:00Z_
+_Fixed: 2026-04-29T13:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 3_
+_Iteration: 4_
