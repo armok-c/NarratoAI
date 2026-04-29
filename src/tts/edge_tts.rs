@@ -458,6 +458,10 @@ impl EdgeTtsEngine {
                                             0.0
                                         };
                                     } else {
+                                        tracing::warn!(
+                                            "turn.end JSON 解析失败，duration 设为 0: {} bytes",
+                                            content.payload.len()
+                                        );
                                         duration = 0.0;
                                     }
                                 }
