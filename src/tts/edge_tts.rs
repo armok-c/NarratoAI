@@ -149,16 +149,26 @@ impl EdgeTtsEngine {
                 .rsplit('@')
                 .next()
                 .unwrap_or(proxy_addr);
-            let (proxy_host, proxy_port) = match host_port.split_once(':') {
-                Some((host, port_str)) => {
-                    let port: u16 = port_str
-                        .parse()
-                        .map_err(|_| TTSError::ConnectionFailed(
-                            "代理端口格式错误，代理 URL 不支持认证凭据".to_string()
-                        ))?;
-                    (host, port)
+            let (proxy_host, proxy_port) = if host_port.starts_with('[') {
+                // IPv6 bracket notation: [::1]:7890
+                host_port.rsplit_once("]:")
+                    .map(|(addr_inner, port_str)| {
+                        let port: u16 = port_str
+                            .parse()
+                            .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+                        Ok::<_, TTSError>((&addr_inner[1..], port))
+                    })
+                    .unwrap_or(Err(TTSError::ConnectionFailed("代理 IPv6 地址格式错误".to_string())))?
+            } else {
+                match host_port.split_once(':') {
+                    Some((host, port_str)) => {
+                        let port: u16 = port_str
+                            .parse()
+                            .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+                        (host, port)
+                    }
+                    None => (host_port, default_proxy_port),
                 }
-                None => (host_port, default_proxy_port),
             };
 
             // Parse target WSS URL manually
