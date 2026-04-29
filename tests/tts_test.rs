@@ -99,6 +99,7 @@ fn test_word_boundary_time_unit_semantics() {
 /// Calls the function and assigns the returned future to `_`, which
 /// causes a compile error if the parameter types or return type change.
 /// The future is never polled, so there are no runtime side effects.
+#[allow(clippy::let_underscore_future)]
 #[test]
 fn test_synthesize_function_signature() {
     let _ = tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None);
