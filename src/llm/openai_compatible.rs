@@ -132,7 +132,6 @@ impl OpenAiCompatibleProvider {
 
     /// 构建文本生成的消息列表
     fn build_text_messages(
-        &self,
         prompt: &str,
         system_prompt: Option<&str>,
     ) -> Vec<ChatCompletionRequestMessage> {
@@ -244,7 +243,7 @@ impl OpenAiCompatibleProvider {
                         original_prompt
                     );
 
-                    let retry_messages = self.build_text_messages(&json_prompt, system_prompt);
+                    let retry_messages = Self::build_text_messages(&json_prompt, system_prompt);
                     let mut retry_builder = CreateChatCompletionRequestArgs::default();
                     retry_builder.model(&self.model_name);
                     retry_builder.messages(retry_messages);
@@ -338,7 +337,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         max_tokens: Option<u32>,
         response_format: Option<LlmResponseFormat>,
     ) -> Result<String, LLMError> {
-        let messages = self.build_text_messages(prompt, system_prompt);
+        let messages = Self::build_text_messages(prompt, system_prompt);
 
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder.model(&self.model_name);
@@ -383,7 +382,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         temperature: Option<f32>,
         max_tokens: Option<u32>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
-        let messages = self.build_text_messages(prompt, system_prompt);
+        let messages = Self::build_text_messages(prompt, system_prompt);
 
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder.model(&self.model_name);
