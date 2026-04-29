@@ -1,89 +1,118 @@
 ---
 phase: 02-llm-service-layer
-fixed_at: "2026-04-28T22:45:00+08:00"
+fixed_at: 2026-04-29T02:04:32Z
 review_path: .planning/phases/02-llm-service-layer/02-REVIEW.md
-fixed_from_branch: fix-02-review-197809
-findings_in_scope: 9
-fixed: 9
-skipped: 0
-fix_scope: critical_warning
 iteration: 1
-status: all_fixed
+findings_in_scope: 10
+fixed: 9
+skipped: 1
+status: partial
 ---
 
 # Phase 02: LLM Service Layer -- Code Review Fix Report
 
-**Fixed at:** 2026-04-28T22:45:00+08:00
-**Source review:** `.planning/phases/02-llm-service-layer/02-REVIEW.md`
-**Fix scope:** critical + warning (9 findings)
+**Fixed at:** 2026-04-29T02:04:32Z
+**Source review:** .planning/phases/02-llm-service-layer/02-REVIEW.md
 **Iteration:** 1
 
-## Summary
-
-| Metric | Count |
-|--------|-------|
-| Findings in scope | 9 (3 critical, 6 warning) |
-| Fixed | 9 |
-| Skipped | 0 |
+**Summary:**
+- Findings in scope: 10 (3 Critical + 7 Warning)
+- Fixed: 9
+- Skipped: 1
 
 ## Fixed Issues
 
-### CR-01: Missing `#[derive(Default)]` on 8 config section structs
+### CR-01: OpenAIClientConfig/RetryConfig import and Client::build type mismatch
 
-**Files modified:** `src/config/types.rs`
-**Commit:** `2e167fb`
-**Applied fix:** Added `#[derive(Default)]` to 8 structs: `AppSection`, `UiSection`, `TencentSection`, `SoulVoiceSection`, `TtsQwenSection`, `IndexTTS2Section`, `DoubaoTTSSection`, and `FramesSection`. All contain only primitive types that already implement `Default`, making this safe.
+**Files modified:** `src/llm/openai_compatible.rs`, `Cargo.toml`, `Cargo.lock`
+**Commits:** `98b787a`, `85d7fbd`
+**Applied fix:**
 
-### CR-02: `reqwest = "0.13"` incompatible with async-openai's reqwest 0.12.x
+1. Removed `OpenAIClientConfig` and `RetryConfig` imports from `async-openai::config` (types do not exist in async-openai 0.36.1).
+2. Replaced the constructor body: removed the `OpenAIClientConfig` struct construction and the `Client::build()` call with the async-openai 0.36.1 builder chain (`Client::with_config(config).with_http_client(http_client)`).
+3. Unified the proxy/no-proxy branches into a single `reqwest::Client::builder()` chain with optional proxy configuration.
+4. Upgraded `reqwest` dependency from `"0.12"` to `"0.13"` to match the version required by async-openai 0.36.1, resolving `Client` type mismatch in `with_http_client()`.
 
-**Files modified:** `Cargo.toml`
-**Commit:** `db778ce`
-**Applied fix:** Changed `reqwest = "0.13"` to `reqwest = "0.12"` to match async-openai 0.36.x's dependency. This avoids duplicate reqwest versions in the dependency tree and prevents type mismatch errors between `reqwest::Client` from different semver-incompatible versions.
-
-### CR-03: `test_json_response_format_fallback` never triggers the fallback path
-
-**Files modified:** `tests/llm_test.rs`
-**Commit:** `7e19f10`
-**Applied fix:** Restructured test to use a single mock server with body-content-based differentiation. The first request (containing `response_format` in body) returns 400, triggering the `generate_text_with_json_fallback` method. The retry (without `response_format`, with appended JSON instruction) returns 200. Added `LlmResponseFormat` import and `body_string_contains` wiremock matcher import. The test now actually exercises the fallback code path.
-
-### WR-01: `From<OpenAIError>` maps all errors lossily
+### CR-02: ApiError has no status_code field
 
 **Files modified:** `src/error.rs`
-**Commit:** `9870190`
-**Applied fix:** Replaced blanket `LLMError::APICall(err.to_string())` conversion with match on `OpenAIError::ApiError.status_code`: `Some(401)` maps to `LLMError::Authentication`, `Some(429)` maps to `LLMError::RateLimit`, and all other cases fall through to `LLMError::APICall`. This makes the `Authentication` and `RateLimit` variants reachable and eliminates dead code.
+**Commit:** `33598d2`
+**Applied fix:**
 
-### WR-02: Provider registration failures silently swallowed
+Replaced the `From<OpenAIError>` implementation that referenced `api_err.status_code` (non-existent field in async-openai 0.36.1 `ApiError`) with:
+- Code-based matching on `api_err.code` (`"insufficient_quota"` -> `RateLimit`, `"invalid_api_key"` / `"invalid_header"` -> `Authentication`).
+- Message heuristics fallback (checking for "rate limit", "too many requests", "auth", "key" in the error message).
+- `OpenAIError::Reqwest(e)` arm that matches on HTTP status codes (401 -> `Authentication`, 429 -> `RateLimit`).
+- Catch-all fallback to `LLMError::APICall`.
 
-**Files modified:** `src/llm/register.rs`
-**Commit:** `7937543`
-**Applied fix:** Changed both vision and text provider registration from `if let Ok(provider) = ... { } else { tracing::warn!(...) }` to `match OpenAiCompatibleProvider::new(...) { Ok(provider) => ..., Err(e) => tracing::error!("...: {}", e) }`. This preserves the error details from provider construction failures and upgrades the log severity from `warn!` to `error!`.
+### CR-03: Conflicting Default implementations
 
-### WR-03: `api_key` and `base_url` retained in memory with `#[allow(dead_code)]`
+**Files modified:** `src/config/types.rs`
+**Commit:** `488117b`
+**Applied fix:**
+
+Removed `Default` from the `#[derive(...)]` attribute on 8 section structs that already have manual `impl Default` in `defaults.rs`: `AppSection`, `UiSection`, `TencentSection`, `SoulVoiceSection`, `TtsQwenSection`, `IndexTTS2Section`, `DoubaoTTSSection`, `FramesSection`. (`AzureSection` and `ProxySection` retain `#[derive(Default)]` as they have no conflicting manual implementations.)
+
+### WR-01: chunks(0) panic when batch_size is zero
 
 **Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** `6b21783`
-**Applied fix:** Removed `api_key` and `base_url` fields from `OpenAiCompatibleProvider` struct, along with the `#[allow(dead_code)]` annotations. The API key is passed to `OpenAIConfig::with_api_key()` during construction and never read again. Storing it in the struct increased memory disclosure attack surface for no benefit.
+**Commit:** `f99a5c3`
+**Applied fix:**
 
-### WR-04: `extract_text` silently returns empty string for null/missing content
+Changed `let batch_size = batch_size.unwrap_or(10);` to `let batch_size = batch_size.unwrap_or(10).max(1);` to prevent `Vec::chunks(0)` from panicing.
+
+### WR-02: _max_retries naming misleading
 
 **Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** `680834d`
-**Applied fix:** Changed `extract_text` return type from `String` to `Result<String, LLMError>`. Replaced `.unwrap_or("")` with `.ok_or_else(|| LLMError::APICall(...))`. Updated the single call site in `generate_text` to return the error directly. Callers now get a proper error instead of silently receiving an empty string when the API returns an unexpected response structure.
+**Commit:** `98b787a` (part of CR-01)
+**Applied fix:**
 
-### WR-05: Image processing errors misclassified as `LLMError::Configuration`
+Renamed `_max_retries` parameter to `max_retries`. Added `let _ = max_retries;` to suppress unused-variable warning (the variable is kept for API compatibility, backoff now uses `Default::default()`).
+
+### WR-03: test_openai_error_mapping does not verify error variants
+
+**Files modified:** `tests/llm_test.rs`
+**Commit:** `85d7fbd`
+**Applied fix:**
+
+Rewrote `test_openai_error_mapping` to:
+- Use mock error responses with specific `code` fields (`"invalid_api_key"`, `"insufficient_quota"`) and distinct messages.
+- Verify each test case produces the expected `LLMError` variant using closure-based matching.
+- Cover 401 (Authentication), 429 with `insufficient_quota` (RateLimit -- permanent, not retried), and 400 (APICall).
+
+### WR-04: test_analyze_images_result_ordering does not verify ordering
+
+**Files modified:** `tests/llm_test.rs`
+**Commit:** `85d7fbd`
+**Applied fix:**
+
+Changed the mock setup to register 3 separate mocks (each with `.expect(1)`) returning distinct content (`"batch-0"`, `"batch-1"`, `"batch-2"`). Added assertions verifying that `results[0]`, `results[1]`, `results[2]` match the expected order.
+
+### WR-05: create_test_provider unnecessarily async
+
+**Files modified:** `tests/llm_test.rs`
+**Commit:** `85d7fbd`
+**Applied fix:**
+
+Changed `create_test_provider` from `async fn` to regular `fn` (no `.await` inside body). Removed `.await` from all 7 call sites.
+
+### WR-06: JPEG quality comment does not match implementation
 
 **Files modified:** `src/llm/image_utils.rs`
-**Commit:** `6ad48a3`
-**Applied fix:** Changed both `image::open()` failure and JPEG encoding failure from `LLMError::Configuration(...)` to `LLMError::General(...)`. These are runtime input/data errors (missing file, corrupt image, unsupported format), not configuration problems. Using `Configuration` was misleading during debugging as it directed users to check `config.toml`.
+**Commit:** `5cb74fb`
+**Applied fix:**
 
-### WR-06: `test_openai_error_mapping` permanently `#[ignore]` and `max_retries` not threaded
+Replaced `DynamicImage::write_to(&mut buf, ImageFormat::Jpeg)` (which uses default JPEG quality 75) with `JpegEncoder::new_with_quality(&mut buf, 85).encode_image(&thumb)`, matching the documentation comment "JPEG quality=85".
 
-**Files modified:** `src/llm/openai_compatible.rs`, `tests/llm_test.rs`
-**Commit:** `3dace1a`
-**Applied fix:** Created `OpenAIClientConfig` with `RetryConfig { max_retries: _max_retries, .. }` and passed it to both `Client::build()` calls instead of `Default::default()`. Removed `#[ignore]` from the error mapping test since max_retries=0 now allows the test to complete quickly without waiting for exponential backoff. Added `OpenAIClientConfig` and `RetryConfig` imports.
+## Skipped Issues
+
+### WR-07: test_utils.rs helpers duplicated in tests/llm_test.rs
+
+**File:** `tests/llm_test.rs:366-380`
+**Reason:** cfg(test) visibility boundary. The `#[cfg(test)] pub mod test_utils` in `src/llm/mod.rs` is not accessible from integration tests in `tests/llm_test.rs` due to how Rust/Cargo compiles integration test targets (the library is compiled without `#[cfg(test)]` for integration test consumption in some build configurations). The duplicated helper functions (`write_test_jpeg`, `create_test_jpeg_path`) are retained in the test file. A future refactoring could extract these into a shared non-cfg-gated utility module.
 
 ---
 
-_Fixed: 2026-04-28T22:45:00+08:00_
+_Fixed: 2026-04-29T02:04:32Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
