@@ -135,8 +135,13 @@ impl OpenAiCompatibleProvider {
     ///
     /// 回退路径使用 builder API 重建请求而非 serde_json round-trip，
     /// 避免与 async-openai 的 serde 表示耦合。
+    ///
     /// 注意：回退请求使用 build_text_messages() 重新构建消息列表，
     /// 该方法始终将 prompt 作为末条 user message，与原始请求结构一致。
+    ///
+    /// 限制：本方法仅支持单轮 system+user 对话模式。如果未来增加
+    /// 多轮消息或其他角色（assistant、tool、function），
+    /// 需要同时更新 build_text_messages() 和本回退路径。
     async fn generate_text_with_json_fallback(
         &self,
         request: CreateChatCompletionRequest,
