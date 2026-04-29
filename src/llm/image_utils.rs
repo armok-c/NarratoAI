@@ -1,5 +1,4 @@
-use std::io::Cursor;
-use std::io::Read;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use base64::Engine;
@@ -32,11 +31,13 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic)
         .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
-    drop(file); // 尽早释放文件句柄
 
     if magic.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        // JPEG 直通：重新读取完整文件
-        let raw_bytes = std::fs::read(path)
+        // JPEG 直通：回寻到文件开头再完整读取，避免 TOCTOU 竞态
+        file.seek(SeekFrom::Start(0))
+            .map_err(|e| LLMError::General(format!("文件寻址失败: {}", e)))?;
+        let mut raw_bytes = Vec::new();
+        file.read_to_end(&mut raw_bytes)
             .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
         // 轻量验证 JPEG 完整性
         if let Err(e) = image::load_from_memory(&raw_bytes) {
