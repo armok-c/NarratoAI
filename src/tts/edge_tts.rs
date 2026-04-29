@@ -158,7 +158,10 @@ impl EdgeTtsEngine {
                 "socks5" => 1080u16,
                 _ => 80u16,
             };
-            // Strip any user:pass@ prefix (use rsplit to handle @ in credentials)
+            // Extract user:pass credentials before stripping (rsplitn to handle @ in password)
+            let credentials = proxy_addr.rsplitn(2, '@').nth(1);
+
+            // Strip any user:pass@ prefix
             let host_port = proxy_addr
                 .rsplit('@')
                 .next()
@@ -198,11 +201,20 @@ impl EdgeTtsEngine {
                 .parse()
                 .map_err(|_| TTSError::ConnectionFailed("目标端口格式错误".to_string()))?;
 
-            // Construct HTTP CONNECT request string
-            let connect_req = format!(
-                "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-                target_host, target_port, target_host, target_port
-            );
+            // Construct HTTP CONNECT request string with optional Proxy-Authorization
+            use base64::Engine;
+            let connect_req = if let Some(creds) = credentials {
+                let encoded = base64::engine::general_purpose::STANDARD.encode(creds);
+                format!(
+                    "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\nProxy-Authorization: Basic {}\r\n\r\n",
+                    target_host, target_port, target_host, target_port, encoded
+                )
+            } else {
+                format!(
+                    "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
+                    target_host, target_port, target_host, target_port
+                )
+            };
 
             // HTTP CONNECT tunnel
             let mut tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
