@@ -197,7 +197,7 @@ impl EdgeTtsEngine {
             );
 
             // HTTP CONNECT tunnel
-            let tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
+            let mut tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
                 .await
                 .map_err(|e| TTSError::ConnectionFailed(format!("连接代理失败: {}", e)))?;
 
