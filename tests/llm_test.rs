@@ -18,7 +18,7 @@ use wiremock::matchers::{method, path, body_string_contains};
 async fn test_registry_register_and_get() {
     // Arrange
     let mut registry = Registry::new();
-    let provider = create_test_provider("http://localhost:0/v1").await;
+    let provider = create_test_provider("http://localhost:0/v1");
 
     // Act: register
     registry.register("test_provider", Arc::new(provider));
@@ -102,7 +102,7 @@ async fn test_build_vision_message_structure() {
         .mount(&mock_server)
         .await;
 
-    let provider = create_test_provider(&mock_server.uri()).await;
+    let provider = create_test_provider(&mock_server.uri());
     let dir = TempDir::new().expect("创建临时目录失败");
     let img_path = create_test_jpeg_path(dir.path());
 
@@ -145,7 +145,7 @@ async fn test_generate_text_success() {
         .mount(&mock_server)
         .await;
 
-    let provider = create_test_provider(&mock_server.uri()).await;
+    let provider = create_test_provider(&mock_server.uri());
 
     let result = provider.generate_text("Hello", None, None, None, None).await;
     assert!(result.is_ok(), "generate_text 应成功: {:?}", result.err());
@@ -173,7 +173,7 @@ async fn test_generate_text_stream_token_extraction() {
         .mount(&mock_server)
         .await;
 
-    let provider = create_test_provider(&mock_server.uri()).await;
+    let provider = create_test_provider(&mock_server.uri());
 
     let stream = provider
         .generate_text_stream("test", None, None, None)
@@ -239,7 +239,7 @@ async fn test_json_response_format_fallback() {
         .mount(&mock_server)
         .await;
 
-    let provider = create_test_provider(&mock_server.uri()).await;
+    let provider = create_test_provider(&mock_server.uri());
 
     // 传入 response_format=Json 触发 JSON 回退路径
     let result = provider
@@ -251,33 +251,75 @@ async fn test_json_response_format_fallback() {
 
 /// 测试 7: OpenAI 错误映射（wiremock）
 ///
-/// max_retries=0 配置使得测试快速完成，无需等待指数退避。
+/// 验证 From<OpenAIError> 的 code 匹配和消息启发式判断逻辑。
+/// 使用 code=invalid_api_key（401 → Permanent）、code=insufficient_quota（429 → Permanent）
+/// 和通用 400 错误分别验证 Authentication、RateLimit 和 APICall 映射。
 #[tokio::test]
 async fn test_openai_error_mapping() {
+    struct TestCase {
+        status: u16,
+        error_code: Option<&'static str>,
+        error_type: &'static str,
+        message: &'static str,
+        expected: fn(&LLMError) -> bool,
+    }
+
+    fn is_authentication(e: &LLMError) -> bool {
+        matches!(e, LLMError::Authentication(_))
+    }
+    fn is_rate_limit(e: &LLMError) -> bool {
+        matches!(e, LLMError::RateLimit(_))
+    }
+    fn is_api_call(e: &LLMError) -> bool {
+        matches!(e, LLMError::APICall(_))
+    }
+
     let test_cases = vec![
-        (401, LLMError::Authentication("".to_string())),
-        (429, LLMError::RateLimit("".to_string())),
-        (400, LLMError::APICall("".to_string())),
-        (500, LLMError::APICall("".to_string())),
+        TestCase {
+            status: 401,
+            error_code: Some("invalid_api_key"),
+            error_type: "authentication_error",
+            message: "Invalid API key",
+            expected: is_authentication,
+        },
+        TestCase {
+            status: 429,
+            error_code: Some("insufficient_quota"),
+            error_type: "insufficient_quota",
+            message: "Quota exceeded",
+            expected: is_rate_limit,
+        },
+        TestCase {
+            status: 400,
+            error_code: None,
+            error_type: "invalid_request_error",
+            message: "Bad request",
+            expected: is_api_call,
+        },
     ];
 
-    for (status_code, _expected_variant) in test_cases {
+    for tc in test_cases {
         let mock_server = MockServer::start().await;
+
+        let mut error_body = serde_json::json!({
+            "message": tc.message,
+            "type": tc.error_type,
+        });
+        if let Some(code) = tc.error_code {
+            error_body["code"] = serde_json::json!(code);
+        }
 
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
             .respond_with(
-                ResponseTemplate::new(status_code).set_body_json(serde_json::json!({
-                    "error": {
-                        "message": "test error",
-                        "type": "test_error"
-                    }
+                ResponseTemplate::new(tc.status).set_body_json(serde_json::json!({
+                    "error": error_body,
                 })),
             )
             .mount(&mock_server)
             .await;
 
-        let provider = create_test_provider(&mock_server.uri()).await;
+        let provider = create_test_provider(&mock_server.uri());
         let result = provider
             .generate_text("test", None, None, None, None)
             .await;
@@ -285,7 +327,14 @@ async fn test_openai_error_mapping() {
         assert!(
             result.is_err(),
             "HTTP {} 应返回错误",
-            status_code
+            tc.status
+        );
+        let err = result.as_ref().unwrap_err();
+        assert!(
+            (tc.expected)(err),
+            "HTTP {} 错误变体不匹配: {:?}",
+            tc.status,
+            result,
         );
     }
 }
@@ -297,29 +346,32 @@ async fn test_openai_error_mapping() {
 async fn test_analyze_images_result_ordering() {
     let mock_server = MockServer::start().await;
 
-    // Mock: 任何 POST /v1/chat/completions 都返回合法响应
-    Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({
-                "id": "test-vision-order-id",
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": "test-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "content": "batch analysis result",
-                        "role": "assistant"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }),
-        ))
-        .mount(&mock_server)
-        .await;
+    // 注册 3 个 mock，每个期望一次调用，返回不同的文本内容
+    for i in 0..3 {
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({
+                    "id": format!("resp-{}", i),
+                    "object": "chat.completion",
+                    "created": 1234567890,
+                    "model": "test-model",
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "content": format!("batch-{}", i),
+                            "role": "assistant"
+                        },
+                        "finish_reason": "stop"
+                    }]
+                }),
+            ))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+    }
 
-    let provider = create_test_provider(&mock_server.uri()).await;
+    let provider = create_test_provider(&mock_server.uri());
     let dir = TempDir::new().expect("创建临时目录失败");
 
     // 生成 3 个测试图片
@@ -337,13 +389,16 @@ async fn test_analyze_images_result_ordering() {
 
     assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());
     let results = results.unwrap();
-    assert_eq!(results.len(), 3, "应为 3 个结果（每张图片一个批次）");
+    assert_eq!(results.len(), 3, "应为 3 个结果");
+    assert_eq!(results[0], "batch-0", "结果 0 应保持原始顺序");
+    assert_eq!(results[1], "batch-1", "结果 1 应保持原始顺序");
+    assert_eq!(results[2], "batch-2", "结果 2 应保持原始顺序");
 }
 
 // ---------------------------------------------------------------------------
 // 辅助函数：创建指向指定 base_url 的测试 provider
 // ---------------------------------------------------------------------------
-async fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
+fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
     // provider 构造函数需要 /v1 路径；wiremock 的 uri() 返回类似 http://127.0.0.1:PORT
     let api_base = format!("{}/v1", base_url.trim_end_matches('/'));
     OpenAiCompatibleProvider::new(
@@ -359,7 +414,7 @@ async fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
 }
 
 // ---------------------------------------------------------------------------
-// 测试辅助函数（替代 cfg(test) 的 test_utils，供集成测试使用）
+// 测试辅助函数
 // ---------------------------------------------------------------------------
 
 /// 生成一个 32x32 的测试 JPEG 图片并写入指定路径
@@ -378,3 +433,4 @@ fn create_test_jpeg_path(dir: &Path) -> PathBuf {
     write_test_jpeg(&path).expect("测试图片写入失败");
     path
 }
+

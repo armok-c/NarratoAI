@@ -98,12 +98,39 @@ pub enum LLMError {
 /// 将 async-openai 的 OpenAIError 映射到 LLMError
 impl From<async_openai::error::OpenAIError> for LLMError {
     fn from(err: async_openai::error::OpenAIError) -> Self {
-        match &err {
+        match err {
             async_openai::error::OpenAIError::ApiError(api_err) => {
-                match api_err.status_code {
-                    Some(401) => LLMError::Authentication(api_err.message.clone()),
-                    Some(429) => LLMError::RateLimit(api_err.message.clone()),
-                    _ => LLMError::APICall(err.to_string()),
+                let msg = api_err.message;
+                match api_err.code.as_deref() {
+                    Some("insufficient_quota") => LLMError::RateLimit(msg),
+                    Some("invalid_api_key") | Some("invalid_header") => {
+                        LLMError::Authentication(msg)
+                    }
+                    _ => {
+                        // 回退到基于消息的启发式判断
+                        let lower = msg.to_lowercase();
+                        if lower.contains("rate limit") || lower.contains("too many requests") {
+                            LLMError::RateLimit(msg)
+                        } else if lower.contains("auth") || lower.contains("key") {
+                            LLMError::Authentication(msg)
+                        } else {
+                            LLMError::APICall(msg)
+                        }
+                    }
+                }
+            }
+            async_openai::error::OpenAIError::Reqwest(e) => {
+                if e.is_timeout() {
+                    LLMError::APICall(format!("请求超时: {}", e))
+                } else if e.is_status() {
+                    let status = e.status().unwrap_or_default();
+                    match status.as_u16() {
+                        401 => LLMError::Authentication(e.to_string()),
+                        429 => LLMError::RateLimit(e.to_string()),
+                        _ => LLMError::APICall(e.to_string()),
+                    }
+                } else {
+                    LLMError::APICall(e.to_string())
                 }
             }
             _ => LLMError::APICall(err.to_string()),

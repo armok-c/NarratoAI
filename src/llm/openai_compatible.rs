@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_openai::{
-    config::{OpenAIClientConfig, OpenAIConfig, RetryConfig},
+    config::OpenAIConfig,
     error::OpenAIError,
     types::chat::{
         ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImage,
@@ -50,7 +50,7 @@ impl OpenAiCompatibleProvider {
         api_key: String,
         model_name: String,
         base_url: String,
-        _max_retries: u32,
+        max_retries: u32,
         timeout_secs: u64,
         proxy_http: Option<String>,
         proxy_https: Option<String>,
@@ -59,44 +59,29 @@ impl OpenAiCompatibleProvider {
             .with_api_key(&api_key)
             .with_api_base(base_url.trim_end_matches('/'));
 
-        // 配置客户端重试策略（D-15: max_retries from config）
-        let client_config = OpenAIClientConfig {
-            retry: RetryConfig {
-                max_retries: _max_retries,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let _ = max_retries; // 保留用于接口对齐，backoff 使用 Default::default()
 
-        let client = if proxy_http.is_some() || proxy_https.is_some() {
-            let mut http_client_builder = reqwest::Client::builder()
-                .timeout(Duration::from_secs(timeout_secs));
+        let mut http_client_builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(timeout_secs));
 
-            if let Some(ref proxy_url) = proxy_http {
-                let proxy = reqwest::Proxy::http(proxy_url)
-                    .map_err(|e| LLMError::Configuration(format!("HTTP 代理配置失败: {}", e)))?;
-                http_client_builder = http_client_builder.proxy(proxy);
-            }
+        if let Some(ref proxy_url) = proxy_http {
+            let proxy = reqwest::Proxy::http(proxy_url)
+                .map_err(|e| LLMError::Configuration(format!("HTTP 代理配置失败: {}", e)))?;
+            http_client_builder = http_client_builder.proxy(proxy);
+        }
 
-            if let Some(ref proxy_url) = proxy_https {
-                let proxy = reqwest::Proxy::https(proxy_url)
-                    .map_err(|e| LLMError::Configuration(format!("HTTPS 代理配置失败: {}", e)))?;
-                http_client_builder = http_client_builder.proxy(proxy);
-            }
+        if let Some(ref proxy_url) = proxy_https {
+            let proxy = reqwest::Proxy::https(proxy_url)
+                .map_err(|e| LLMError::Configuration(format!("HTTPS 代理配置失败: {}", e)))?;
+            http_client_builder = http_client_builder.proxy(proxy);
+        }
 
-            let http_client = http_client_builder
-                .build()
-                .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
+        let http_client = http_client_builder
+            .build()
+            .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
 
-            Client::build(http_client, config, client_config)
-        } else {
-            let http_client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(timeout_secs))
-                .build()
-                .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
-
-            Client::build(http_client, config, client_config)
-        };
+        let client = Client::with_config(config)
+            .with_http_client(http_client);
 
         Ok(Self {
             model_name,
@@ -326,7 +311,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             return Ok(Vec::new());
         }
 
-        let batch_size = batch_size.unwrap_or(10);
+        let batch_size = batch_size.unwrap_or(10).max(1);
         let max_concurrency = max_concurrency.unwrap_or(1);
         let bounded_concurrency = max_concurrency.max(1);
 
