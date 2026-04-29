@@ -58,6 +58,7 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
     let duration_secs = json["format"]["duration"]
         .as_str()
         .and_then(|s| s.parse::<f64>().ok())
+        .or_else(|| json["format"]["duration"].as_f64())
         .ok_or_else(|| FFmpegError::OutputParseError(
             "Missing or invalid duration in ffprobe output".into()
         ))?;

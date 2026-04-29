@@ -225,19 +225,16 @@ impl ScriptFile {
         let max_end = self
             .tracks
             .iter()
-            .filter_map(|track| {
-                let json = track.to_json().ok()?;
-                json.segments
-                    .iter()
-                    .filter_map(|seg| {
-                        // VideoSegmentJson 和 AudioSegmentJson 都通过 serde flatten
-                        // 包含 target_timerange
-                        let target = seg.get("target_timerange")?;
-                        let start = target.get("start")?.as_i64()?;
-                        let duration = target.get("duration")?.as_i64()?;
-                        Some(start + duration)
-                    })
-                    .max()
+            .map(|track| track.to_json())
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .filter_map(|json| {
+                json.segments.iter().filter_map(|seg| {
+                    let target = seg.get("target_timerange")?;
+                    let start = target.get("start")?.as_i64()?;
+                    let duration = target.get("duration")?.as_i64()?;
+                    Some(start + duration)
+                }).max()
             })
             .max();
 
@@ -270,7 +267,15 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
             field: "duration".to_string(),
             clip_index: i,
         })?;
-        let target = trange_from_secs(current_time_secs, duration);
+        if duration <= 0.0 {
+            return Err(JianYingError::Validation {
+                details: format!("第 {} 段时长必须为正数，实际: {}", i + 1, duration),
+            });
+        }
+        let target = trange_from_secs(current_time_secs, duration)
+            .ok_or_else(|| JianYingError::Validation {
+                details: format!("第 {} 段构造时间范围失败（duration 不应为负数）", i + 1),
+            })?;
 
         // 视频片段（per D-09 智能回退）
         if let Some(ref video_path) = clip.video {
@@ -279,7 +284,10 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
             script_file.add_video_segment(video_seg, "视频轨道")?;
         } else {
             let source_start = parse_source_start_time(clip, i)?;
-            let source = trange_from_secs(source_start, duration);
+            let source = trange_from_secs(source_start, duration)
+                .ok_or_else(|| JianYingError::Validation {
+                    details: format!("第 {} 段构造 source 时间范围失败（duration 不应为负数）", i + 1),
+                })?;
             let video_seg = VideoSegment::with_source_timerange(
                 &req.video_origin_path,
                 target.clone(),
@@ -296,7 +304,10 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
                 let audio_duration = probe_audio(audio_path)
                     .map_err(|e| JianYingError::ProbeError(e.to_string()))?;
                 let safe_duration = duration.min(audio_duration); // per D-10
-                let audio_target = trange_from_secs(current_time_secs, safe_duration);
+                let audio_target = trange_from_secs(current_time_secs, safe_duration)
+                    .ok_or_else(|| JianYingError::Validation {
+                        details: format!("第 {} 段构造音频时间范围失败（duration 不应为负数）", i + 1),
+                    })?;
                 let audio_seg = AudioSegment::new(audio_path, audio_target)?;
                 script_file.add_audio_segment(audio_seg, "音频轨道")?;
             }

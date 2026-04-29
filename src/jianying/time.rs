@@ -27,11 +27,15 @@ pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
 }
 
 /// 从 f64 秒数构造 Timerange（Rust API 友好版本）
-pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Timerange {
-    Timerange {
-        start: (start_secs * SEC as f64).round() as i64,
-        duration: (duration_secs * SEC as f64).round() as i64,
+///
+/// 如果 duration 为负数，返回 None。
+pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange> {
+    let start_us = (start_secs * SEC as f64).round() as i64;
+    let duration_us = (duration_secs * SEC as f64).round() as i64;
+    if duration_us < 0 {
+        return None;
     }
+    Some(Timerange { start: start_us, duration: duration_us })
 }
 
 /// 解析时间字符串为微秒——支持 "1.5s" 和纯数字
@@ -91,9 +95,17 @@ mod tests {
 
     #[test]
     fn test_trange_from_secs() {
-        let tr = trange_from_secs(0.0, 6.959);
+        let tr = trange_from_secs(0.0, 6.959).expect("正数 duration 应返回 Some");
         assert_eq!(tr.start, 0);
         assert_eq!(tr.duration, 6_959_000);
+    }
+
+    #[test]
+    fn test_trange_from_secs_negative_duration_returns_none() {
+        assert!(
+            trange_from_secs(0.0, -3.0).is_none(),
+            "负 duration 应返回 None"
+        );
     }
 
     #[test]
