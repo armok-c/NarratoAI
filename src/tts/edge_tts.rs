@@ -528,6 +528,19 @@ impl TtsProvider for EdgeTtsEngine {
         pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
+        if text.is_empty() {
+            return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
+        }
+        if !rate.is_finite() || rate < 0.0 {
+            return Err(TTSError::SynthesisFailed(
+                format!("rate 必须为有限正数: {}", rate),
+            ));
+        }
+        if !pitch.is_finite() {
+            return Err(TTSError::SynthesisFailed(
+                format!("pitch 必须为有限数值: {}", pitch),
+            ));
+        }
         let ssml = build_ssml(text, voice_name, rate, pitch);
         self.synthesize_with_retry(&ssml, output_path).await
     }
