@@ -209,6 +209,75 @@ impl OpenAiCompatibleProvider {
             Err(e) => Err(LLMError::from(e)),
         }
     }
+
+    /// Vision JSON response_format 回退（D-19 扩展）
+    ///
+    /// analyze_images 中当 use_json=true 时，如果 API 拒绝 response_format，
+    /// 回退到在 prompt 中追加 JSON 约束指示重新请求。
+    async fn create_vision_chat_with_json_fallback(
+        client: &Client<OpenAIConfig>,
+        request: CreateChatCompletionRequest,
+        model_name: &str,
+        original_prompt: &str,
+        system_prompt: Option<&str>,
+        batch: &[String],
+    ) -> Result<CreateChatCompletionResponse, LLMError> {
+        let result = client.chat().create(request).await;
+        match result {
+            Ok(response) => Ok(response),
+            Err(OpenAIError::ApiError(api_err)) => {
+                if api_err.message.to_lowercase().contains("response_format") {
+                    let json_prompt = format!(
+                        "{}\n\n请确保输出严格的JSON格式，不要包含任何其他文字或标记。",
+                        original_prompt
+                    );
+                    let mut parts: Vec<ChatCompletionRequestUserMessageContentPart> =
+                        Vec::with_capacity(1 + batch.len());
+                    parts.push(ChatCompletionRequestUserMessageContentPart::Text(
+                        ChatCompletionRequestMessageContentPartText { text: json_prompt },
+                    ));
+                    for b64 in batch {
+                        parts.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
+                            ChatCompletionRequestMessageContentPartImage {
+                                image_url: ImageUrl {
+                                    url: b64.clone(),
+                                    detail: None,
+                                },
+                            },
+                        ));
+                    }
+                    let mut messages: Vec<ChatCompletionRequestMessage> = Vec::with_capacity(2);
+                    if let Some(sp) = system_prompt {
+                        messages.push(ChatCompletionRequestMessage::System(
+                            ChatCompletionRequestSystemMessage {
+                                content: ChatCompletionRequestSystemMessageContent::Text(
+                                    sp.to_string(),
+                                ),
+                                name: None,
+                            },
+                        ));
+                    }
+                    messages.push(ChatCompletionRequestMessage::User(
+                        ChatCompletionRequestUserMessage {
+                            content: ChatCompletionRequestUserMessageContent::Array(parts),
+                            name: None,
+                        },
+                    ));
+                    let retry_request = CreateChatCompletionRequestArgs::default()
+                        .model(model_name)
+                        .messages(messages)
+                        .build()
+                        .map_err(|e| {
+                            LLMError::Configuration(format!("请求重建失败: {}", e))
+                        })?;
+                    client.chat().create(retry_request).await.map_err(LLMError::from)
+                } else {
+                    Err(LLMError::from(OpenAIError::ApiError(api_err)))
+                }
+            }
+            Err(e) => Err(LLMError::from(e)),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -342,7 +411,9 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let sem_clone = semaphore.clone();
             let client_clone = self.client.clone();
             let prompt_owned = prompt.to_string();
+            let prompt_fb = prompt_owned.clone();  // 用于 JSON 回退，避免被 async move 消费
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
+            let system_prompt_fb = system_prompt_owned.clone();  // 用于 JSON 回退
             let model_name = self.model_name.clone();
             let use_json = matches!(response_format, Some(LlmResponseFormat::Json));
 
@@ -402,11 +473,23 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     LLMError::Configuration(format!("请求构建失败: {}", e))
                 })?;
 
-                let response = client_clone
-                    .chat()
-                    .create(request)
-                    .await
-                    .map_err(LLMError::from)?;
+                let response = if use_json {
+                    Self::create_vision_chat_with_json_fallback(
+                        &client_clone,
+                        request,
+                        &model_name,
+                        &prompt_fb,
+                        system_prompt_fb.as_deref(),
+                        &batch,
+                    )
+                    .await?
+                } else {
+                    client_clone
+                        .chat()
+                        .create(request)
+                        .await
+                        .map_err(LLMError::from)?
+                };
 
                 let text = response
                     .choices
