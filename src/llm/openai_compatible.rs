@@ -18,6 +18,7 @@ use async_openai::{
     },
     Client,
 };
+use backoff::ExponentialBackoff;
 use futures::stream::{Stream, StreamExt};
 use tokio::sync::Semaphore;
 
@@ -76,8 +77,6 @@ impl OpenAiCompatibleProvider {
         let openai_config = OpenAIConfig::new()
             .with_api_key(&cfg.api_key)
             .with_api_base(cfg.base_url.trim_end_matches('/'));
-    // 注意: async-openai 0.36 使用默认 RetryConfig (3 次内置重试),
-    // cfg.max_retries 当前未接入客户端重试配置
 
         let mut http_client_builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(cfg.timeout_secs));
@@ -98,8 +97,19 @@ impl OpenAiCompatibleProvider {
             .build()
             .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
 
-        let client = Client::with_config(openai_config)
-            .with_http_client(http_client);
+        // 将 max_retries 映射到 ExponentialBackoff 的 max_elapsed_time
+        // 取值为 0 时完全禁用重试；非零时留出大致 (max_retries * 10) 秒的退避预算
+        let max_elapsed = if cfg.max_retries == 0 {
+            Some(Duration::ZERO)
+        } else {
+            Some(Duration::from_secs(cfg.max_retries as u64 * 10))
+        };
+        let backoff = ExponentialBackoff {
+            max_elapsed_time: max_elapsed,
+            ..ExponentialBackoff::default()
+        };
+
+        let client = Client::build(http_client, openai_config, backoff);
 
         Ok(Self {
             model_name: cfg.model_name,
