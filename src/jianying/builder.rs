@@ -329,8 +329,12 @@ fn parse_source_start_time(clip: &ScriptClip, index: usize) -> Result<f64, JianY
 
 /// 解析时间戳字符串的起始部分为秒数
 /// 格式: "HH:MM:SS,mmm-HH:MM:SS,mmm" 或 "HH:MM:SS-HH:MM:SS"
+///
+/// 使用 `rsplit_once('-')` 从最后一个 `-` 分割，避免负号和逗号分隔符冲突。
+/// 同时验证小时、分钟、秒、毫秒非负且在有效范围内。
 fn parse_timestamp_start(range: &str) -> Option<f64> {
-    let start_str = range.split('-').next()?;
+    // 从最后一个 '-' 分割，避免 "00:-05:00" 等畸形输入被误拆
+    let (start_str, _) = range.rsplit_once('-')?;
     let sub_parts: Vec<&str> = start_str.split(',').collect();
     let time_str = sub_parts.first()?;
     let time_parts: Vec<&str> = time_str.split(':').collect();
@@ -340,8 +344,15 @@ fn parse_timestamp_start(range: &str) -> Option<f64> {
     let h: f64 = time_parts[0].parse().ok()?;
     let m: f64 = time_parts[1].parse().ok()?;
     let s: f64 = time_parts[2].parse().ok()?;
+    // 验证范围——不允许负值，分钟和秒不超过 60
+    if h < 0.0 || m < 0.0 || s < 0.0 || m >= 60.0 || s >= 60.0 {
+        return None;
+    }
     let ms: f64 = if sub_parts.len() > 1 {
         let millis: f64 = sub_parts[1].parse().ok()?;
+        if millis < 0.0 {
+            return None;
+        }
         millis / 1000.0
     } else {
         0.0
