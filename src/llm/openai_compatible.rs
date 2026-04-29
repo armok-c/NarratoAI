@@ -298,6 +298,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         system_prompt: Option<&str>,
         batch_size: Option<usize>,
         max_concurrency: Option<usize>,
+        response_format: Option<LlmResponseFormat>,
     ) -> Result<Vec<String>, LLMError> {
         // 预处理所有图片为 base64 data URL
         let data_urls: Vec<String> = images
@@ -327,6 +328,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let prompt_owned = prompt.to_string();
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
             let model_name = self.model_name.clone();
+            let use_json = matches!(response_format, Some(LlmResponseFormat::Json));
 
             handles.push(tokio::spawn(async move {
                 let _permit = sem_clone.acquire_owned().await.map_err(|_| {
@@ -374,13 +376,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     },
                 ));
 
-                let request = CreateChatCompletionRequestArgs::default()
-                    .model(&model_name)
-                    .messages(messages)
-                    .build()
-                    .map_err(|e| {
-                        LLMError::Configuration(format!("请求构建失败: {}", e))
-                    })?;
+                let mut request_builder = CreateChatCompletionRequestArgs::default();
+                request_builder.model(&model_name);
+                request_builder.messages(messages);
+                if use_json {
+                    request_builder.response_format(ResponseFormat::JsonObject);
+                }
+                let request = request_builder.build().map_err(|e| {
+                    LLMError::Configuration(format!("请求构建失败: {}", e))
+                })?;
 
                 let response = client_clone
                     .chat()

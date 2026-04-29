@@ -107,7 +107,7 @@ async fn test_build_vision_message_structure() {
     let img_path = create_test_jpeg_path(dir.path());
 
     let results = provider
-        .analyze_images(&[img_path], "describe this image", None, Some(10), Some(1))
+        .analyze_images(&[img_path], "describe this image", None, Some(10), Some(1), None)
         .await;
 
     assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());
@@ -385,7 +385,7 @@ async fn test_analyze_images_result_ordering() {
     let images = vec![img1, img2_path, img3_path];
 
     let results = provider
-        .analyze_images(&images, "describe", None, Some(1), Some(2))
+        .analyze_images(&images, "describe", None, Some(1), Some(2), None)
         .await;
 
     assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());
