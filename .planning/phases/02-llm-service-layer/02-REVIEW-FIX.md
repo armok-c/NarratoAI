@@ -1,91 +1,87 @@
 ---
 phase: 02-llm-service-layer
-fixed_at: 2026-04-29T11:30:00Z
+fixed_at: 2026-04-29T13:30:00Z
 review_path: .planning/phases/02-llm-service-layer/02-REVIEW.md
 iteration: 1
-findings_in_scope: 10
+findings_in_scope: 9
 fixed: 9
-skipped: 1
+skipped: 0
 status: all_fixed
 ---
 
 # Phase 02: LLM Service Layer -- Code Review Fix Report
 
-**Fixed at:** 2026-04-29T11:30:00Z
+**Fixed at:** 2026-04-29T13:30:00Z
 **Source review:** .planning/phases/02-llm-service-layer/02-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 10
+- Findings in scope: 9
 - Fixed: 9
-- Skipped: 1
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: Missing `use base64::Engine` import causes compilation failure
+### CR-01: `test_analyze_images_result_ordering` deterministically fails due to wiremock mock registration collision
 
 **Files modified:** `tests/llm_test.rs`
-**Commit:** 0ec7ba5
-**Applied fix:** Added `use base64::Engine;` import and replaced fully-qualified `base64::Engine::decode(...)` call with method syntax `base64::engine::general_purpose::STANDARD.decode(b64_part)`.
+**Commit:** 370df96
+**Applied fix:** Added `.up_to_n_times(1)` to each mock builder chain in the `for i in 0..3` loop to enforce each mock stops accepting matches after one request, preventing mock 0 from consuming all 3 requests.
 
-### CR-02: `max_retries` constructor parameter silently ignored
-
-**Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** 49d7ac4
-**Applied fix:** Removed the `let _ = max_retries;` suppressor line and wired the parameter to `.with_max_retries(max_retries)` on `OpenAIConfig`. Updated doc comment to reflect active usage.
-
-### WR-01: Image thumbnail algorithm does not match claimed LANCZOS quality
+### WR-01: Integer division by zero panic in `image_to_base64_data_url` when image dimensions are 0
 
 **Files modified:** `src/llm/image_utils.rs`
-**Commit:** 713545c
-**Applied fix:** Replaced `image::DynamicImage::thumbnail()` (nearest-neighbor/pixel-averaging) with `resize()` using `image::imageops::FilterType::Lanczos3`, matching PIL's `LANCZOS` quality. Updated pipeline comment accordingly.
+**Commit:** 68bfce0
+**Applied fix:** Added guard condition `if w == 0 || h == 0` before the resize computation, returning an `LLMError::General` early instead of panicking on division by zero.
 
-### WR-02: Fragile JSON round-trip in `response_format` fallback
+### WR-02: `analyze_images` cannot receive system-level instructions
+
+**Files modified:** `src/llm/provider.rs`, `src/llm/openai_compatible.rs`, `tests/llm_test.rs`
+**Commit:** 8f6e848
+**Applied fix:** Added `system_prompt: Option<&str>` parameter to the `analyze_images` trait method in `LlmProvider`, used it to push a `System` message before the `User` message in the vision request construction. Updated both test call sites to pass `None` for the new parameter.
+
+### WR-03: No file size validation in image preprocessing (potential OOM)
+
+**Files modified:** `src/llm/image_utils.rs`
+**Commit:** 5b1b913
+**Applied fix:** Added `std::fs::metadata()` check before `image::open()` with a 50 MB limit. Files exceeding the limit return `LLMError::General` before any decoding occurs.
+
+### IN-01: `Registry::list_providers` returns keys in arbitrary order
+
+**Files modified:** `src/llm/registry.rs`
+**Commit:** 52d678c
+**Applied fix:** Changed `list_providers` to collect keys into a `Vec<String>`, sort them with `.sort()`, then return. Callers now get deterministic ordering.
+
+### IN-02: Missing `#[must_use]` on `Registry::get`
+
+**Files modified:** `src/llm/registry.rs`
+**Commit:** f52725d
+**Applied fix:** Added `#[must_use]` attribute on `Registry::get` so that discarding the `Result` value triggers a compiler warning.
+
+### IN-03: `OpenAiCompatibleProvider::new` has 7 constructor parameters
+
+**Files modified:** `src/llm/openai_compatible.rs`, `src/llm/register.rs`, `tests/llm_test.rs`
+**Commit:** 1f6ded8
+**Applied fix:** Introduced a `ProviderConfig` struct with named fields (`api_key`, `model_name`, `base_url`, `max_retries`, `timeout_secs`, `proxy_http`, `proxy_https`). Changed `OpenAiCompatibleProvider::new` to accept `config: ProviderConfig` instead of 7 positional parameters. Updated all call sites in `register.rs` and `tests/llm_test.rs`.
+
+### IN-04: `image_to_base64_data_url` always re-encodes as JPEG regardless of input format
+
+**Files modified:** `src/llm/image_utils.rs`
+**Commit:** 81f0413
+**Applied fix:** Added JPEG passthrough optimization: read raw file bytes first, check for JPEG magic bytes (`0xFF, 0xD8, 0xFF`), and if matched, directly base64-encode the raw bytes without decode-re-encode. Non-JPEG inputs continue through the existing decode/resize/encode pipeline.
+
+### IN-05: `generate_text_with_json_fallback` rebuilds messages from scratch
 
 **Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** 6eedbed
-**Applied fix:** Replaced `serde_json` round-trip manipulation with fresh request construction via `CreateChatCompletionRequestArgs` builder. The function now accepts `system_prompt`, `temperature`, and `max_tokens` parameters to rebuild the request cleanly. This also eliminates the unnecessary `request.clone()` on the success path (addressing IN-04).
-
-### WR-03: Duplicate test helper functions (`write_test_jpeg` / `create_test_jpeg_path`)
-
-**Files modified:** `tests/llm_test.rs`
-**Commit:** 152665b
-**Applied fix:** Removed duplicate `write_test_jpeg` and `create_test_jpeg_path` functions from integration tests. Added import from shared `narratoai_core::llm::test_utils`.
-
-### WR-04: Dual TLS backends increase binary size and build time
-
-**Files modified:** `Cargo.toml`
-**Commit:** 378fd9a
-**Applied fix:** Changed `tokio-tungstenite` feature from `native-tls` to `rustls-tls` to align with `reqwest`'s TLS backend. The direct `native-tls = "0.2"` dependency is kept because it is used by `src/tts/edge_tts.rs`.
-
-### IN-01: Dead code -- `mock_chat_response` function never called
-
-**Files modified:** `src/llm/test_utils.rs`
-**Commit:** 71187fe
-**Applied fix:** Removed the unused `mock_chat_response` function which also constructed deprecated fields (`function_call`, `system_fingerprint`).
-
-### IN-02: Provider registration failures silently swallowed
-
-**Files modified:** `src/llm/register.rs`
-**Commit:** d5083c2
-**Applied fix:** Changed `register_all_providers` return type from `()` to `Result<(), Vec<LLMError>>`. Errors are still logged but now also accumulated and returned, allowing callers to detect partial registration failures at init time.
-
-### IN-03: Client-level timeouts may not be detected as timeouts
-
-**Files modified:** `src/error.rs`
-**Commit:** 4cca1a5
-**Applied fix:** Added a heuristic string check `e.to_string().to_lowercase().contains("timeout")` alongside `e.is_timeout()` to catch response timeouts (which `is_timeout()` does not detect) in addition to connect timeouts.
+**Commit:** 4054d95
+**Applied fix:** Added documentation comment noting that `generate_text_with_json_fallback` only supports single-turn system+user requests, and that extending message types requires updating both `build_text_messages` and the fallback path.
 
 ## Skipped Issues
 
-### IN-04: Unnecessary request clone on success path in JSON fallback
-
-**File:** `src/llm/openai_compatible.rs:138`
-**Reason:** already fixed by WR-02
-**Original issue:** `self.client.chat().create(request.clone()).await` clones the request on every call, but the clone is only needed in the error/fallback path. The WR-02 fix replaced the serde_json round-trip with builder API, which consumes `request` by value on the success path and builds a fresh request for the fallback -- eliminating the clone entirely.
+None -- all 9 findings were successfully fixed.
 
 ---
 
-_Fixed: 2026-04-29T11:30:00Z_
+_Fixed: 2026-04-29T13:30:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
