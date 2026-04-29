@@ -121,12 +121,12 @@ mod tests {
         let mut track = Track::new(TrackType::Video, "视频轨道");
 
         let path1 = PathBuf::from("video1.mp4");
-        let seg1 = VideoSegment::new(&path1, super::super::time::trange("0s", "5s"), 1920, 1080)
+        let seg1 = VideoSegment::new(&path1, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
         track.add_video_segment(seg1);
 
         let path2 = PathBuf::from("video2.mp4");
-        let seg2 = VideoSegment::new(&path2, super::super::time::trange("5s", "3s"), 1920, 1080)
+        let seg2 = VideoSegment::new(&path2, super::super::time::trange("5s", "3s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
         track.add_video_segment(seg2);
 

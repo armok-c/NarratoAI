@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_video_segment_target_timerange() {
         let path = PathBuf::from("video.mp4");
-        let target = trange("0s", "5s");
+        let target = trange("0s", "5s").expect("应解析时间范围");
         let seg = VideoSegment::new(&path, target, 1920, 1080).expect("应成功创建 VideoSegment");
         let json = seg.to_json();
 
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_video_segment_clip_fields() {
         let path = PathBuf::from("video.mp4");
-        let target = trange("0s", "5s");
+        let target = trange("0s", "5s").expect("应解析时间范围");
         let seg = VideoSegment::new(&path, target, 1920, 1080).expect("应成功创建");
         let json = seg.to_json();
 
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_video_segment_hdr_settings() {
         let path = PathBuf::from("video.mp4");
-        let target = trange("0s", "5s");
+        let target = trange("0s", "5s").expect("应解析时间范围");
         let seg = VideoSegment::new(&path, target, 1920, 1080).expect("应成功创建");
         let json = seg.to_json();
 
@@ -264,8 +264,8 @@ mod tests {
     #[test]
     fn test_video_segment_with_source_timerange() {
         let path = PathBuf::from("original.mp4");
-        let target = trange("0s", "5s");
-        let source = trange("10s", "5s");
+        let target = trange("0s", "5s").expect("应解析时间范围");
+        let source = trange("10s", "5s").expect("应解析时间范围");
         let seg =
             VideoSegment::with_source_timerange(&path, target, source, 1920, 1080)
                 .expect("应成功创建");
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn test_audio_segment_null_fields() {
         let path = PathBuf::from("audio.mp3");
-        let target = trange("0s", "3.5s");
+        let target = trange("0s", "3.5s").expect("应解析时间范围");
         let seg = AudioSegment::new(&path, target).expect("应成功创建 AudioSegment");
         let json = seg.to_json();
 
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn test_audio_segment_volume_speed() {
         let path = PathBuf::from("audio.mp3");
-        let target = trange("0s", "3.5s");
+        let target = trange("0s", "3.5s").expect("应解析时间范围");
         let seg = AudioSegment::new(&path, target).expect("应成功创建");
         let json = seg.to_json();
 
@@ -313,7 +313,7 @@ mod tests {
     fn test_segment_extra_material_refs_contains_speed_id() {
         // VideoSegment
         let vpath = PathBuf::from("video.mp4");
-        let vtarget = trange("0s", "5s");
+        let vtarget = trange("0s", "5s").expect("应解析时间范围");
         let vseg = VideoSegment::new(&vpath, vtarget, 1920, 1080).expect("应成功创建");
         let vjson = vseg.to_json();
         let speed_id = vseg.speed_id();
@@ -324,7 +324,7 @@ mod tests {
 
         // AudioSegment
         let apath = PathBuf::from("audio.mp3");
-        let atarget = trange("0s", "3.5s");
+        let atarget = trange("0s", "3.5s").expect("应解析时间范围");
         let aseg = AudioSegment::new(&apath, atarget).expect("应成功创建");
         let ajson = aseg.to_json();
         let audio_speed_id = aseg.speed_id();

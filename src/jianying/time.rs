@@ -12,11 +12,18 @@ pub struct Timerange {
 
 /// 从秒字符串构造 Timerange（per pyJianYingDraft trange() 函数）
 /// 接受 "1.5s" 格式，也接受纯数字字符串（视为秒）
-pub fn trange(start: &str, duration: &str) -> Timerange {
-    Timerange {
-        start: parse_seconds(start),
-        duration: parse_seconds(duration),
+///
+/// 如果解析失败或 duration 为负数，返回 None。
+pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
+    let start_us = parse_seconds(start)?;
+    let duration_us = parse_seconds(duration)?;
+    if duration_us < 0 {
+        return None;
     }
+    Some(Timerange {
+        start: start_us,
+        duration: duration_us,
+    })
 }
 
 /// 从 f64 秒数构造 Timerange（Rust API 友好版本）
@@ -28,14 +35,16 @@ pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Timerange {
 }
 
 /// 解析时间字符串为微秒——支持 "1.5s" 和纯数字
-fn parse_seconds(input: &str) -> i64 {
+///
+/// 如果输入格式无效（如 "abc" 或 "5x"），返回 None 而非静默转为 0。
+fn parse_seconds(input: &str) -> Option<i64> {
     let input = input.trim().to_lowercase();
     let secs: f64 = if input.ends_with('s') {
-        input.trim_end_matches('s').parse().unwrap_or(0.0)
+        input.trim_end_matches('s').parse().ok()?
     } else {
-        input.parse().unwrap_or(0.0)
+        input.parse().ok()?
     };
-    (secs * SEC as f64).round() as i64
+    Some((secs * SEC as f64).round() as i64)
 }
 
 #[cfg(test)]
@@ -57,14 +66,14 @@ mod tests {
 
     #[test]
     fn test_trange_from_second_strings() {
-        let tr = trange("1.5s", "7.441s");
+        let tr = trange("1.5s", "7.441s").expect("应解析成功");
         assert_eq!(tr.start, 1_500_000);
         assert_eq!(tr.duration, 7_441_000);
     }
 
     #[test]
     fn test_trange_small_duration() {
-        let tr = trange("0s", "0.1s");
+        let tr = trange("0s", "0.1s").expect("应解析成功");
         assert_eq!(tr.start, 0);
         assert_eq!(tr.duration, 100_000);
     }
@@ -89,14 +98,14 @@ mod tests {
 
     #[test]
     fn test_trange_pure_number_string() {
-        let tr = trange("2.0", "3.5");
+        let tr = trange("2.0", "3.5").expect("应解析成功");
         assert_eq!(tr.start, 2_000_000);
         assert_eq!(tr.duration, 3_500_000);
     }
 
     #[test]
     fn test_trange_zero_seconds() {
-        let tr = trange("0s", "0s");
+        let tr = trange("0s", "0s").expect("应解析成功");
         assert_eq!(tr.start, 0);
         assert_eq!(tr.duration, 0);
     }
@@ -104,5 +113,17 @@ mod tests {
     #[test]
     fn test_sec_constant() {
         assert_eq!(SEC, 1_000_000);
+    }
+
+    #[test]
+    fn test_parse_seconds_invalid_returns_none() {
+        assert!(parse_seconds("abc").is_none(), "无效输入应返回 None");
+        assert!(parse_seconds("5x").is_none(), "非数字后缀应返回 None");
+        assert!(parse_seconds("").is_none(), "空字符串应返回 None");
+    }
+
+    #[test]
+    fn test_trange_negative_duration_returns_none() {
+        assert!(trange("5s", "-3s").is_none(), "负 duration 应返回 None");
     }
 }
