@@ -11,6 +11,8 @@ use tempfile::TempDir;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wiremock::matchers::{method, path, body_string_contains};
 
+use base64::Engine;
+
 // ---------------------------------------------------------------------------
 // 测试 1: Registry register / get / list_providers / ProviderNotFound
 // ---------------------------------------------------------------------------
@@ -64,10 +66,7 @@ async fn test_image_to_base64_data_url() {
 
     // 验证 base64 部分可解码
     let b64_part = data_url.strip_prefix("data:image/jpeg;base64,").unwrap();
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        b64_part,
-    );
+    let decoded = base64::engine::general_purpose::STANDARD.decode(b64_part);
     assert!(decoded.is_ok(), "base64 部分应可解码: {:?}", decoded.err());
     assert!(!decoded.unwrap().is_empty(), "解码后的数据不应为空");
 }
