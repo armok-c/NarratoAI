@@ -164,15 +164,17 @@ impl EdgeTtsEngine {
                 .next()
                 .unwrap_or(proxy_addr);
             let (proxy_host, proxy_port) = if host_port.starts_with('[') {
-                // IPv6 bracket notation: [::1]:7890
-                host_port.rsplit_once("]:")
-                    .map(|(addr_inner, port_str)| {
-                        let port: u16 = port_str
-                            .parse()
-                            .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
-                        Ok::<_, TTSError>((&addr_inner[1..], port))
-                    })
-                    .unwrap_or(Err(TTSError::ConnectionFailed("代理 IPv6 地址格式错误".to_string())))?
+                // IPv6 bracket notation: [::1]:7890 or [::1] (no explicit port)
+                if let Some((addr_inner, port_str)) = host_port.rsplit_once("]:") {
+                    let port: u16 = port_str
+                        .parse()
+                        .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+                    (&addr_inner[1..], port)
+                } else {
+                    // No explicit port — fall back to default_proxy_port (consistent with IPv4)
+                    let addr = host_port.trim_start_matches('[').trim_end_matches(']');
+                    (addr, default_proxy_port)
+                }
             } else {
                 match host_port.split_once(':') {
                     Some((host, port_str)) => {
