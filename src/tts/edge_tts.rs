@@ -125,17 +125,19 @@ impl EdgeTtsEngine {
             .map_err(|e| TTSError::ConnectionFailed(format!("构建请求失败: {}", e)))?;
 
         // 添加 Edge TTS 所需 HTTP 头
+        // SAFETY: 硬编码字面量包含的字符都是有效的 HeaderValue（ASCII 可见字符），
+        // parse() 不会失败。使用 unwrap() 代替 expect() 以避免 expect 消息误导。
         request.headers_mut().insert(
             "Origin",
             "chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
                 .parse()
-                .expect("Origin 值是硬编码字面量，解析 HeaderValue 不应失败"),
+                .unwrap(),
         );
         request.headers_mut().insert(
             "User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
                 .parse()
-                .expect("User-Agent 值是硬编码字面量，解析 HeaderValue 不应失败"),
+                .unwrap(),
         );
 
         if self.proxy_enabled {
