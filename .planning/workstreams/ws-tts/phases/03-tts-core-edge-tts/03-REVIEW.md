@@ -1,148 +1,196 @@
 ---
 phase: 03-tts-core-edge-tts
-reviewed: 2026-04-29
+reviewed: 2026-04-29T10:00:00Z
 depth: standard
-iteration: 4
 files_reviewed: 6
 files_reviewed_list:
-  - Cargo.toml
+  - src/tts/mod.rs
+  - src/tts/edge_tts.rs
   - src/error.rs
   - src/lib.rs
-  - src/tts/edge_tts.rs
-  - src/tts/mod.rs
+  - Cargo.toml
   - tests/tts_test.rs
 findings:
-  critical: 0
-  warning: 0
-  info: 0
-  total: 0
-status: clean
+  critical: 2
+  warning: 2
+  info: 3
+  total: 7
+status: issues_found
 ---
 
-# Phase 03: TTS Core + Edge-TTS Engine — Code Review Report (Iteration 4, Re-review)
+# Phase 03: TTS Core + Edge-TTS Engine — Code Review Report
 
-**Reviewed:** 2026-04-29
+**Reviewed:** 2026-04-29T10:00:00Z
 **Depth:** standard
-**Iteration:** 4 (re-review after Iteration 3 fixes)
 **Files Reviewed:** 6
-**Status:** clean — 所有之前发现的 12 个问题（1 Critical + 6 Warning + 5 Info）均已正确修复或确认保留
+**Status:** issues_found
 
 ## Summary
 
-对 Phase 03 的 6 个文件进行了第 4 轮标准深度审查，重点验证第 3 轮发现的 5 个 Info 级别问题的修复正确性，确认前 3 轮所有修复保持，并排查是否引入新问题。
+Reviewed the TTS core abstractions (`src/tts/mod.rs`), Edge-TTS WebSocket engine (`src/tts/edge_tts.rs`), error types (`src/error.rs`), module registrations (`src/lib.rs`), Cargo dependencies (`Cargo.toml`), and integration tests (`tests/tts_test.rs`).
 
-**关键结论：全部 12 个问题（CR-01 + WR-01~WR-06 + IN-01~IN-05）均处于正确状态。未发现任何新问题。代码质量合格。**
+The architecture is well-structured: `TtsProvider` trait with clean async boundaries, a string-dispatched router in `mod.rs`, and a focused WebSocket implementation in `edge_tts.rs`. Error types use `thiserror` idiomatically.
 
-## Fix Verification
+**However, two blocker issues exist.** The Cargo.toml references `tokio-tungstenite` feature `rustls-tls` which does not exist in v0.29.0, and the proxy code path requires the `native-tls` feature which is not enabled -- confirmed by `cargo metadata` failing resolution. Additionally, the HTTP CONNECT proxy tunnel has a `BufReader` read-ahead data loss risk, and the proxy URL parser breaks on IPv6 addresses. Three info-level findings cover a tautological test, a redundant import, and a documentation error.
 
-### 第 1-2 轮修复验证（CR-01, WR-01~WR-06）— 全部保持
+## Critical Issues
 
-| ID | 问题 | 文件:Lines | 验证结果 | 确认 |
-|---|---|---|---|---|
-| CR-01 | voice_name_to_lang 字符索引 | `edge_tts.rs:56-60` | 使用 `char_indices()` 获取字节索引，正确 | 保持 |
-| WR-01 | 缺少认证错误检测 | `edge_tts.rs:258-264,271-277,350-355` | 3 处均检查 "401"/"authentication"/"unauthorized" | 保持 |
-| WR-02 | turn.end 前关闭静默成功 | `edge_tts.rs:431-435` | `!received_turn_end` 返回 `Err(SynthesisFailed)` | 保持 |
-| WR-03 | max_retries 命名误导 | `edge_tts.rs:291` | 已重命名为 `max_attempts`（值 4，注释说明 1 initial + 3 retries） | 保持 |
-| WR-04 | 重复测试用例 | `tests/tts_test.rs` | 无重复测试函数 | 保持 |
-| WR-05 | 缺少 clippy 抑制属性 | `tests/tts_test.rs:102` | `#[allow(clippy::let_underscore_future)]` 存在 | 保持 |
-| WR-06 | EdgeTtsEngine 可见度过于宽松 | `edge_tts.rs:86-89,93` | `pub(super)` 应用于 struct、字段、new() | 保持 |
+### CR-01: tokio-tungstenite feature `rustls-tls` does not exist in v0.29.0; proxy code path requires `native-tls`
 
-### 第 3 轮修复验证（IN-01~IN-05）
+**File:** `Cargo.toml:17`
+**File:** `src/tts/edge_tts.rs:254`
+**Issue:** Two interdependent compilation errors confirmed by `cargo metadata`:
 
-| ID | 问题 | 文件:Lines | 修复状态 | 验证详情 |
-|---|---|---|---|---|
-| IN-01 | 多余的 `.into()` 转换 | `edge_tts.rs:336` | 跳过（回退） | **验证通过：保留正确。** tungstenite 0.29 的 `Message::Text` 接收 `Utf8Bytes` 而不是 `String`。`stt_message.into()` 执行必要的 `String` → `Utf8Bytes` 转换。移除会导致编译错误 E0308。回退决策正确。 |
-| IN-02 | `and_then` 应改为 `map` | `edge_tts.rs:167-170` | 已修复 (commit `5d9ee9d`) | **验证通过。** 原代码 `.and_then(|(h, p)| Some(...))` 已替换为 `.map(|(h, p)| (...))`。闭包始终有返回值，`map` 语义更准确。 |
-| IN-03 | 硬编码公开令牌缺少安全注释 | `edge_tts.rs:14-20` | 已修复 (commit `5d9ee9d`) | **验证通过。** 在 `EDGE_TTS_WSS_URL` 上方添加了详细的 `/// # 安全说明` 注释块，说明令牌性质（公开、非秘密）、来源（edge-tts Python 库）以及令牌轮换风险。 |
-| IN-04 | `.unwrap()` 无说明 | `edge_tts.rs:117-119,123-125` | 已修复 (commit `5d9ee9d`) | **验证通过。** 两处 `.parse().unwrap()` 均已替换为 `.parse().expect(...)`：L119 说明 "Origin 值是硬编码字面量，解析 HeaderValue 不应失败"；L125 说明 "User-Agent 值是硬编码字面量，解析 HeaderValue 不应失败"。 |
-| IN-05 | 版本测试绑定硬编码字符串 | `lib.rs:17-19` | 已修复 (commit `dc51713`) | **验证通过。** 测试函数重命名为 `test_version_matches_cargo_toml`，断言使用 `env!("CARGO_PKG_VERSION")` 编译时常量。`version()` 函数和测试使用同一来源，必然相等。 |
+1. **Feature name mismatch.** The `Cargo.toml` specifies `features = ["rustls-tls"]` for `tokio-tungstenite = "0.29.0"`, but v0.29.0 exposes `rustls-tls-native-roots` and `rustls-tls-webpki-roots` (not bare `rustls-tls`). The dependency resolver output confirms this:
+   ```
+   package `narratoai-core` depends on `tokio-tungstenite` with feature `rustls-tls`
+   but `tokio-tungstenite` does not have that feature.
+   package `tokio-tungstenite` does have feature `__rustls-tls`
+   ```
 
-## File-by-File Review
+2. **Missing `native-tls` feature.** The HTTP CONNECT proxy tunnel (edge_tts.rs:254) uses `tokio_tungstenite::Connector::NativeTls(tls_connector)`, which is gated behind `#[cfg(feature = "native-tls")]` in tokio-tungstenite v0.29.0. Since `native-tls` is not enabled for tokio-tungstenite in `Cargo.toml`, the `Connector::NativeTls` variant is unavailable. The library cannot compile.
 
-### Cargo.toml
+**Fix:**
+```toml
+# Replace Cargo.toml line 17 with:
+tokio-tungstenite = { version = "0.29.0", features = ["native-tls", "rustls-tls-native-roots"] }
+```
 
-- 版本 0.1.0，edition 2021
-- 依赖项版本锁定合理：tokio 1.52.1, serde 1.0.228, thiserror 2.0.18 等均为稳定版本
-- `tokio-tungstenite` 0.29.0 启用 `rustls-tls` feature（Cargo.lock 确认 tungstenite 0.29.0，其中 `Message::Text` 使用 `Utf8Bytes` 类型）
-- `async-openai` 启用 `chat-completion` feature
-- 无未使用或缺失的依赖项
-- **结论：** 通过，无问题
+This enables both TLS backends: `native-tls` (for the CONNECT tunnel's explicit `Connector::NativeTls` usage) and `rustls-tls-native-roots` (for direct connections via `connect_async`). They coexist without conflict because `MaybeTlsStream` is a sum enum supporting both variants.
 
-### src/error.rs
+### CR-02: HTTP CONNECT proxy tunnel -- `BufReader::into_inner()` discards read-ahead buffer, risk of TLS data corruption
 
-- 5 个错误枚举（ConfigError、FFmpegError、TTSError、LLMError）定义清晰
-- `From<notify::Error>` 和 `From<async_openai::error::OpenAIError>` 实现正确
-- 所有 Display 消息使用中文，与项目规范一致
-- 测试覆盖所有变体，中文消息断言完整
-- **结论：** 通过，无问题
+**File:** `src/tts/edge_tts.rs:252`
+**Issue:** The proxy tunnel wraps the `TcpStream` in `tokio::io::BufReader` (default 8 KB buffer) to read the CONNECT response line-by-line. After consuming the complete response (status line + headers + terminating `\r\n`), the code calls `buf_reader.into_inner()` to extract the raw `TcpStream` for TLS upgrade. However, `into_inner()` discards the internal buffer. If the `BufReader` read ahead and consumed bytes from the TCP stream beyond the CONNECT response -- specifically, bytes from the server's subsequent TLS handshake response -- those bytes are permanently lost.
 
-### src/lib.rs
+This is a **correctness bug that causes intermittent, hard-to-reproduce TLS handshake failures**. It depends on network timing: if the proxy sends the CONNECT 200 response and the TLS ServerHello coalesce into the same TCP segment (or arrive close enough that a single `read` syscall pulls in both), the `BufReader` will buffer both, and the TLS library will receive a truncated stream.
 
-- 模块声明清晰（config, ffmpeg, error, tts, llm）
-- `version()` 函数使用 `env!("CARGO_PKG_VERSION")` 编译时注入
-- **IN-05 已验证修复：** 测试使用 `env!("CARGO_PKG_VERSION")` 而非硬编码版本号
-- **结论：** 通过，无问题
+**Fix:** Avoid `BufReader` for the CONNECT response. Use a small fixed-size buffer with manual parsing, preserving the raw `TcpStream`:
 
-### src/tts/mod.rs
+```rust
+use tokio::io::AsyncReadExt;
 
-- `WordBoundary`（offset u64, text String）、`TtsOutput`（audio_file_path PathBuf, word_boundaries Vec, duration f64）结构体定义合理
-- `TtsProvider` trait 约束 `Send + Sync`，异步方法签名正确
-- `synthesize()` 路由器：字符串匹配分发，正确提取代理配置
-- 测试覆盖 Mock 引擎、未知引擎分支、中文错误消息
-- **结论：** 通过，无问题
+let mut tcp = tcp_stream;
+let mut response_buf = vec![0u8; 4096]; // 4 KB is sufficient for proxy responses
+let mut total_read = 0usize;
 
-### src/tts/edge_tts.rs
+loop {
+    let n = tcp.read(&mut response_buf[total_read..]).await
+        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+    if n == 0 {
+        return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
+    }
+    total_read += n;
+    // Look for end-of-headers marker
+    if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
+        break;
+    }
+    if total_read >= response_buf.len() {
+        return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
+    }
+}
 
-- **CR-01 保持：** `char_indices()` 用于 `voice_name_to_lang()`（L56-60）
-- **WR-01 保持：** 3 处认证检测（L258-264, L271-277, L350-355）
-- **WR-02 保持：** `!received_turn_end` 提前返回 Err（L431-435）
-- **WR-03 保持：** `max_attempts = 4` 命名正确（L291）
-- **WR-06 保持：** `pub(super)` 可见度（L86-89, L93）
-- **IN-01 保留正确：** `Message::Text(stt_message.into())` — `.into()` 是必需的 `String` → `Utf8Bytes` 转换（L336）
-- **IN-02 已验证修复：** `.map()` 替代 `.and_then()`（L167-170）
-- **IN-03 已验证修复：** 安全文档注释块（L14-20）
-- **IN-04 已验证修复：** `.expect()` 替代 `.unwrap()`（L117-119, L123-125）
-- SSML 构建 XML 转义处理 `&`、`<`、`>`（覆盖 99% 场景）
-- 代理 CONNECT 通道处理 RFC 7231 1xx interim 响应
-- 超时处理使用 `tokio::time::timeout(120s)` 合理
-- `parse_edge_tts_binary()` 解析器健壮（分割符搜索、UTF-8 验证、Path 字段提取）
-- 单元测试覆盖 helper 函数所有主要分支
-- 集成测试标记为 `#[ignore]`，需网络环境
-- **结论：** 通过，无问题
+// Parse response from response_buf[..total_read]
+// Pass raw `tcp` (unconsumed by any buffer) to TLS+WebSocket upgrade
+```
 
-### tests/tts_test.rs
+If `BufReader` must be kept, verify the buffer is empty before `into_inner()`:
+```rust
+let remaining = buf_reader.buffer().len();
+if remaining > 0 {
+    tracing::warn!("BufReader has {} unconsumed bytes; potential data loss on into_inner()", remaining);
+}
+// Note: this still loses data, but at least surfaces the condition.
+```
 
-- **WR-04 保持：** 无重复测试函数
-- **WR-05 保持：** `#[allow(clippy::let_underscore_future)]` 存在于 L102
-- 测试覆盖：WordBoundary/TtsOutput 字段完整性、时间单位语义、所有 TTSError 变体中文字段、编译时签名验证
-- 测试设计合理，无冗余
-- **结论：** 通过，无问题
+## Warnings
 
-## New Issue Check
+### WR-01: Proxy URL parser breaks on IPv6 addresses
 
-未发现任何新的 Critical、Warning 或 Info 级别问题。
+**File:** `src/tts/edge_tts.rs:139-162`
+**Issue:** The proxy host/port parser uses `host_port.split_once(':')` to split the address. For an IPv6 proxy address like `http://[::1]:7890`, after scheme stripping the string becomes `[::1]:7890`. Then `split_once(':')` finds the first colon after `[`, returning `("[" , ":1]:7890")`. The port parser tries to parse `:1]:7890` as `u16`, which fails. The error message ("代理端口格式错误，代理 URL 不支持认证凭据") is misleading.
 
-### 已排除的潜在疑点
+IPv6 proxy addresses are a real use case (e.g., local proxy on `[::1]:7890` for testing, or IPv6-only network environments).
 
-1. **`parse_edge_tts_binary()` 中 header 解析使用 `lines()` 而非针对 `\r\n` 显式分割。** 经审查：`lines()` 在 UTF-8 字符串上可以正确处理 `\r\n`（每行尾部 `\r` 会被 trim），不影响功能。不构成问题。
+**Fix:** Detect IPv6 bracket notation before splitting:
+```rust
+let (proxy_host, proxy_port) = if host_port.starts_with('[') {
+    host_port.rsplit_once("]:")
+        .map(|(addr_inner, port_str)| {
+            let port: u16 = port_str.parse()
+                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+            Ok::<_, TTSError>((&addr_inner[1..], port))
+        })
+        .unwrap_or(Err(TTSError::ConnectionFailed("代理 IPv6 地址格式错误".to_string())))?
+} else {
+    match host_port.split_once(':') {
+        Some((host, port_str)) => {
+            let port: u16 = port_str.parse()
+                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+            (host, port)
+        }
+        None => (host_port, default_proxy_port),
+    }
+};
+```
 
-2. **SSML 中 `"` 和 `'` 未转义。** 风险极低：文本内容中的引号在 XML 属性值（`rate="..." pitch="..."`）之外出现时不会破坏结构。99% 场景覆盖（`&`、`<`、`>`）。不构成问题。
+### WR-02: EdgeTtsEngine struct missing `Debug` derive, impairs diagnostics
 
-3. **`Message::Text(text)` 分支仅 logging。** 这是正确行为：Edge TTS 服务可能发送文本消息作为调试或连接信息，不应作为错误处理。不构成问题。
+**File:** `src/tts/edge_tts.rs:86-90`
+**Issue:** The `EdgeTtsEngine` struct does not derive `Debug`. All its fields (`bool`, `String`, `String`) implement `Debug`, so adding the derive costs nothing. Without it, the engine cannot be used in `tracing::debug!("{:?}", engine)` calls, test failure messages, or error reports -- all of which are valuable for a network-connected component with configurable proxy parameters.
 
-## Appendix: Complete Fix History
+**Fix:**
+```rust
+#[derive(Debug)]
+pub(super) struct EdgeTtsEngine {
+    pub(super) proxy_enabled: bool,
+    pub(super) proxy_http: String,
+    pub(super) proxy_https: String,
+}
+```
 
-| 轮次 | 发现数 (C/W/I) | 已修复 | 跳过/保留 | 状态 |
-|---|---|---|---|---|
-| Iteration 1 | 7 (1C + 6W + 0I) | 7 | 0 | 全部修复合并到 `review-fix-03` |
-| Iteration 2 | — | — | — | (无独立审查，验证修复) |
-| Iteration 3 | 5 (0C + 0W + 5I) | 4 | 1 (IN-01 正确保留) | 修复提交 `5d9ee9d`, `dc51713` |
-| Iteration 4 (本轮) | 0 | — | — | **全部清零，无可追踪问题** |
+## Info
 
-**全部轮次累计：12 个问题（1 Critical + 6 Warning + 5 Info），其中 11 个已修复，1 个确认保留（IN-01 `.into()` 为必要转换）。**
+### IN-01: Version test is a tautology
+
+**File:** `src/lib.rs:18`
+**Issue:** The test `test_version_matches_cargo_toml` asserts:
+```rust
+assert_eq!(version(), env!("CARGO_PKG_VERSION"));
+```
+But `version()` returns `env!("CARGO_PKG_VERSION")` (line 9). Both sides of the assertion expand to the exact same compile-time constant. The test passes by construction and cannot fail for any meaningful reason. It tests nothing.
+
+**Fix:** Either remove the test or make it assert something non-trivial (e.g., `assert!(!version().is_empty())` or `assert!(version().contains('.'))`).
+
+### IN-02: Redundant `use async_trait::async_trait` in test module
+
+**File:** `src/tts/mod.rs:99`
+**Issue:** Inside `#[cfg(test)] mod tests`, line 98 imports `use super::*;` which brings all parent-module items into scope -- including the parent's `use async_trait::async_trait;` on line 3. Line 99's explicit `use async_trait::async_trait;` is therefore redundant. Clippy flags this under `clippy::redundant_import`.
+
+**Fix:** Remove line 99.
+
+### IN-03: Test comment mislabels microseconds vs nanoseconds
+
+**File:** `tests/tts_test.rs:78`
+**Issue:** The comment reads:
+```rust
+/// 5 秒 = 5_000_000_000 微秒 = 50_000_000 单位（100ns 单位）
+```
+5 seconds = 5,000,000 microseconds, not 5,000,000,000. The value `5_000_000_000` is the count of **nanoseconds**, not microseconds. The computed value of 50,000,000 hundred-nanosecond units is correct. The intermediate unit label is wrong.
+
+**Fix:** Change `微秒` to `纳秒` in the comment.
 
 ---
 
-_Reviewed: 2026-04-29_
-_Reviewer: gsd-code-reviewer (Iteration 4)_
+## Additional Observations
+
+- **`Cargo.toml:28`** -- `wiremock` is listed in `[dev-dependencies]` but is not used in any of the reviewed test files. If unused project-wide, it should be removed.
+- **`src/tts/mod.rs:83-86`** -- The `synthesize` router unconditionally destructures the `proxy` parameter before the match dispatch. For the `_ => TTSError::UnknownEngine` path, this destructuring is wasted work. Consider deferring it inside the `"edge_tts"` arm.
+- **`src/tts/edge_tts.rs:11`** -- The WebSocket receive timeout (`WS_RECEIVE_TIMEOUT` = 120 s) applies per-message, not per-synthesis. For very long texts, the Edge TTS server may take longer than 120 s to produce word-boundary messages between audio chunks. Consider documenting that this is a per-message timeout.
+- **`src/tts/edge_tts.rs:196-243`** -- The proxy response reader has no line-length limit. A misconfigured or malicious proxy could send an extremely long header line, causing unbounded memory allocation. Consider adding a maximum line length check.
+
+---
+
+_Reviewed: 2026-04-29T10:00:00Z_
+_Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
