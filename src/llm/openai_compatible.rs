@@ -504,13 +504,12 @@ impl LlmProvider for OpenAiCompatibleProvider {
                         .map_err(LLMError::from)?
                 };
 
-                let text = response
-                    .choices
-                    .first()
+                let first_choice = response.choices.first();
+                let text = first_choice
                     .and_then(|c| c.message.content.as_deref())
                     .ok_or_else(|| {
                         // 检查是否为内容过滤导致的空响应
-                        if let Some(finish_reason) = response.choices.first().and_then(|c| c.finish_reason.as_ref()) {
+                        if let Some(finish_reason) = first_choice.and_then(|c| c.finish_reason.as_ref()) {
                             if *finish_reason == async_openai::types::chat::FinishReason::ContentFilter {
                                 return LLMError::ContentFilter("内容被安全过滤器阻止".to_string());
                             }
