@@ -311,7 +311,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             return Ok(Vec::new());
         }
 
-        let batch_size = batch_size.unwrap_or(10);
+        let batch_size = batch_size.unwrap_or(10).max(1);
         let max_concurrency = max_concurrency.unwrap_or(1);
         let bounded_concurrency = max_concurrency.max(1);
 
