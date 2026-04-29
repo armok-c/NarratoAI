@@ -454,11 +454,18 @@ impl EdgeTtsEngine {
                                     if let Ok(wb_json) =
                                         serde_json::from_str::<serde_json::Value>(payload_str)
                                     {
-                                        if let (Some(offset), Some(duration_100ns), Some(text)) = (
-                                            wb_json["offset"].as_u64(),
-                                            wb_json["duration"].as_u64(),
-                                            wb_json["text"].as_str(),
-                                        ) {
+                                        // Try as_u64() first (integer JSON numbers); fall back to as_f64()
+                                        // for float-typed JSON numbers. Matches the defensive pattern used
+                                        // in turn.end duration parsing (lines 491-501).
+                                        let offset = wb_json["offset"]
+                                            .as_u64()
+                                            .or_else(|| wb_json["offset"].as_f64().map(|f| f as u64));
+                                        let duration_100ns = wb_json["duration"]
+                                            .as_u64()
+                                            .or_else(|| wb_json["duration"].as_f64().map(|f| f as u64));
+                                        if let (Some(offset), Some(duration_100ns), Some(text)) =
+                                            (offset, duration_100ns, wb_json["text"].as_str())
+                                        {
                                             word_boundaries.push(WordBoundary {
                                                 start_offset: offset,
                                                 end_offset: offset.saturating_add(duration_100ns),
