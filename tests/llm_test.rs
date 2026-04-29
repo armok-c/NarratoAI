@@ -366,6 +366,7 @@ async fn test_analyze_images_result_ordering() {
                     }]
                 }),
             ))
+            .up_to_n_times(1)   // 强制每个 mock 最多匹配 1 次，防止同名 matcher 冲突
             .expect(1)
             .mount(&mock_server)
             .await;
