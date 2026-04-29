@@ -19,34 +19,3 @@ pub fn create_test_jpeg_path(dir: &Path) -> PathBuf {
     write_test_jpeg(&path).expect("测试图片写入失败");
     path
 }
-
-/// 构建一个模拟的 CreateChatCompletionResponse（供测试 extract_text 和消息构建使用）
-/// 使用 async_openai 的公开类型构建
-pub fn mock_chat_response(text: &str) -> async_openai::types::chat::CreateChatCompletionResponse {
-    use async_openai::types::chat::{
-        ChatChoice, ChatCompletionResponseMessage, CreateChatCompletionResponse, FinishReason,
-    };
-    CreateChatCompletionResponse {
-        id: "test-response-id".to_string(),
-        object: "chat.completion".to_string(),
-        created: 1234567890,
-        model: "test-model".to_string(),
-        choices: vec![ChatChoice {
-            index: 0,
-            message: ChatCompletionResponseMessage {
-                content: Some(text.to_string()),
-                role: async_openai::types::chat::Role::Assistant,
-                refusal: None,
-                annotations: None,
-                function_call: None,
-                tool_calls: None,
-                audio: None,
-            },
-            finish_reason: Some(FinishReason::Stop),
-            logprobs: None,
-        }],
-        usage: None,
-        system_fingerprint: None,
-        service_tier: None,
-    }
-}
