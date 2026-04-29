@@ -64,7 +64,7 @@ impl VideoMaterial {
             .unwrap_or_default();
 
         Ok(Self {
-            material_id: id.clone(),
+            material_id: id,
             path: abs_path.to_string_lossy().to_string(),
             duration_us,
             width,
@@ -123,7 +123,7 @@ impl AudioMaterial {
             .unwrap_or_default();
 
         Ok(Self {
-            material_id: id.clone(),
+            material_id: id,
             path: abs_path.to_string_lossy().to_string(),
             duration_us,
             file_name,
