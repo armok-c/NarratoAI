@@ -372,7 +372,7 @@ impl EdgeTtsEngine {
         );
 
         ws_stream
-            .send(Message::Text(stt_message.into()))
+            .send(Message::Text(stt_message))
             .await
             .map_err(|e| TTSError::ConnectionFailed(format!("发送 SSML 失败: {}", e)))?;
 
