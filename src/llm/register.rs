@@ -9,6 +9,18 @@ pub const VISION_PROVIDER_NAME: &str = "openai_vision";
 /// Text provider 在注册中心中的默认名称
 pub const TEXT_PROVIDER_NAME: &str = "openai_text";
 
+/// 注册错误的包装类型，实现 std::error::Error 以便在统一错误处理链中传播
+#[derive(Debug)]
+pub struct RegistrationErrors(pub Vec<LLMError>);
+
+impl std::fmt::Display for RegistrationErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "provider 注册失败 ({} 个错误)", self.0.len())
+    }
+}
+
+impl std::error::Error for RegistrationErrors {}
+
 /// 注册所有活跃 provider（D-07）
 ///
 /// 在库初始化时调用。读取 AppConfig 的 vision/text 配置段和 proxy 配置，
@@ -26,7 +38,7 @@ pub const TEXT_PROVIDER_NAME: &str = "openai_text";
 ///
 /// 返回所有注册失败的 LLMError 列表。即使部分 provider 注册失败，成功注册的
 /// provider 仍然保留在 registry 中。调用者可以检查返回的错误以判断注册是否完全成功。
-pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Result<(), Vec<LLMError>> {
+pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Result<(), RegistrationErrors> {
     let proxy_http = if config.proxy.enabled && !config.proxy.http.is_empty() {
         Some(config.proxy.http.clone())
     } else {
@@ -95,7 +107,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(errors)
+        Err(RegistrationErrors(errors))
     }
 }
 
