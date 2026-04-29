@@ -22,6 +22,9 @@ const EDGE_TTS_WSS_URL: &str =
 /// 将 rate 转换为 Edge TTS 百分比格式
 /// 1.0 → "+0%", 1.5 → "+50%", 0.5 → "-50%"
 fn convert_rate_to_percent(rate: f64) -> String {
+    if !rate.is_finite() || rate < 0.0 {
+        return "+0%".to_string();
+    }
     if rate == 1.0 {
         return "+0%".to_string();
     }
@@ -36,6 +39,9 @@ fn convert_rate_to_percent(rate: f64) -> String {
 /// 将 pitch 转换为 Edge TTS Hz 格式
 /// 0 → "+0Hz", 50 → "+50Hz", -10 → "-10Hz"
 fn convert_pitch_to_hz(pitch: f64) -> String {
+    if !pitch.is_finite() {
+        return "+0Hz".to_string();
+    }
     if pitch == 0.0 {
         return "+0Hz".to_string();
     }
