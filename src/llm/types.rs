@@ -9,20 +9,3 @@ pub enum LlmResponseFormat {
     Json,
 }
 
-/// 视觉分析批量处理配置
-#[derive(Debug, Clone)]
-pub struct VisionBatchConfig {
-    /// 每批最多图片数，默认 10
-    pub batch_size: usize,
-    /// 最大并发批次数，默认 1
-    pub max_concurrency: usize,
-}
-
-impl Default for VisionBatchConfig {
-    fn default() -> Self {
-        Self {
-            batch_size: 10,
-            max_concurrency: 1,
-        }
-    }
-}
