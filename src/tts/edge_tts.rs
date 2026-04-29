@@ -63,7 +63,11 @@ fn voice_name_to_lang(voice_name: &str) -> String {
     if let Some((idx, _)) = voice_name.char_indices().filter(|(_, c)| *c == '-').nth(1) {
         voice_name[..idx].to_string()
     } else {
-        String::new()
+        tracing::warn!(
+            "voice name '{}' does not follow lang-Region-Name format, falling back to en-US",
+            voice_name
+        );
+        "en-US".to_string()
     }
 }
 
