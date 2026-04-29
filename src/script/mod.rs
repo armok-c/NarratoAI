@@ -45,6 +45,9 @@ fn timestamp_to_millis(ts: &str) -> Option<u64> {
 /// 毫秒部分可选，与 Python 管道兼容。同时校验范围和起止顺序。
 /// 手写校验，避免引入 regex 依赖。
 pub(crate) fn validate_timestamp(ts: &str) -> bool {
+    // NOTE: Split on '-' assumes the timestamp format never contains internal hyphens.
+    // The format "HH:MM:SS,mmm-HH:MM:SS,mmm" guarantees this because all components
+    // are digits, colons, and commas.
     let parts: Vec<&str> = ts.split('-').collect();
     if parts.len() != 2 {
         return false;
@@ -140,7 +143,9 @@ pub fn load_script(path: &Path) -> Result<Script, ScriptError> {
 /// - Option::None 字段不输出（由 serde skip_serializing_if 保证）
 pub fn save_script(script: &Script, path: &Path) -> Result<(), ScriptError> {
     let json = serde_json::to_string_pretty(script).map_err(ScriptError::JsonParse)?;
-    std::fs::write(path, json.as_bytes()).map_err(ScriptError::Io)?;
+    let temp_path = path.with_extension("json.tmp");
+    std::fs::write(&temp_path, json.as_bytes()).map_err(ScriptError::Io)?;
+    std::fs::rename(&temp_path, path).map_err(ScriptError::Io)?;
     Ok(())
 }
 

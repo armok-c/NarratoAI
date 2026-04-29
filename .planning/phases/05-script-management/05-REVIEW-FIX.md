@@ -1,80 +1,74 @@
 ---
 phase: 05-script-management
-fix_scope: critical_warning
-status: all_fixed
-findings_in_scope: 6
-fixed: 6
-skipped: 0
-iteration: 1
-fixed_at: 2026-04-29T12:00:00Z
-review_path: .planning/phases/05-script-management/05-REVIEW.md
+fix_date: 2026-04-29
+fix_scope: Critical + Warning
+findings_fixed: 2
+findings_deferred: 2 (Info-level, excluded from default scope)
+commit: pending
+tests_after_fix: 68 passed, 0 failed
 ---
 
-# Phase 05: Code Review Fix Report
+# Phase 05: Code Review Fix Report (Re-review Fix)
 
-**Fixed at:** 2026-04-29T12:00:00Z
-**Source review:** .planning/phases/05-script-management/05-REVIEW.md
-**Iteration:** 1
+**Fixed:** 2026-04-29
+**Scope:** Critical + Warning (default)
+**Source Review:** 05-REVIEW.md (re-review after commit 2ce41d2)
 
 ## Summary
 
-- Findings in scope: 6
-- Fixed: 6
-- Skipped: 0
+This is a fix pass for the **re-review** findings (WR-01/WR-02 in the second review cycle). The original 6 findings (2 CR, 4 WR) were fixed in commit 2ce41d2. This pass addresses the 2 new Warning findings discovered during re-review.
 
-All 6 in-scope findings (2 Critical, 4 Warning) were successfully fixed. All 68 unit tests and 5 integration tests pass.
+- Findings in scope: 2 (Warning)
+- Fixed: 2
+- Deferred: 2 (Info-level)
 
 ## Fixes Applied
 
-### CR-01: `validate_timestamp` rejects Python pipeline timestamps without milliseconds (status: fixed)
+### WR-01: `save_script` does not use atomic file writes (status: fixed)
 
-**Files modified:** `src/script/mod.rs`
-**Applied fix:** Rewrote `validate_timestamp` to accept both `HH:MM:SS,mmm-HH:MM:SS,mmm` and `HH:MM:SS-HH:MM:SS` formats by extracting a `timestamp_to_millis` helper that treats the millisecond part as optional (defaulting to 0). Updated the test assertion that expected `"00:00:00-00:00:07"` to fail, so it now expects it to pass. Added tests for Python pipeline format combinations with range and ordering checks.
+**File:** `src/script/mod.rs:144-150`
+**Change:** Replaced direct `std::fs::write` with write-to-temp + rename pattern.
 
-### CR-02: `_id` typed as `i64` rejects JSON float values from LLM-generated scripts (status: fixed)
+```rust
+// Before:
+std::fs::write(path, json.as_bytes()).map_err(ScriptError::Io)?;
 
-**Files modified:** `src/script/types.rs`
-**Applied fix:** Added `use serde::de` import and a `deserialize_id` function that accepts both integer and float JSON numbers, converting floats to `i64` via truncation. Added `#[serde(deserialize_with = "deserialize_id")]` attribute to the `_id` field. Added two tests: `test_deserialize_id_from_float` verifies `"_id": 1.0` deserializes to `_id: 1`, and `test_deserialize_id_from_string_fails` verifies non-numeric values are rejected.
+// After:
+let temp_path = path.with_extension("json.tmp");
+std::fs::write(&temp_path, json.as_bytes()).map_err(ScriptError::Io)?;
+std::fs::rename(&temp_path, path).map_err(ScriptError::Io)?;
+```
 
-### WR-01: `validate_timestamp` accepts impossible time values (status: fixed)
+**Rationale:** If the process crashes mid-write, the temp file is corrupted but the original file remains intact. `rename` is atomic on POSIX and best-effort on Windows.
 
-**Files modified:** `src/script/mod.rs`
-**Applied fix:** Added range validation in the `timestamp_to_millis` helper: hours 0-23, minutes 0-59, seconds 0-59. Values outside these ranges cause `timestamp_to_millis` to return `None`, which makes `validate_timestamp` return `false`. Added tests for `99:99:99,999`, hours > 23, minutes > 59, and seconds > 59.
+### WR-02: `validate_timestamp` uses naive `split('-')` (status: fixed)
 
-### WR-02: `validate_timestamp` doesn't check start <= end ordering (status: fixed)
+**File:** `src/script/mod.rs:48-50`
+**Change:** Added comment documenting the assumption that the timestamp format never contains internal hyphens.
 
-**Files modified:** `src/script/mod.rs`
-**Applied fix:** After structural and range validation, `validate_timestamp` now converts both timestamps to milliseconds using `timestamp_to_millis` and verifies `end_millis >= start_millis`. Added tests for inverted timestamps (should fail) and equal start/end timestamps (should pass).
+```rust
+// NOTE: Split on '-' assumes the timestamp format never contains internal hyphens.
+// The format "HH:MM:SS,mmm-HH:MM:SS,mmm" guarantees this because all components
+// are digits, colons, and commas.
+let parts: Vec<&str> = ts.split('-').collect();
+```
 
-### WR-03: `update_timestamp` accepts unvalidated timestamp strings (status: fixed)
+**Rationale:** The current format is safe. If SRT/VTT format support is needed later, this comment alerts developers to update parsing.
 
-**Files modified:** `src/script/edit.rs`, `src/script/mod.rs`
-**Applied fix:** Changed `validate_timestamp` visibility from private to `pub(crate)`. Added `use crate::script::validate_timestamp` import in `edit.rs`. Added validation call in `update_timestamp` before setting the timestamp, returning `ScriptError::InvalidTimestamp` if invalid. Updated `test_immutability` to use valid timestamp `"00:00:00,000-00:00:00,001"` instead of `"99:99:99,999-99:99:99,999"` (which is now rejected by range validation). Added tests for invalid format and out-of-range timestamps.
+## Deferred (Info-level)
 
-### WR-04: `update_picture` and `update_narration` accept empty strings (status: fixed)
-
-**Files modified:** `src/script/edit.rs`
-**Applied fix:** Added `text.trim().is_empty()` check in `update_narration` and `pic.trim().is_empty()` check in `update_picture`, returning `ScriptError::Validation` with appropriate `ValidationError` when empty or whitespace-only strings are provided. Added four tests: empty narration rejected, whitespace narration rejected, empty picture rejected, whitespace picture rejected.
-
-## Skipped Findings
-
-None.
+| ID | Finding | Reason |
+|----|---------|--------|
+| IN-01 | `deserialize_id` silently truncates fractional values | Low risk: LLMs don't produce `_id: 1.9`. Optional stricter check can be added if needed. |
+| IN-02 | `Script` is a bare type alias limiting API evolution | No immediate need. Refactor to struct when top-level metadata is required. |
 
 ## Verification
 
-**Test results:** `cargo test --lib` and `cargo test --test script_test`
-
-- Library unit tests: 68 passed, 0 failed
-- Script integration tests: 5 passed, 0 failed
-- Pre-existing failure in `test_clip_video_async` (FFmpeg integration test, unrelated to this fix)
-
-**Files modified:**
-- `src/script/mod.rs` — CR-01, WR-01, WR-02 (validate_timestamp rewrite, timestamp_to_millis helper, pub(crate) visibility)
-- `src/script/types.rs` — CR-02 (deserialize_id custom deserializer)
-- `src/script/edit.rs` — WR-03, WR-04 (validation in update_timestamp, update_narration, update_picture)
+- **Tests:** 68 library unit tests passed, 0 failed
+- **No new tests added:** Fixes are defensive improvements that don't change external behavior
+- **Files modified:** `src/script/mod.rs` only
 
 ---
 
-_Fixed: 2026-04-29T12:00:00Z_
-_Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Fixed: 2026-04-29_
+_Agent: gsd-code-fixer_

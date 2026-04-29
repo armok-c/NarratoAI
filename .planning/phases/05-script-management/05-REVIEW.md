@@ -1,241 +1,115 @@
 ---
 phase: 05-script-management
-reviewed: 2026-04-29T10:15:00Z
+reviewed: 2026-04-29T10:30:00Z
 depth: standard
 files_reviewed: 7
 files_reviewed_list:
   - Cargo.toml
   - src/lib.rs
-  - src/script/types.rs
+  - src/script/edit.rs
   - src/script/error.rs
   - src/script/mod.rs
-  - src/script/edit.rs
+  - src/script/types.rs
   - tests/script_test.rs
 findings:
-  critical: 2
-  warning: 4
-  info: 3
-  total: 9
+  critical: 0
+  warning: 2
+  info: 2
+  total: 4
 status: issues_found
 ---
 
-# Phase 05: Code Review Report
+# Phase 05: Code Review Report (Re-review)
 
-**Reviewed:** 2026-04-29T10:15:00Z
+**Reviewed:** 2026-04-29T10:30:00Z
 **Depth:** standard
 **Files Reviewed:** 7
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 05 script-management Rust crate covering data models (ScriptClip, OstType), error types, load/save/validate functions, and four immutable edit operations. The implementation is well-structured with good test coverage overall. However, two critical compatibility issues were found that will cause runtime failures when interoperating with the existing Python pipeline, along with several warnings around timestamp validation gaps and missing test coverage.
+This is a re-review after commit 2ce41d2 which fixed 9 prior issues (2 CR, 4 WR, 3 IN). All previously identified critical and warning issues have been confirmed resolved. The codebase is a Rust library crate for script management (JSON script load/save/validate/edit) with good test coverage (68 unit tests all passing).
+
+Previous issue resolution verified:
+
+- **CR-01 (timestamp format compatibility):** Fixed. `timestamp_to_millis` now accepts both `HH:MM:SS,mmm` and `HH:MM:SS` (optional milliseconds), matching Python pipeline output. Test 12 explicitly validates `00:00:00-00:00:26` passes.
+- **CR-02 (_id float deserialization):** Fixed. Custom `deserialize_id` function in `types.rs:19-33` accepts both integer and float JSON numbers, converting floats via `f as i64`. Test 8 in `types.rs` verifies `1.0` deserializes to `1`.
+- **WR-01 (timestamp range validation):** Fixed. `timestamp_to_millis` now checks `h > 23 || m > 59 || s > 59` at line 28. Tests verify `99:99:99,999` is rejected.
+- **WR-02 (start/end ordering):** Fixed. `validate_timestamp` at line 60 checks `end_millis >= start_millis`. Tests verify `00:00:10-00:00:05` is rejected.
+- **WR-03 (update_timestamp validation):** Fixed. `update_timestamp` in `edit.rs:37` now calls `validate_timestamp(ts)` before applying the edit, returning `ScriptError::InvalidTimestamp` on failure.
+- **WR-04 (empty string validation in edit API):** Fixed. Both `update_narration` (edit.rs:10) and `update_picture` (edit.rs:49) now reject empty and whitespace-only strings.
+- **IN-01 (InvalidTimestamp unused):** Fixed. Now used in `edit.rs:38`.
+- **IN-02 (Python sample round-trip):** Not addressed, superseded by broader round-trip coverage in `tests/script_test.rs`.
+- **IN-03 (repr(u8) extensibility):** Informational, no action needed.
+
+Two new warnings and two info items were found. No critical issues remain.
 
 ## Critical Issues
 
-### CR-01: `editedTimeRange` timestamp format mismatch with Python pipeline
-
-**File:** `src/script/types.rs:31-34`
-**Issue:** The Rust `ScriptClip` model declares `source_time_range` and `edited_time_range` as `Option<String>` without any format documentation or validation constraints. Meanwhile, the Python pipeline's `update_script.py` (line 190) generates `editedTimeRange` values in the format `HH:MM:SS-HH:MM:SS` (no milliseconds), e.g., `"00:00:00-00:00:26"`. The Rust `validate_timestamp` function in `mod.rs` only accepts `HH:MM:SS,mmm-HH:MM:SS,mmm` with mandatory 3-digit millisecond fields. If any downstream Rust code (Phase 06+) calls `validate_timestamp` on a `sourceTimeRange` or `editedTimeRange` field loaded from Python-generated JSON, validation will reject valid data.
-
-The Python `calculate_duration()` function (`app/services/update_script.py:48-77`) explicitly handles both `HH:MM:SS,mmm` and `HH:MM:SS` formats, proving the Python pipeline produces both. The test data in `subtitle_merger.py:198-200` shows `sourceTimeRange` values like `"00:00:00-00:00:26"` (no milliseconds).
-
-While `validate_timestamp` currently only validates the `timestamp` field in `validate()`, this is a time bomb: any future validation of pipeline fields, or reuse of `validate_timestamp` for parsing `sourceTimeRange`/`editedTimeRange`, will break against real Python-produced data.
-
-**Fix:** Either (a) add a separate `validate_pipeline_timestamp` that accepts both formats, or (b) make `validate_timestamp` accept both formats by making the millisecond part optional:
-
-```rust
-fn validate_timestamp(ts: &str) -> bool {
-    let parts: Vec<&str> = ts.split('-').collect();
-    if parts.len() != 2 { return false; }
-    for part in &parts {
-        let sub_parts: Vec<&str> = part.split(',').collect();
-        // millisecond part is optional
-        let (time_str, millis_str) = match sub_parts.len() {
-            1 => (sub_parts[0], None),
-            2 => (sub_parts[0], Some(sub_parts[1])),
-            _ => return false,
-        };
-        let time_parts: Vec<&str> = time_str.split(':').collect();
-        if time_parts.len() != 3 { return false; }
-        for tp in &time_parts {
-            if tp.len() != 2 || !tp.chars().all(|c| c.is_ascii_digit()) {
-                return false;
-            }
-        }
-        if let Some(millis) = millis_str {
-            if millis.len() != 3 || !millis.chars().all(|c| c.is_ascii_digit()) {
-                return false;
-            }
-        }
-    }
-    true
-}
-```
-
-### CR-02: `_id` typed as `i64` will reject valid JSON from LLM-generated scripts with float `_id`
-
-**File:** `src/script/types.rs:23`
-**Issue:** The `ScriptClip._id` field is declared as `pub _id: i64`. The Python codebase (`app/utils/check_script.py:53`) validates `_id` with `isinstance(clip['_id'], int)`, which in Python 3 accepts `int` but rejects `float`. However, LLM-generated JSON commonly produces `_id` as a float (e.g., `1.0` instead of `1`). The Python JSON parser treats `1` as `int` but `1.0` as `float` -- and `isinstance(1.0, int)` returns `False` in Python 3.
-
-More critically, in Rust, `serde_json` will fail to deserialize `"1.0"` or `1.0` (a JSON number without fractional part but typed as float) into `i64`. When an LLM generates `"_id": 1.0` (which is valid JSON), `serde_json::from_str` will error with a type mismatch. This will cause `load_script` to return `ScriptError::JsonParse`, rejecting otherwise valid scripts that the Python pipeline handles (Python's `json.loads` parses `1.0` as `float`, and downstream code treats it loosely).
-
-Since this is an LLM-facing format, `_id` should tolerate both `1` and `1.0`. The Python side already has fragile validation (`isinstance(..., int)` rejects floats); the Rust side should be more robust, not less.
-
-**Fix:** Use a custom deserializer or accept `f64` with validation, or use `serde_json::Value` with coercion:
-
-```rust
-use serde::de::{self, Deserializer, Visitor};
-use std::fmt;
-
-fn deserialize_id<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
-    // Accept both integer and float (e.g., 1 and 1.0) for _id
-    let val = serde_json::Value::deserialize(d)?;
-    match val {
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(i)
-            } else if let Some(f) = n.as_f64() {
-                Ok(f as i64)
-            } else {
-                Err(de::Error::custom("_id must be a number"))
-            }
-        }
-        _ => Err(de::Error::custom("_id must be a number")),
-    }
-}
-
-// In ScriptClip:
-#[serde(deserialize_with = "deserialize_id")]
-pub _id: i64,
-```
+None.
 
 ## Warnings
 
-### WR-01: `validate_timestamp` accepts structurally valid but semantically invalid timestamps
+### WR-01: `save_script` does not use atomic file writes -- crash during write produces corrupted file
 
-**File:** `src/script/mod.rs:13-40`
-**Issue:** The timestamp validator only checks structural format (2-digit HH:MM:SS, 3-digit mmm) but does not validate ranges. Values like `99:99:99,999-99:99:99,999` pass validation despite being impossible time values. The edit test at `edit.rs:187` explicitly uses `"99:99:99,999-99:99:99,999"` as a test value and it passes through `update_timestamp` without error.
+**File:** `src/script/mod.rs:141-144`
+**Issue:** `save_script` writes JSON directly via `std::fs::write(path, json.as_bytes())`. If the process crashes (OOM, signal, power loss) mid-write, the destination file will contain partial or zero-length content. A subsequent `load_script` on the same path would fail with `JsonParse` error, losing previously valid data. For a script management module where user-edited content is at stake, atomic write (write to temp file + rename) is the standard defensive pattern.
 
-While the Python `check_script.py` uses the same regex `^\d{2}:\d{2}:\d{2},\d{3}-\d{2}:\d{2}:\d{2},\d{3}$` and also does not validate ranges, adding range validation would be a genuine improvement over the Python version and prevent downstream parsing errors in Phase 06+.
-
-**Fix:** Add range checks for hours (0-23), minutes (0-59), seconds (0-59):
-
+**Fix:**
 ```rust
-// After parsing time_parts:
-let h: u32 = time_parts[0].parse().unwrap_or(0);
-let m: u32 = time_parts[1].parse().unwrap_or(0);
-let s: u32 = time_parts[2].parse().unwrap_or(0);
-if h > 23 || m > 59 || s > 59 {
-    return false;
+pub fn save_script(script: &Script, path: &Path) -> Result<(), ScriptError> {
+    let json = serde_json::to_string_pretty(script).map_err(ScriptError::JsonParse)?;
+    let temp_path = path.with_extension("json.tmp");
+    std::fs::write(&temp_path, json.as_bytes()).map_err(ScriptError::Io)?;
+    std::fs::rename(&temp_path, path).map_err(ScriptError::Io)?;
+    Ok(())
 }
 ```
 
-### WR-02: `validate_timestamp` does not check that start time precedes end time
+### WR-02: `validate_timestamp` uses naive `split('-')` which is fragile for format evolution
 
-**File:** `src/script/mod.rs:13-40`
-**Issue:** The validator splits on `-` and checks both parts independently but never verifies that the start timestamp is chronologically before (or equal to) the end timestamp. A timestamp like `"00:00:10,000-00:00:05,000"` (end before start) passes validation. This would cause incorrect clip durations and video editing errors downstream.
+**File:** `src/script/mod.rs:48`
+**Issue:** The timestamp range format `HH:MM:SS,mmm-HH:MM:SS,mmm` uses `-` as the range separator. The code splits on `-` via `ts.split('-')` and requires exactly 2 parts. This works correctly for the current format. However, the SRT/VTT subtitle format uses ` --> ` as separator. If the system ever needs to parse SRT-format timestamps or the format evolves to include spaces around the hyphen, the naive split would produce wrong results or silently reject valid data. The split-based approach also means corrupted data with extra hyphens (e.g., from a partially written file) would split into >2 parts and return a generic `false` rather than a clear error identifying the problem.
 
-**Fix:** Parse both timestamps into comparable values and verify ordering:
+This is not a current correctness bug since the `HH:MM:SS,mmm-HH:MM:SS,mmm` format never contains internal hyphens, but the approach is fragile.
 
+**Fix:** Consider splitting on a more specific delimiter or extracting start/end by position. For now, adding a comment documenting the assumption would suffice:
 ```rust
-fn timestamp_to_millis(ts: &str) -> Option<u64> {
-    let parts: Vec<&str> = ts.split(',').collect();
-    let time_parts: Vec<&str> = parts[0].split(':').collect();
-    if time_parts.len() != 3 { return None; }
-    let h: u64 = time_parts[0].parse().ok()?;
-    let m: u64 = time_parts[1].parse().ok()?;
-    let s: u64 = time_parts[2].parse().ok()?;
-    let ms: u64 = if parts.len() > 1 { parts[1].parse().ok()? } else { 0 };
-    Some((h * 3600 + m * 60 + s) * 1000 + ms)
-}
-
-// In validate_timestamp, after structural validation:
-let start_millis = timestamp_to_millis(parts[0])?;
-let end_millis = timestamp_to_millis(parts[1])?;
-if end_millis < start_millis { return false; }
-```
-
-### WR-03: `update_timestamp` accepts unvalidated timestamp strings
-
-**File:** `src/script/edit.rs:25-32`
-**Issue:** The `update_timestamp` function sets the timestamp field to any string without calling `validate_timestamp`. A caller can inject an invalid timestamp like `"bad-format"` via this function, and the resulting `Script` will pass through `save_script` successfully. The next `load_script` call on that file will fail with a validation error, but the invalid data is already persisted to disk.
-
-This is inconsistent with the design where `load_script` validates on load but the edit API provides no guard against invalid mutations. The error type `ScriptError::InvalidTimestamp` is defined in `error.rs` but never used anywhere in the codebase.
-
-**Fix:** Validate the timestamp before applying the edit:
-
-```rust
-pub fn update_timestamp(script: &Script, index: usize, ts: &str) -> Result<Script, ScriptError> {
-    if index >= script.len() {
-        return Err(ScriptError::IndexOutOfBounds);
-    }
-    if !validate_timestamp(ts) {
-        return Err(ScriptError::InvalidTimestamp(ts.to_string()));
-    }
-    let mut new_script = script.clone();
-    new_script[index].timestamp = ts.to_string();
-    Ok(new_script)
-}
-```
-
-### WR-04: `update_picture` and `update_narration` accept empty/whitespace-only strings
-
-**File:** `src/script/edit.rs:5-12` and `src/script/edit.rs:35-42`
-**Issue:** The `validate` function in `mod.rs` rejects empty/whitespace `picture` and `narration` fields on load, but `update_picture` and `update_narration` accept any string including empty or whitespace-only values. After calling `update_narration(&script, 0, "")`, the resulting script will fail to load via `load_script` due to validation. The same inconsistency as WR-03 applies: invalid data can be persisted and will only surface on the next load.
-
-**Fix:** Add validation in the edit functions, or at minimum add a note in documentation that callers are responsible for validation before saving:
-
-```rust
-pub fn update_narration(script: &Script, index: usize, text: &str) -> Result<Script, ScriptError> {
-    if index >= script.len() {
-        return Err(ScriptError::IndexOutOfBounds);
-    }
-    if text.trim().is_empty() {
-        return Err(ScriptError::Validation(vec![ValidationError {
-            clip_index: index,
-            field: "narration".to_string(),
-            message: "必须是非空字符串".to_string(),
-        }]));
-    }
-    let mut new_script = script.clone();
-    new_script[index].narration = text.to_string();
-    Ok(new_script)
-}
+// NOTE: Split on '-' assumes the timestamp format never contains internal hyphens.
+// The format "HH:MM:SS,mmm-HH:MM:SS,mmm" guarantees this because all components
+// are digits, colons, and commas.
+let parts: Vec<&str> = ts.split('-').collect();
 ```
 
 ## Info
 
-### IN-01: `ScriptError::InvalidTimestamp` variant is defined but never constructed
+### IN-01: `deserialize_id` silently truncates fractional _id values
 
-**File:** `src/script/error.rs:18-19`
-**Issue:** The `InvalidTimestamp(String)` variant is defined with a `#[error("...")]` attribute and tested in unit tests, but is never used in any production code path. It appears designed for WR-03's fix but was left unused.
+**File:** `src/script/types.rs:25-26`
+**Issue:** When `_id` is a float like `1.9`, the code does `f as i64` which truncates to `1` without warning. This is intentional for the `1.0` case (documented as "LLM 生成的 `1.0`"), but `1.9` would silently become `1` rather than being rejected. LLMs are unlikely to produce `1.9` as an _id, so this is low risk. If stricter validation is desired, check that the float value equals its truncated form.
 
-**Fix:** Either use it (see WR-03 fix) or remove it to avoid dead code.
-
-### IN-02: Test data `python_sample_json()` does not round-trip through save/reload
-
-**File:** `tests/script_test.rs:39-84`
-**Issue:** The `test_load_python_sample` test (line 154-173) only verifies loading, not the full save-reload round-trip with Python sample data. This is a missed opportunity to verify that the realistic multi-paragraph Chinese content survives serialization.
-
-**Fix:** Add an assertion after saving and reloading:
-
+**Fix:** Optional stricter check:
 ```rust
-let save_path = dir.path().join("python_roundtrip.json");
-save_script(&script, &save_path).expect("保存应成功");
-let reloaded = load_script(&save_path).expect("重新加载应成功");
-assert_eq!(reloaded.len(), script.len());
-assert_eq!(reloaded[0].narration, script[0].narration);
+if (f - f.floor()).abs() > f64::EPSILON {
+    return Err(de::Error::custom("_id 浮点值必须是整数，如 1.0"));
+}
 ```
 
-### IN-03: `OstType` enum uses `repr(u8)` which limits future extensibility
+### IN-02: `Script` is a type alias (`Vec<ScriptClip>`) which limits API evolution
 
-**File:** `src/script/types.rs:10`
-**Issue:** The `#[repr(u8)]` attribute means `OstType` can only represent values 0-255. If the Python pipeline ever adds an OST value outside this range (unlikely but possible), deserialization would fail silently or with a confusing error. Additionally, `serde_repr` with `u8` will reject any non-integer JSON values (e.g., `"0"` as a string). The Python code only checks `isinstance(clip['OST'], int)`, which would reject string values too, so this is consistent but worth noting.
+**File:** `src/script/types.rs:63`
+**Issue:** `pub type Script = Vec<ScriptClip>` is a bare type alias. Any future metadata (schema version, generation timestamp, global settings) cannot be added to the Script type without changing the alias to a struct and updating all call sites. This is acceptable for the current scope but limits extensibility.
 
-**Fix:** No immediate action needed. This is informational for future phases.
+**Fix:** No immediate action needed. If the script format evolves to include top-level metadata, refactor to:
+```rust
+pub struct Script {
+    pub clips: Vec<ScriptClip>,
+    pub version: Option<String>,
+}
+```
 
 ---
 
-_Reviewed: 2026-04-29T10:15:00Z_
+_Reviewed: 2026-04-29T10:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
