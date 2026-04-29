@@ -18,9 +18,13 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
 
     // JPEG 编码 quality=85
     let mut buf = Cursor::new(Vec::new());
-    thumb
-        .write_to(&mut buf, image::ImageFormat::Jpeg)
-        .map_err(|e| LLMError::General(format!("JPEG 编码失败: {}", e)))?;
+    {
+        use image::codecs::jpeg::JpegEncoder;
+        let mut encoder = JpegEncoder::new_with_quality(&mut buf, 85);
+        encoder
+            .encode_image(&thumb)
+            .map_err(|e| LLMError::General(format!("JPEG 编码失败: {}", e)))?;
+    }
 
     // base64 编码
     let b64 = base64::engine::general_purpose::STANDARD.encode(buf.get_ref());
