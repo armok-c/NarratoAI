@@ -272,6 +272,8 @@ impl OpenAiCompatibleProvider {
         original_prompt: &str,
         system_prompt: Option<&str>,
         batch: &[String],
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
     ) -> Result<CreateChatCompletionResponse, LLMError> {
         let result = client.chat().create(request).await;
         match result {
@@ -287,9 +289,16 @@ impl OpenAiCompatibleProvider {
                         system_prompt,
                         batch,
                     );
-                    let retry_request = CreateChatCompletionRequestArgs::default()
-                        .model(model_name)
-                        .messages(retry_messages)
+                    let mut retry_builder = CreateChatCompletionRequestArgs::default();
+                    retry_builder.model(model_name);
+                    retry_builder.messages(retry_messages);
+                    if let Some(t) = temperature {
+                        retry_builder.temperature(t);
+                    }
+                    if let Some(mt) = max_tokens {
+                        retry_builder.max_tokens(mt);
+                    }
+                    let retry_request = retry_builder
                         .build()
                         .map_err(|e| {
                             LLMError::Configuration(format!("请求重建失败: {}", e))
@@ -408,6 +417,8 @@ impl LlmProvider for OpenAiCompatibleProvider {
         batch_size: Option<usize>,
         max_concurrency: Option<usize>,
         response_format: Option<LlmResponseFormat>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
     ) -> Result<Vec<String>, LLMError> {
         // 预处理所有图片为 base64 data URL（通过 spawn_blocking 避免阻塞 tokio worker 线程）
         let data_urls: Vec<String> = futures::future::join_all(images.iter().map(|p| {
@@ -440,11 +451,11 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let sem_clone = semaphore.clone();
             let client_clone = self.client.clone();
             let prompt_owned = prompt.to_string();
-            let prompt_fb = prompt_owned.clone();  // 用于 JSON 回退，避免被 async move 消费
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
-            let system_prompt_fb = system_prompt_owned.clone();  // 用于 JSON 回退
             let model_name = self.model_name.clone();
             let use_json = matches!(response_format, Some(LlmResponseFormat::Json));
+            let temperature = temperature;
+            let max_tokens = max_tokens;
 
             handles.push(tokio::spawn(async move {
                 let _permit = sem_clone.acquire_owned().await.map_err(|_| {
@@ -461,6 +472,12 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 let mut request_builder = CreateChatCompletionRequestArgs::default();
                 request_builder.model(&model_name);
                 request_builder.messages(messages);
+                if let Some(t) = temperature {
+                    request_builder.temperature(t);
+                }
+                if let Some(mt) = max_tokens {
+                    request_builder.max_tokens(mt);
+                }
                 if use_json {
                     request_builder.response_format(ResponseFormat::JsonObject);
                 }
@@ -473,9 +490,11 @@ impl LlmProvider for OpenAiCompatibleProvider {
                         &client_clone,
                         request,
                         &model_name,
-                        &prompt_fb,
-                        system_prompt_fb.as_deref(),
+                        &prompt_owned,
+                        system_prompt_owned.as_deref(),
                         &batch,
+                        temperature,
+                        max_tokens,
                     )
                     .await?
                 } else {
