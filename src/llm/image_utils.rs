@@ -56,10 +56,13 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     }
 
     // 缩放到 1024px 保持宽高比，使用 Lanczos3 滤镜对齐 Python PIL.Image.thumbnail LANCZOS
+    // 使用 u64 运算避免 u32 乘法溢出（极端宽高比下 h > 4,194,303 时会溢出）
     let thumb = if w > h {
-        img.resize(1024, (1024 * h / w).max(1), Lanczos3)
+        let new_h = ((1024u64 * h as u64) / w as u64) as u32;
+        img.resize(1024, new_h.max(1), Lanczos3)
     } else {
-        img.resize((1024 * w / h).max(1), 1024, Lanczos3)
+        let new_w = ((1024u64 * w as u64) / h as u64) as u32;
+        img.resize(new_w.max(1), 1024, Lanczos3)
     };
 
     // JPEG 编码 quality=85
