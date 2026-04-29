@@ -98,12 +98,17 @@ fn test_word_boundary_time_unit_semantics() {
 ///
 /// Calls the function and assigns the returned future to `_`, which
 /// causes a compile error if the parameter types or return type change.
-/// The future is never polled, so there are no runtime side effects.
+/// The future is NEVER polled, so there are no runtime side effects.
+///
+/// # Safety
+/// Do NOT add `.await` or `block_on` without also providing a valid
+/// `output_path` and non-empty parameters — the current argument values
+/// are compile-time placeholders only.
 #[allow(clippy::let_underscore_future)]
 #[test]
 fn test_synthesize_function_signature() {
     let engine = "edge_tts";
     let text = "";
     let voice_name = "";
-    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new(""), None);
+    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new("/tmp/_narratoai_sig_check.mp3"), None);
 }
