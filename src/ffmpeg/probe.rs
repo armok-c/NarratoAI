@@ -145,14 +145,6 @@ pub fn probe_audio(path: &Path) -> Result<f64, FFmpegError> {
         .map_err(|e| FFmpegError::OutputParseError(format!("音频时长解析失败: {}", e)))
 }
 
-/// 通过 ffprobe 获取视频信息（异步，spawn_blocking 包装）
-pub async fn probe_video_async(path: &Path) -> Result<VideoInfo, FFmpegError> {
-    let path_buf = path.to_path_buf();
-    tokio::task::spawn_blocking(move || probe_video(&path_buf))
-        .await
-        .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
