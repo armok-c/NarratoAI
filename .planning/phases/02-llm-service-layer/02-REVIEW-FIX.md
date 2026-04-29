@@ -1,101 +1,106 @@
 ---
 phase: 02-llm-service-layer
-fixed_at: 2026-04-29T12:45:00Z
+fixed_at: 2026-04-29T17:00:00Z
 review_path: .planning/phases/02-llm-service-layer/02-REVIEW.md
-iteration: 2
-findings_in_scope: 9
-fixed: 9
+iteration: 1
+findings_in_scope: 11
+fixed: 11
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 2: LLM 服务层代码修复报告
+# Phase 2: LLM Service Layer -- Code Review Fix Report
 
-**修复时间:** 2026-04-29T12:45:00Z
-**源审查报告:** .planning/phases/02-llm-service-layer/02-REVIEW.md
-**迭代:** 2 (第二轮审查修复)
+**Fixed at:** 2026-04-29T17:00:00Z
+**Source review:** .planning/phases/02-llm-service-layer/02-REVIEW.md
+**Iteration:** 1
 
-**摘要:**
-- 范围内发现数: 9
-- 已修复: 9
-- 已跳过: 0
+**Summary:**
+- Findings in scope: 11
+- Fixed: 11 (1 was already fixed in a prior commit, 10 newly fixed)
+- Skipped: 0
 
-## 已修复问题
+## Fixed Issues
 
-### IN-01: `analyze_images` trait 添加 `response_format` 参数
+### CR-01: Missing `GenericImageView` trait import in image_utils.rs
 
-**修改文件:** `src/llm/provider.rs`, `src/llm/openai_compatible.rs`, `tests/llm_test.rs`
-**提交:** 1acb683
-**应用修复:** 为 `LlmProvider::analyze_images` 方法签名添加 `response_format: Option<LlmResponseFormat>` 参数。在 `OpenAiCompatibleProvider` 实现中，该参数通过 `use_json` 标志传入 `tokio::spawn` 闭包，并在请求构建器中通过 `request_builder.response_format(ResponseFormat::JsonObject)` 条件设置。两个测试调用点已补充 `None` 参数。
+**Files modified:** `src/llm/image_utils.rs`
+**Commit:** N/A (already fixed in HEAD -- `use image::GenericImageView` was present from a previous fix iteration)
+**Applied fix:** The import `use image::GenericImageView` was already present in the codebase. No additional change was needed.
 
-### WR-01: `analyze_images` 空响应返回 `LLMError` 而非静默空串
+### CR-02: Non-existent `with_max_retries()` method on async-openai 0.36 `OpenAIConfig`
 
-**修改文件:** `src/llm/openai_compatible.rs`
-**提交:** 2598e13
-**应用修复:** 将 `analyze_images` 方法中的 `.unwrap_or("")` 替换为 `.ok_or_else(|| ...)?` 错误返回逻辑。新实现与 `extract_text` 方法行为一致：当响应无有效文本内容时返回 `LLMError::APICall`。同时检查 `finish_reason` 是否为 `FinishReason::ContentFilter`，识别内容过滤场景时返回 `LLMError::ContentFilter`。
+**Files modified:** `src/llm/openai_compatible.rs`
+**Commit:** 2841359
+**Applied fix:** Removed the `.with_max_retries(cfg.max_retries)` builder call that does not exist in async-openai 0.36. async-openai 0.36 uses a default `RetryConfig` with 3 built-in retries. The `ProviderConfig.max_retries` field is kept but documented as not wired to the client configuration.
 
-### WR-02: `ProviderConfig` Debug 实现脱敏 `api_key`
+### WR-01: Missing JSON response_format fallback in `analyze_images`
 
-**修改文件:** `src/llm/openai_compatible.rs`
-**提交:** 14ae100
-**应用修复:** 从 `#[derive(Debug, Clone)]` 中去掉 `Debug`，改为手动实现 `fmt::Debug`。实现中 `api_key` 字段输出为 `"***REDACTED***"`，其余字段正常输出。避免了通过 `tracing::debug!(?config)`、`format!("{:?}", config)` 或 panic 栈展开泄露 API key 的风险。
+**Files modified:** `src/llm/openai_compatible.rs`
+**Commit:** ac338d7
+**Applied fix:** Added a new associated function `create_vision_chat_with_json_fallback` to `OpenAiCompatibleProvider` that implements the same retry-fallback pattern as `generate_text_with_json_fallback`. When the API rejects a vision request with `response_format=JsonObject`, the code strips the `response_format`, appends JSON constraints to the prompt, rebuilds the vision message payload (including images), and retries the request. The spawned task in `analyze_images` clones the prompt and system prompt before they are consumed, so they are available for the fallback path.
 
-### WR-03: 仅读取文件头少量字节做 JPEG 检测
+### WR-02: `RegistrationErrors` surfaces only the count of failures
 
-**修改文件:** `src/llm/image_utils.rs`
-**提交:** 9ea478c
-**应用修复:** 将原 `std::fs::read(path)` 全文件读取检测魔术字节的方式，改为先打开文件句柄、仅读取前 4 字节 (`read_exact`)、然后立即 `drop(file)` 释放句柄。仅当确定是 JPEG 文件时，才重新 `std::fs::read` 完整文件进行 base64 编码。消除了非 JPEG 文件场景下的双重内存占用问题。
+**Files modified:** `src/llm/register.rs`
+**Commit:** 6ad7430
+**Applied fix:** Updated the `Display` implementation of `RegistrationErrors` to enumerate each individual error message on separate lines: `"provider 注册失败 (N 个错误):\n  [1] ...\n  [2] ..."`. Callers can now inspect which providers failed and why programmatically or via log output.
 
-### IN-03: JPEG 直通路径添加完整性验证
+### WR-03: TOCTOU race between JPEG magic-byte check and full file re-read
 
-**修改文件:** `src/llm/image_utils.rs`
-**提交:** c5380ef
-**应用修复:** 在 JPEG 直通路径中，base64 编码之前添加 `image::load_from_memory(&raw_bytes)` 轻量解码验证。如果 JPEG 文件头部魔术字节正确但内容已截断或损坏，将返回 `LLMError::General("JPEG 图片损坏: ...")` 错误而非将损坏数据发送到 LLM API。
+**Files modified:** `src/llm/image_utils.rs`
+**Commit:** a71b2db
+**Applied fix:** Replaced the `drop(file)` + `std::fs::read(path)` pattern with `file.seek(SeekFrom::Start(0))` + `file.read_to_end(&mut raw_bytes)`. The file handle is kept open and seeked back to the beginning, eliminating the Time-of-Check-Time-of-Use window where a file could be replaced between the magic-byte read and the full re-read. Added `Seek` and `SeekFrom` to the imports.
 
-### WR-04: 用单 mock + AtomicUsize 替代 3 个竞态 wiremock
+### WR-04: `test_openai_error_mapping` misconfigured -- missing `#[ignore]`
 
-**修改文件:** `tests/llm_test.rs`
-**提交:** 6ed3b11
-**应用修复:** 移除了 `test_analyze_images_result_ordering` 中 3 个相同匹配器的 wiremock，替换为单一 `CyclicResponder` 结构体实现 `wiremock::Respond` trait，内部使用 `AtomicUsize` 原子计数器轮询返回不同内容（`"batch-0"`、`"batch-1"`、`"batch-2"`）。消除了 wiremock 0.6 的非原子计数检查在读-递增模式下的竞态风险。
+**Files modified:** `tests/llm_test.rs`
+**Commit:** 2b71cdf
+**Applied fix:** Added `#[ignore]` attribute above `#[tokio::test]` on `test_openai_error_mapping` with a comment explaining that async-openai 0.36 defaults to 3 retries, causing the test to hang during HTTP error mapping validation.
 
-### WR-05: 使用配置值作注册名
+### IN-01: Both native-tls and rustls enabled for tokio-tungstenite
 
-**修改文件:** `src/llm/register.rs`
-**提交:** 19ba2d6
-**应用修复:** `register_all_providers` 现在优先使用 `config.app.vision_llm_provider` / `config.app.text_llm_provider` 作为 provider 注册名，仅在配置值为空时回退到默认名称。支持未来多 provider 实现共存。更新了函数文档注释和测试用例以反映新的注册逻辑。
+**Files modified:** `Cargo.toml`, `Cargo.lock`
+**Commit:** 940604f
+**Applied fix:** Removed `rustls-tls-native-roots` from the `tokio-tungstenite` features, keeping only `native-tls`. Since the target platform is Windows (Schannel), `native-tls` is the appropriate backend. This reduces build time and binary size by compiling only one TLS implementation.
 
-### IN-02: 公开常量 `VISION_PROVIDER_NAME` / `TEXT_PROVIDER_NAME`
+### IN-02: `unwrap()` without error context in test_utils
 
-**修改文件:** `src/llm/register.rs`
-**提交:** 19ba2d6
-**应用修复:** 在模块顶部定义 `pub const VISION_PROVIDER_NAME: &str = "openai_vision"` 和 `pub const TEXT_PROVIDER_NAME: &str = "openai_text"` 作为公开常量供外部引用，避免字符串字面量拼写错误。
+**Files modified:** `src/llm/test_utils.rs`
+**Commit:** 880d7dc
+**Applied fix:** Replaced `img.as_mut_rgba8().unwrap()` with `img.as_mut_rgba8().expect("test image must be RGBA8")` to provide a descriptive panic message if the image format assumption is violated in the future.
 
-### IN-04: 添加 `RegistrationErrors` 包装类型实现 Error trait
+### IN-03: Redundant `.max(1)` after `unwrap_or(1)` for concurrency cap
 
-**修改文件:** `src/llm/register.rs`
-**提交:** 8b63b69
-**应用修复:** 定义 `RegistrationErrors(Vec<LLMError>)` 结构体，手动实现 `Display` 和 `std::error::Error` trait。`register_all_providers` 的返回类型从 `Result<(), Vec<LLMError>>` 改为 `Result<(), RegistrationErrors>`，使调用者可以通过 `?` 操作符在 `Result<_, Box<dyn Error>>` 链中传播此错误。
+**Files modified:** `src/llm/openai_compatible.rs`
+**Commit:** b16200f
+**Applied fix:** Removed the intermediate `let max_concurrency = max_concurrency.unwrap_or(1)` binding and the redundant `let bounded_concurrency = max_concurrency.max(1)` line. The `bounded_concurrency` value is now assigned directly as `let bounded_concurrency = max_concurrency.unwrap_or(1)`.
 
-## 修复统计
+### IN-04: Integer arithmetic could overflow with extreme aspect ratios
 
-| 指标 | 值 |
-|------|-----|
-| 范围内发现数 | 9 |
-| Critical 发现 | 0 |
-| Warning 发现 | 5 |
-| Info 发现 | 4 |
-| 已修复 | 9 |
-| 已跳过 | 0 |
-| 总提交数 | 8 |
+**Files modified:** `src/llm/image_utils.rs`
+**Commit:** 30d29f6
+**Applied fix:** Changed the multiplication from `u32` to `u64` to prevent overflow when `h > 4,194,303` (a 1-pixel-wide JPEG with extreme height). The intermediate multiplication `1024u64 * h as u64` uses `u64`, the division is performed in `u64`, and the result is cast back to `u32` (which fits since the result is at most 1024). Both branches of the `if w > h` expression were updated.
 
-## 注意事项
+### IN-05: ProviderConfig referenced via full path instead of import
 
-- WR-05 和 IN-02 在同一提交中处理，因为它们修改同一个文件 (`register.rs`) 且逻辑相关。
-- 所有修复均通过 `cargo check` 验证，仅存在 5 个与本次修复无关的预先存在的编译错误（`src/tts/edge_tts.rs` 中 `connect_req` 未定义、`src/llm/image_utils.rs` 中缺失 `GenericImageView` import、`src/llm/openai_compatible.rs` 中 `.with_max_retries` 方法未找到）。
-- 未跳过任何发现。
+**Files modified:** `src/llm/register.rs`
+**Commit:** 7dbdf43
+**Applied fix:** Added `ProviderConfig` to the existing import on line 5 (`use crate::llm::openai_compatible::{OpenAiCompatibleProvider, ProviderConfig}`) and replaced the two `crate::llm::openai_compatible::ProviderConfig` usages with the short form `ProviderConfig`.
+
+## Skipped Issues
+
+None -- all 11 findings were addressed.
+
+## Notes
+
+- The pre-existing compilation error in `src/tts/edge_tts.rs:375` (tungstenite `Utf8Bytes` type mismatch) is unrelated to these fixes and continues to exist after all LLM service layer changes.
+- CR-01 was already fixed in the codebase from a prior fix iteration -- the `use image::GenericImageView` import was present at HEAD.
+- All other 10 findings were fixed in this session with atomic commits.
+- Each fix was verified via `cargo check --lib` before committing.
 
 ---
 
-_修复时间: 2026-04-29T12:45:00Z_
-_修复者: Claude (gsd-code-fixer)_
-_迭代: 2_
+_Fixed: 2026-04-29T17:00:00Z_
+_Fixer: Claude (gsd-code-fixer)_
+_Iteration: 1_
