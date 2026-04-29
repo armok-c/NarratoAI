@@ -96,7 +96,6 @@ pub async fn synthesize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use std::path::Path;
 
     /// Mock TTS 引擎——验证 TtsProvider trait 可被实现

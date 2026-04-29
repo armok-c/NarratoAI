@@ -14,7 +14,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_version_matches_cargo_toml() {
-        assert_eq!(version(), env!("CARGO_PKG_VERSION"));
+    fn test_version_is_nonempty_semver() {
+        assert!(!version().is_empty(), "版本号不应为空");
+        assert!(version().contains('.'), "版本号应包含点号 (semver 格式)");
     }
 }

@@ -83,6 +83,7 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
 /// Edge-TTS 引擎
 ///
 /// 通过原生 WebSocket (tokio-tungstenite) 直接连接微软 Edge TTS 服务
+#[derive(Debug)]
 pub(super) struct EdgeTtsEngine {
     pub(super) proxy_enabled: bool,
     pub(super) proxy_http: String,
@@ -149,16 +150,26 @@ impl EdgeTtsEngine {
                 .rsplit('@')
                 .next()
                 .unwrap_or(proxy_addr);
-            let (proxy_host, proxy_port) = match host_port.split_once(':') {
-                Some((host, port_str)) => {
-                    let port: u16 = port_str
-                        .parse()
-                        .map_err(|_| TTSError::ConnectionFailed(
-                            "代理端口格式错误，代理 URL 不支持认证凭据".to_string()
-                        ))?;
-                    (host, port)
+            let (proxy_host, proxy_port) = if host_port.starts_with('[') {
+                // IPv6 bracket notation: [::1]:7890
+                host_port.rsplit_once("]:")
+                    .map(|(addr_inner, port_str)| {
+                        let port: u16 = port_str
+                            .parse()
+                            .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+                        Ok::<_, TTSError>((&addr_inner[1..], port))
+                    })
+                    .unwrap_or(Err(TTSError::ConnectionFailed("代理 IPv6 地址格式错误".to_string())))?
+            } else {
+                match host_port.split_once(':') {
+                    Some((host, port_str)) => {
+                        let port: u16 = port_str
+                            .parse()
+                            .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+                        (host, port)
+                    }
+                    None => (host_port, default_proxy_port),
                 }
-                None => (host_port, default_proxy_port),
             };
 
             // Parse target WSS URL manually
@@ -177,33 +188,50 @@ impl EdgeTtsEngine {
                 .await
                 .map_err(|e| TTSError::ConnectionFailed(format!("连接代理失败: {}", e)))?;
 
-            // Wrap in BufReader for line-based I/O (owned, not &mut)
-            let mut buf_reader = tokio::io::BufReader::new(tcp);
-
-            let connect_req = format!(
-                "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-                target_host, target_port, target_host, target_port
-            );
-
+            // Write CONNECT request directly to TcpStream (no BufReader — avoids read-ahead
+            // data loss on into_inner() that would corrupt TLS handshake)
             use tokio::io::AsyncWriteExt;
-            buf_reader.get_mut().write_all(connect_req.as_bytes()).await
+            tcp.write_all(connect_req.as_bytes()).await
                 .map_err(|e| TTSError::ConnectionFailed(format!("发送 CONNECT 请求失败: {}", e)))?;
-            buf_reader.get_mut().flush().await
+            tcp.flush().await
                 .map_err(|e| TTSError::ConnectionFailed(format!("刷新 CONNECT 请求失败: {}", e)))?;
 
-            // Read CONNECT response (handle interim 1xx responses per RFC 7231 Section 4.3.6)
-            use tokio::io::AsyncBufReadExt;
-            loop {
-                let mut response_line = String::new();
-                buf_reader.read_line(&mut response_line).await
-                    .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+            // Read CONNECT response into a fixed buffer to preserve raw TcpStream
+            // (BufReader::into_inner() discards the internal buffer, which can lose TLS
+            // handshake bytes that arrived in the same TCP segment as the CONNECT response)
+            use tokio::io::AsyncReadExt;
+            let mut response_buf = vec![0u8; 4096];
+            let mut total_read = 0usize;
 
-                let trimmed = response_line.trim();
+            loop {
+                let n = tcp.read(&mut response_buf[total_read..]).await
+                    .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+                if n == 0 {
+                    return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
+                }
+                total_read += n;
+                // Look for end-of-headers marker (\r\n\r\n)
+                if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+                if total_read >= response_buf.len() {
+                    return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
+                }
+            }
+
+            // Parse CONNECT response from buffer (handle interim 1xx per RFC 7231 Section 4.3.6)
+            let response_str = std::str::from_utf8(&response_buf[..total_read])
+                .map_err(|_| TTSError::ConnectionFailed("代理响应包含无效 UTF-8".to_string()))?;
+
+            let mut lines = response_str.lines().peekable();
+            let mut success = false;
+
+            while let Some(line) = lines.next() {
+                let trimmed = line.trim();
                 if trimmed.is_empty() {
-                    return Err(TTSError::ConnectionFailed("代理响应为空".to_string()));
+                    continue;
                 }
 
-                // Extract HTTP status code
                 let status_code: u16 = trimmed
                     .split_whitespace()
                     .nth(1)
@@ -211,45 +239,41 @@ impl EdgeTtsEngine {
                     .unwrap_or(0);
 
                 if (200..300).contains(&status_code) {
-                    // 2xx — success
+                    success = true;
+                    // Skip trailing headers of the 2xx response
+                    for header_line in lines.by_ref() {
+                        if header_line.trim().is_empty() {
+                            break;
+                        }
+                    }
                     break;
                 }
                 if status_code < 100 || status_code >= 300 {
-                    // Not an interim 1xx — permanent failure
                     return Err(TTSError::ConnectionFailed(format!(
                         "代理 CONNECT 失败: {}",
                         trimmed
                     )));
                 }
-                // Interim 1xx: skip its trailing headers, then loop for the next response
-                loop {
-                    let mut line = String::new();
-                    buf_reader.read_line(&mut line).await
-                        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应头失败: {}", e)))?;
-                    if line.trim().is_empty() {
+                // Interim 1xx: skip its trailing headers, then continue
+                for header_line in lines.by_ref() {
+                    if header_line.trim().is_empty() {
                         break;
                     }
                 }
             }
 
-            // Skip final response headers
-            loop {
-                let mut line = String::new();
-                buf_reader.read_line(&mut line).await
-                    .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应头失败: {}", e)))?;
-                if line.trim().is_empty() {
-                    break;
-                }
+            if !success {
+                return Err(TTSError::ConnectionFailed("代理 CONNECT 未收到 2xx 响应".to_string()));
             }
 
-            // TLS + WebSocket upgrade over tunnel (get owned TcpStream back)
+            // TLS + WebSocket upgrade over tunnel (raw TcpStream — no buffer data loss)
             let tls_connector = native_tls::TlsConnector::builder()
                 .build()
                 .map_err(|e| TTSError::ConnectionFailed(format!("TLS 构建失败: {}", e)))?;
 
             let (ws_stream, _) = tokio_tungstenite::client_async_tls_with_config(
                 request,
-                buf_reader.into_inner(),
+                tcp,
                 None,
                 Some(tokio_tungstenite::Connector::NativeTls(tls_connector)),
             )
