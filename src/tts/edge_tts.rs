@@ -183,6 +183,12 @@ impl EdgeTtsEngine {
                 .parse()
                 .map_err(|_| TTSError::ConnectionFailed("目标端口格式错误".to_string()))?;
 
+            // Construct HTTP CONNECT request string
+            let connect_req = format!(
+                "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
+                target_host, target_port, target_host, target_port
+            );
+
             // HTTP CONNECT tunnel
             let tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
                 .await
