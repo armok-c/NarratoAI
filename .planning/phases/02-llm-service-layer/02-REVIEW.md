@@ -1,193 +1,182 @@
 ---
 phase: 02-llm-service-layer
-reviewed: 2026-04-29T06:30:00Z
+reviewed: 2026-04-29T10:00:00Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 12
 files_reviewed_list:
   - Cargo.toml
-  - Cargo.lock
-  - src/llm/image_utils.rs
+  - src/error.rs
+  - src/lib.rs
   - src/llm/mod.rs
+  - src/llm/types.rs
+  - src/llm/provider.rs
+  - src/llm/registry.rs
+  - src/llm/image_utils.rs
   - src/llm/openai_compatible.rs
   - src/llm/register.rs
-  - src/llm/registry.rs
   - src/llm/test_utils.rs
   - tests/llm_test.rs
 findings:
-  critical: 1
+  critical: 0
   warning: 3
   info: 3
-  total: 7
+  total: 6
 status: issues_found
 ---
 
 # Phase 02: LLM Service Layer -- Code Review Report
 
-**Reviewed:** 2026-04-29T06:30:00Z
+**Reviewed:** 2026-04-29T10:00:00Z
 **Depth:** standard
-**Files Reviewed:** 9
+**Files Reviewed:** 12
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Rust LLM service layer implementation: provider registry (`registry.rs`), OpenAI-compatible provider (`openai_compatible.rs`), image preprocessing (`image_utils.rs`), provider registration (`register.rs`), test utilities (`test_utils.rs`), integration tests (`tests/llm_test.rs`), and project config (`Cargo.toml`, `Cargo.lock`).
+审查了 Rust LLM 服务层的完整实现，包含 12 个源文件。核心模块包括：`LlmProvider` 特征定义（`provider.rs`）、OpenAI 兼容协议实现（`openai_compatible.rs`）、Provider 注册中心（`registry.rs`）、图像预处理（`image_utils.rs`）、配置驱动的 Provider 注册（`register.rs`）、统一错误类型及错误映射（`error.rs`）、集成测试（`tests/llm_test.rs`）和测试工具（`test_utils.rs`）。
 
-All 11 findings from the previous review have been fixed in commits `880d7dc` through `059c913`. This review evaluates the state after those fixes and finds 7 new issues.
+整体设计清晰，代码质量较好。前一轮审查发现的 7 个问题（含 1 个 CRITICAL 死锁、多个 TOCTOU / blocked I/O / comment 问题）已在当前代码中得到修复，具体包括：
+- `max_concurrency` 已增加 `.max(1)` 保护，防止 `Some(0)` 死锁
+- `image_to_base64_data_url` 已先打开文件再通过 fd 读取元数据，消除了 metadata/open 之间的 TOCTOU
+- JPEG 完整性校验的注释已更正为准确描述
+- 图像预处理已改为 `spawn_blocking`，避免阻塞 tokio worker
+- `build_vision_messages` 已提取为共享辅助函数，消除了代码重复
+- `max_retries` 已通过 `ExponentialBackoff` 的 `max_elapsed_time` 接入
+- 错误映射测试已移除 `#[ignore]`，使用 `max_retries=0` 防止挂起
 
-The most critical finding: `analyze_images` will deadlock/hang when `max_concurrency = Some(0)` is passed because the `Semaphore` is initialized with 0 permits and every spawned task waits forever. Three warning-level issues require attention: the `max_retries` config field is silently ignored, the error mapping test is `#[ignore]`d with no active coverage, and the vision JSON fallback duplicates message construction logic.
-
-One pre-existing build failure in `src/tts/edge_tts.rs:375` (tungstenite `Utf8Bytes` type mismatch in `tokio-tungstenite 0.29.0`) is unrelated to the reviewed files.
-
-## Critical Issues
-
-### CR-01: Deadlock when `analyze_images` receives `max_concurrency = Some(0)`
-
-**File:** `src/llm/openai_compatible.rs:399`
-**Issue:** The `bounded_concurrency` variable is set from `max_concurrency.unwrap_or(1)` without a `.max(1)` guard. When `max_concurrency = Some(0)`:
-- `Some(0).unwrap_or(1)` returns `0` (the default is only used when the Option is `None`)
-- `Semaphore::new(0)` creates a semaphore with 0 permits
-- Every spawned task at line 420 calls `sem_clone.acquire_owned().await` which will never complete
-- `futures::future::join_all(handles).await` at line 512 waits forever for all handles
-- The entire `analyze_images` function hangs permanently
-
-This is a regression introduced by the previous review's fix. The previous IN-03 finding identified `.max(1)` on `bounded_concurrency` as "redundant" and recommended removing it, but the `unwrap_or(1)` guard is insufficient against `Some(0)`. The `batch_size` parameter on line 398 correctly has `.max(1)` protection:
-```rust
-let batch_size = batch_size.unwrap_or(10).max(1);           // correctly guarded
-let bounded_concurrency = max_concurrency.unwrap_or(1);      // NOT guarded -- deadlocks on Some(0)
-```
-
-**Fix:**
-```rust
-let bounded_concurrency = max_concurrency.unwrap_or(1).max(1);
-```
+本审查发现 3 个 WARNING 级别和 3 个 INFO 级别的问题，未发现严重安全漏洞或数据丢失风险。
 
 ## Warnings
 
-### WR-01: `max_retries` config parameter silently ignored
+### WR-01: 非 JPEG 路径下存在 TOCTOU 竞态条件
 
-**File:** `src/llm/openai_compatible.rs:41,79`
-**Issue:** `ProviderConfig.max_retries` is accepted in the constructor and documented on the struct (line 41), but is never wired into the HTTP client or the async-openai `RetryConfig`. A comment at line 79 acknowledges this:
+**File:** `src/llm/image_utils.rs:51`
+**Issue:** `image_to_base64_data_url` 函数对 JPEG 文件使用了正确的直通路径（通过已打开的文件句柄读取），但对于非 JPEG 文件（如 PNG），降级到调用 `image::open(path)`（第 51 行）重新按路径打开文件。在 `std::fs::File::open()`（第 18 行，用于大小校验）和 `image::open(path)`（第 51 行）之间，文件可能被替换为超过 50MB 限制的恶意文件，绕过大小的校验。
+
+JPEG 直通路径不存在此问题，因为它通过 `file.seek(SeekFrom::Start(0))` 回寻并使用 `file.read_to_end()` 从同一句柄读取。
+
+**Fix:**
+用 `image::load_from_memory` 从已读取到内存的文件内容加载，而非重新按路径打开：
+
 ```rust
-// 注意: async-openai 0.36 使用默认 RetryConfig (3 次内置重试),
-// cfg.max_retries 当前未接入客户端重试配置
+// 在 magic 检测分支之后，从已打开的文件读取全部字节
+file.seek(SeekFrom::Start(0))
+    .map_err(|e| LLMError::General(format!("文件寻址失败: {}", e)))?;
+let mut raw_bytes = Vec::new();
+file.read_to_end(&mut raw_bytes)
+    .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+let img = image::load_from_memory(&raw_bytes)
+    .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
 ```
-Every provider instance unconditionally uses async-openai's hardcoded default of 3 retries. If a user sets `max_retries = 0` (expecting no retries) or `max_retries = 10` (expecting aggressive retries), neither takes effect. The `llm_max_retries` value flows from `config.toml` through `AppConfig` -> `register.rs` -> `ProviderConfig` -> nowhere.
 
-**Fix:** Either:
-1. Thread `max_retries` into async-openai's `RetryConfig` (requires checking async-openai 0.36 API for the correct mechanism), or
-2. If wiring is not feasible, remove the field from `ProviderConfig` and the associated config plumbing in `register.rs`, then update the comment to state "hardcoded to 3".
+### WR-02: Vision JSON 回退路径丢失 temperature / max_tokens 参数
 
-### WR-02: `test_openai_error_mapping` is `#[ignore]`d, leaving error mapping uncovered
+**File:** `src/llm/openai_compatible.rs:268-304`
+**Issue:** `create_vision_chat_with_json_fallback` 方法在回退重试时构建的 `retry_request`（第 290-296 行）没有传递 `temperature` 和 `max_tokens` 参数。对比之下，`generate_text_with_json_fallback`（第 234-246 行）正确地传递了这两个参数。当 Vision API 触发 JSON 回退时，重试请求使用 API 默认值，与调用者指定的值不一致。
 
-**File:** `tests/llm_test.rs:257`
-**Issue:** The error mapping test is annotated with `#[ignore]` because async-openai's default retry policy retries 3 times on HTTP 4xx/5xx errors, causing the test to hang. This means the entire `From<OpenAIError> for LLMError` implementation in `src/error.rs:99-139` has zero active test coverage. The error mapping is non-trivial: it matches on OpenAI error `code` strings (`"insufficient_quota"`, `"invalid_api_key"`, `"invalid_header"`), falls back to HTTP status codes (401, 429), and further falls back to heuristic message substring matching (`"rate limit"`, `"too many requests"`, `"auth"`, `"key"`). Any refactoring of this logic or upgrade of `async-openai` could silently break it.
-
-**Fix:** Disable async-openai's built-in retries for the test client so the HTTP errors propagate immediately. This requires either:
-- Wiring `max_retries` (see WR-01) to `RetryConfig` and setting it to 0 in the test, or
-- Configuring the `reqwest::Client` with a no-retry policy via `reqwest::Client::builder().retry_policy(...)` or a no-op retry interceptor
-
-Once retries are disabled, remove `#[ignore]` from the test.
-
-### WR-03: `create_vision_chat_with_json_fallback` duplicates message construction logic
-
-**File:** `src/llm/openai_compatible.rs:217,425`
-**Issue:** The vision JSON fallback function `create_vision_chat_with_json_fallback` (line 217) rebuilds the entire multi-part vision message from scratch: system prompt handling (lines 250-258), user message with text and image URL parts (lines 234-265). This is a near-exact duplicate of the message construction in the main `analyze_images` path (lines 425-463). The two constructions differ only in:
-- Fallback uses `json_prompt` (original prompt + JSON constraint); main path uses `prompt_owned`
-- Fallback borrows `batch`; main path owns it
-
-Any future change to the vision message format (e.g., adding `ImageUrl.detail`, changing system prompt representation, adding tool/function calling) must be applied identically in both places or they will diverge.
-
-**Fix:** Extract the vision message construction into a shared helper function:
+**Fix:**
+为 `create_vision_chat_with_json_fallback` 添加 `temperature` 和 `max_tokens` 参数，在重试请求中设置：
 
 ```rust
-fn build_vision_messages(
-    prompt: &str,
+async fn create_vision_chat_with_json_fallback(
+    client: &Client<OpenAIConfig>,
+    request: CreateChatCompletionRequest,
+    model_name: &str,
+    original_prompt: &str,
     system_prompt: Option<&str>,
     batch: &[String],
-) -> Vec<ChatCompletionRequestMessage> {
-    let mut parts: Vec<ChatCompletionRequestUserMessageContentPart> =
-        Vec::with_capacity(1 + batch.len());
-    parts.push(ChatCompletionRequestUserMessageContentPart::Text(
-        ChatCompletionRequestMessageContentPartText { text: prompt.to_string() },
-    ));
-    for b64 in batch {
-        parts.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
-            ChatCompletionRequestMessageContentPartImage {
-                image_url: ImageUrl { url: b64.clone(), detail: None },
-            },
-        ));
+    temperature: Option<f32>,      // 新增
+    max_tokens: Option<u32>,       // 新增
+) -> Result<CreateChatCompletionResponse, LLMError> {
+    // ... 现有逻辑 ...
+    let retry_builder = CreateChatCompletionRequestArgs::default()
+        .model(model_name)
+        .messages(retry_messages);
+    if let Some(t) = temperature {
+        retry_builder = retry_builder.temperature(t);
     }
-    let mut messages = Vec::with_capacity(2);
-    if let Some(sp) = system_prompt {
-        messages.push(ChatCompletionRequestMessage::System(
-            ChatCompletionRequestSystemMessage {
-                content: ChatCompletionRequestSystemMessageContent::Text(sp.to_string()),
-                name: None,
-            },
-        ));
+    if let Some(mt) = max_tokens {
+        retry_builder = retry_builder.max_tokens(mt);
     }
-    messages.push(ChatCompletionRequestMessage::User(
-        ChatCompletionRequestUserMessage {
-            content: ChatCompletionRequestUserMessageContent::Array(parts),
-            name: None,
-        },
-    ));
-    messages
+    let retry_request = retry_builder
+        .build()
+        .map_err(|e| LLMError::APICall(format!("请求重建失败: {}", e)))?;
+    // ... 后续逻辑 ...
 }
+```
+
+同时在调用处（第 471-479 行）传入 `temperature` 和 `max_tokens`。
+
+### WR-03: 请求重建失败时使用了不一致的 LLMError 变体
+
+**File:** `src/llm/openai_compatible.rs:245 / 296`
+**Issue:** 两个 JSON 回退方法在请求 `build()` 失败时使用了不同的 `LLMError` 变体：
+
+- `generate_text_with_json_fallback`（第 245 行）：`LLMError::APICall(...)` — 文本回退
+- `create_vision_chat_with_json_fallback`（第 294 行）：`LLMError::Configuration(...)` — 视觉回退
+
+这两种场景都是请求构建失败（相同的逻辑错误），应使用一致的错误变体。`Configuration` 通常指配置层面的问题（如无效 URL），请求重建失败更适合归类为 `APICall`（调用过程错误）。
+
+**Fix:**
+将第 296 行改为 `LLMError::APICall` 以保持一致：
+
+```rust
+.build()
+.map_err(|e| {
+    LLMError::APICall(format!("请求重建失败: {}", e))
+})?;
 ```
 
 ## Info
 
-### IN-01: Full JPEG decode contradicts "轻量验证" comment
+### IN-01: `analyze_images` 中不必要的双重克隆
 
-**File:** `src/llm/image_utils.rs:43`
-**Issue:** The comment at line 43 describes `image::load_from_memory(&raw_bytes)` as "轻量验证 JPEG 完整性" (lightweight JPEG integrity validation), but this function fully decodes the entire JPEG into raw RGBA pixel data. For a 50 MB JPEG (the maximum allowed at line 19), the decoded pixel buffer can exceed 200 MB. The real value of the JPEG passthrough path is avoiding lossy re-encoding at line 73 (`JpegEncoder::new_with_quality`), not memory savings. Calling this "lightweight" is misleading.
+**File:** `src/llm/openai_compatible.rs:443-445`
+**Issue:** `prompt_fb` 和 `system_prompt_fb` 是 `prompt_owned` 和 `system_prompt_owned` 的冗余克隆。`build_vision_messages` 和 `create_vision_chat_with_json_fallback` 都接受 `&str`（不可变引用），在 `async move` 块中只需一个拥有所有权的副本即可，后续调用通过引用借用不会触发 move。
 
-**Fix:** Update the comment to accurately describe the tradeoff:
 ```rust
-// 验证 JPEG 完整性（通过完整解码）。避免重新编码导致的画质损失，
-// 但解码后内存占用可能较大（50 MB JPEG 解码约 200 MB）。
+let prompt_owned = prompt.to_string();
+let prompt_fb = prompt_owned.clone();     // 冗余
+let system_prompt_owned = system_prompt.map(|s| s.to_string());
+let system_prompt_fb = system_prompt_owned.clone();  // 冗余
 ```
 
-### IN-02: TOCTOU window between file size check and file open
+**Fix:**
+移除冗余克隆：
 
-**File:** `src/llm/image_utils.rs:16-29`
-**Issue:** The file size check at line 16 calls `std::fs::metadata(path)` (an independent syscall), and the file is subsequently opened at line 29 (`std::fs::File::open(path)`). A racer can replace the file between these two operations with a much larger file, bypassing the 50 MB limit. While the read-then-reopen TOCTOU in the JPEG passthrough path was fixed by the previous review (rewinding via `SeekFrom::Start(0)`), the `metadata`-vs-`open` window remains. For local user-supplied paths the practical risk is low, but the defense-in-depth gap should be documented.
-
-**Fix:** Re-check file size after reading, or change the order: open the file first, then call `file.metadata()` instead of `std::fs::metadata(path)` to eliminate the race:
 ```rust
-let mut file = std::fs::File::open(path)
-    .map_err(|e| LLMError::General(format!("文件打开失败: {}", e)))?;
-let metadata = file.metadata()
-    .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
-if metadata.len() > MAX_IMAGE_SIZE {
-    return Err(...);
-}
+let prompt_owned = prompt.to_string();
+let system_prompt_owned = system_prompt.map(|s| s.to_string());
+// 后续使用 &prompt_owned 和 system_prompt_owned.as_deref()
 ```
 
-### IN-03: Blocking file I/O inside async context without `spawn_blocking`
+### IN-02: `Registry::get()` 上冗余的 `#[must_use]`
 
-**File:** `src/llm/openai_compatible.rs:389-392`
-**Issue:** `image_to_base64_data_url` performs blocking file I/O (file read, JPEG decode via `image::open`, JPEG encode, base64 encode) synchronously inside the `async fn analyze_images`. With `batch_size = 10` and `max_concurrency = 2`, up to 2 tokio worker threads can be blocked simultaneously on CPU-intensive image processing. For large images approaching 50 MB, each call may block for 100-500 ms. In the worst case, this starves other async tasks on the same runtime.
+**File:** `src/llm/registry.rs:29`
+**Issue:** `#[must_use]` 标注在返回 `Result<T, E>` 的方法上是多余的。Rust 标准库中 `Result` 本身已带有 `#[must_use]`，编译器对未使用的 `Result` 值已经会发出警告。
 
-**Fix:** Offload the preprocessing to `tokio::task::spawn_blocking`:
 ```rust
-use futures::future::join_all;
+#[must_use]     // 冗余：Result 已自带
+pub fn get(&self, name: &str) -> Result<Arc<dyn LlmProvider>, LLMError> {
+```
 
-let data_urls: Vec<String> = join_all(images.iter().map(|p| {
-    let p = p.clone();
-    tokio::task::spawn_blocking(move || image_to_base64_data_url(&p))
-}))
-.await
-.into_iter()
-.collect::<Result<Result<Vec<String>, _>, _>>()
-.map_err(|join_err| LLMError::General(format!("预处理任务失败: {}", join_err)))?
-.into_iter()
-.collect::<Result<Vec<_>, _>>()?;
+**Fix:**
+移除 `#[must_use]` 标注。
+
+### IN-03: `tests/llm_test.rs` 中存在未使用的 `Path` 导入
+
+**File:** `tests/llm_test.rs:1`
+**Issue:** `use std::path::{Path, PathBuf};` 中的 `Path` 在测试文件中未被显式引用。`use std::path::PathBuf` 即可满足需求。
+
+**Fix:**
+移除未使用的 `Path` 导入：
+
+```rust
+use std::path::PathBuf;
 ```
 
 ---
 
-_Reviewed: 2026-04-29T06:30:00Z_
+_Reviewed: 2026-04-29T10:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
