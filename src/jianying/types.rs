@@ -156,6 +156,11 @@ pub struct SegmentJson {
 // ---------------------------------------------------------------------------
 
 /// VideoSegment JSON = SegmentJson + clip + uniform_scale + hdr_settings
+///
+/// 注意: `#[serde(flatten)]` 将 SegmentJson 的所有字段展开到同一 JSON 对象层级。
+/// 当前仅用于序列化（导出），不用于反序列化，因此不存在冲突风险。
+/// 如果未来需要反序列化（如导入剪映草稿），需注意 `#[serde(flatten)]` 在遇到
+/// 未知字段时可能导致字段名冲突或静默丢弃数据。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct VideoSegmentJson {
@@ -171,6 +176,9 @@ pub struct VideoSegmentJson {
 // ---------------------------------------------------------------------------
 
 /// AudioSegment JSON = SegmentJson + clip=null + hdr_settings=null
+///
+/// 注意: 与 VideoSegmentJson 相同的 `#[serde(flatten)]` 设计约束。
+/// 仅用于序列化（导出），不应尝试反序列化包含未知字段的 JSON。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AudioSegmentJson {
