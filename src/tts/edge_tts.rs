@@ -48,12 +48,10 @@ fn convert_pitch_to_hz(pitch: f64) -> String {
 /// "en-US-JennyNeural"  → "en-US"
 /// "ja-JP-NanamiNeural" → "ja-JP"
 fn voice_name_to_lang(voice_name: &str) -> String {
-    if let Some(idx) = voice_name
-        .chars()
-        .enumerate()
+    if let Some((idx, _)) = voice_name
+        .char_indices()
         .filter(|(_, c)| *c == '-')
         .nth(1)
-        .map(|(i, _)| i)
     {
         voice_name[..idx].to_string()
     } else {
@@ -80,14 +78,14 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
 /// Edge-TTS 引擎
 ///
 /// 通过原生 WebSocket (tokio-tungstenite) 直接连接微软 Edge TTS 服务
-pub struct EdgeTtsEngine {
-    pub proxy_enabled: bool,
-    pub proxy_http: String,
-    pub proxy_https: String,
+pub(super) struct EdgeTtsEngine {
+    pub(super) proxy_enabled: bool,
+    pub(super) proxy_http: String,
+    pub(super) proxy_https: String,
 }
 
 impl EdgeTtsEngine {
-    pub fn new(proxy_enabled: bool, proxy_http: String, proxy_https: String) -> Self {
+    pub(super) fn new(proxy_enabled: bool, proxy_http: String, proxy_https: String) -> Self {
         Self {
             proxy_enabled,
             proxy_http,
@@ -251,12 +249,28 @@ impl EdgeTtsEngine {
                 Some(tokio_tungstenite::Connector::NativeTls(tls_connector)),
             )
                 .await
-                .map_err(|e| TTSError::ConnectionFailed(format!("WebSocket 代理连接失败: {}", e)))?;
+                .map_err(|e| {
+                    let err_msg = format!("WebSocket 代理连接失败: {}", e);
+                    let lower = err_msg.to_lowercase();
+                    if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
+                        TTSError::AuthenticationFailed(err_msg)
+                    } else {
+                        TTSError::ConnectionFailed(err_msg)
+                    }
+                })?;
             Ok(ws_stream)
         } else {
             let (ws_stream, _) = connect_async(request)
                 .await
-                .map_err(|e| TTSError::ConnectionFailed(format!("WebSocket 连接失败: {}", e)))?;
+                .map_err(|e| {
+                    let err_msg = format!("WebSocket 连接失败: {}", e);
+                    let lower = err_msg.to_lowercase();
+                    if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
+                        TTSError::AuthenticationFailed(err_msg)
+                    } else {
+                        TTSError::ConnectionFailed(err_msg)
+                    }
+                })?;
             Ok(ws_stream)
         }
     }
@@ -269,18 +283,18 @@ impl EdgeTtsEngine {
         ssml: &str,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        let max_retries = 4; // 1 initial + 3 retries (D-03: 3 次重试)
+        let max_attempts = 4; // 1 initial + 3 retries (D-03: 3 次重试)
         let mut last_error = None;
 
-        for attempt in 1..=max_retries {
-            tracing::info!("Edge-TTS 合成尝试 {}/{}", attempt, max_retries);
+        for attempt in 1..=max_attempts {
+            tracing::info!("Edge-TTS 合成尝试 {}/{}", attempt, max_attempts);
 
             match self.synthesize_once(ssml, output_path).await {
                 Ok(output) => return Ok(output),
                 Err(e) => {
                     tracing::warn!("Edge-TTS 合成尝试 {} 失败: {}", attempt, e);
                     last_error = Some(e);
-                    if attempt < max_retries {
+                    if attempt < max_attempts {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 }
@@ -289,7 +303,7 @@ impl EdgeTtsEngine {
 
         Err(TTSError::RetryExhausted(format!(
             "Edge-TTS 重试 {} 次后仍失败: {}",
-            max_retries - 1,
+            max_attempts - 1,
             last_error.map_or("未知错误".to_string(), |e| e.to_string())
         )))
     }
@@ -327,7 +341,15 @@ impl EdgeTtsEngine {
             .map_err(|_| TTSError::SynthesisFailed("接收消息超时: 服务器无响应".to_string()))?
         {
             let msg =
-                msg_result.map_err(|e| TTSError::SynthesisFailed(format!("接收消息失败: {}", e)))?;
+                msg_result.map_err(|e| {
+                    let err_msg = format!("接收消息失败: {}", e);
+                    let lower = err_msg.to_lowercase();
+                    if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
+                        TTSError::AuthenticationFailed(err_msg)
+                    } else {
+                        TTSError::SynthesisFailed(err_msg)
+                    }
+                })?;
 
             match msg {
                 Message::Binary(data) => {
@@ -403,18 +425,16 @@ impl EdgeTtsEngine {
             return Err(TTSError::SynthesisFailed("未收到音频数据".to_string()));
         }
 
+        if !received_turn_end {
+            return Err(TTSError::SynthesisFailed(
+                "WebSocket 连接在收到 turn.end 前关闭，音频数据不完整".to_string(),
+            ));
+        }
         if duration == 0.0 {
-            if received_turn_end {
-                tracing::warn!(
-                    "Edge-TTS turn.end received but audio_duration missing/unparseable, audio data size: {} bytes",
-                    audio_data.len()
-                );
-            } else {
-                tracing::warn!(
-                    "Edge-TTS connection closed before turn.end; duration is 0.0, audio data size: {} bytes",
-                    audio_data.len()
-                );
-            }
+            tracing::warn!(
+                "Edge-TTS turn.end received but audio_duration missing/unparseable, audio data size: {} bytes",
+                audio_data.len()
+            );
         }
 
         tokio::fs::write(output_path, &audio_data)
