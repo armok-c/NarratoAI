@@ -78,14 +78,14 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
 /// Edge-TTS 引擎
 ///
 /// 通过原生 WebSocket (tokio-tungstenite) 直接连接微软 Edge TTS 服务
-pub struct EdgeTtsEngine {
-    pub proxy_enabled: bool,
-    pub proxy_http: String,
-    pub proxy_https: String,
+pub(super) struct EdgeTtsEngine {
+    pub(super) proxy_enabled: bool,
+    pub(super) proxy_http: String,
+    pub(super) proxy_https: String,
 }
 
 impl EdgeTtsEngine {
-    pub fn new(proxy_enabled: bool, proxy_http: String, proxy_https: String) -> Self {
+    pub(super) fn new(proxy_enabled: bool, proxy_http: String, proxy_https: String) -> Self {
         Self {
             proxy_enabled,
             proxy_http,
