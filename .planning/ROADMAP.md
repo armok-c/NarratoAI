@@ -88,9 +88,9 @@ Plans:
 
 Plans:
 - **Wave 1** *(no blockers — can execute immediately)*
-  - [ ] 05-01-PLAN.md — 数据模型 + 加载/保存/校验（ScriptClip, OstType, ScriptError, load/save/validate）
+  - [x] 05-01-PLAN.md — 数据模型 + 加载/保存/校验（ScriptClip, OstType, ScriptError, load/save/validate）
 - **Wave 2** *(blocked on Wave 1 completion)*
-  - [ ] 05-02-PLAN.md — 编辑 API + 集成测试（不可变更新方法 + round-trip 测试）
+  - [x] 05-02-PLAN.md — 编辑 API + 集成测试（不可变更新方法 + round-trip 测试）
 
 **Cross-cutting constraints:** 不可变数据更新（所有编辑方法返回新 Script 实例）
 
