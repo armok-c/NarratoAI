@@ -62,6 +62,11 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
         .ok_or_else(|| FFmpegError::OutputParseError(
             "Missing or invalid duration in ffprobe output".into()
         ))?;
+    if !duration_secs.is_finite() || duration_secs <= 0.0 {
+        return Err(FFmpegError::OutputParseError(
+            format!("Invalid video duration: {}", duration_secs)
+        ));
+    }
 
     let format_name = json["format"]["format_name"]
         .as_str()
@@ -140,10 +145,16 @@ pub fn probe_audio(path: &Path) -> Result<f64, FFmpegError> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
+    let duration: f64 = stdout
         .trim()
-        .parse::<f64>()
-        .map_err(|e| FFmpegError::OutputParseError(format!("音频时长解析失败: {}", e)))
+        .parse()
+        .map_err(|e| FFmpegError::OutputParseError(format!("音频时长解析失败: {}", e)))?;
+    if !duration.is_finite() || duration <= 0.0 {
+        return Err(FFmpegError::OutputParseError(
+            format!("Invalid audio duration from ffprobe: {}", duration)
+        ));
+    }
+    Ok(duration)
 }
 
 #[cfg(test)]

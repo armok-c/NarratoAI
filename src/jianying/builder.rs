@@ -66,7 +66,7 @@ pub struct DraftFolder {
 impl DraftFolder {
     /// 创建草稿文件夹 + 元信息文件（per RESEARCH Code Examples 草稿文件夹结构）
     pub fn create_draft(
-        draft_path: &PathBuf,
+        draft_path: &std::path::Path,
         draft_name: &str,
         width: u32,
         height: u32,
@@ -85,7 +85,7 @@ impl DraftFolder {
 
         Ok((
             Self {
-                draft_path: draft_path.clone(),
+                draft_path: draft_path.to_path_buf(),
                 draft_name: draft_name.to_string(),
             },
             script_file,
@@ -183,7 +183,7 @@ impl ScriptFile {
         let content_path = draft_dir.join("draft_content.json");
 
         // 计算总时长——最后一个片段的 end 时间
-        let total_duration_us = self.calculate_total_duration()?;
+        let total_duration_us = self.calculate_total_duration();
 
         // 从模板加载基础结构并替换
         let mut content: serde_json::Value = serde_json::from_str(DRAFT_CONTENT_TEMPLATE)?;
@@ -221,24 +221,8 @@ impl ScriptFile {
     }
 
     /// 计算时间线总时长（微秒）——扫描所有轨道中所有 segment 的 target_timerange
-    fn calculate_total_duration(&self) -> Result<i64, JianYingError> {
-        let max_end = self
-            .tracks
-            .iter()
-            .map(|track| track.to_json())
-            .collect::<Result<Vec<_>, _>>()?
-            .iter()
-            .filter_map(|json| {
-                json.segments.iter().filter_map(|seg| {
-                    let target = seg.get("target_timerange")?;
-                    let start = target.get("start")?.as_i64()?;
-                    let duration = target.get("duration")?.as_i64()?;
-                    Some(start + duration)
-                }).max()
-            })
-            .max();
-
-        Ok(max_end.unwrap_or(60_000_000)) // 默认 60 秒
+    fn calculate_total_duration(&self) -> i64 {
+        self.tracks.iter().map(|t| t.max_end_time()).max().unwrap_or(0)
     }
 }
 
@@ -337,6 +321,11 @@ fn validate_export_request(req: &ExportRequest) -> Result<(), JianYingError> {
             details: "草稿保存路径不能为空".to_string(),
         });
     }
+    if req.video_origin_path.as_os_str().is_empty() {
+        return Err(JianYingError::Validation {
+            details: "原始视频路径不能为空".to_string(),
+        });
+    }
     if req.width == 0 || req.height == 0 {
         return Err(JianYingError::Validation {
             details: "分辨率宽高必须大于 0".to_string(),
@@ -372,11 +361,11 @@ fn parse_timestamp_start(range: &str) -> Option<f64> {
     if time_parts.len() != 3 {
         return None;
     }
-    let h: f64 = time_parts[0].parse().ok()?;
-    let m: f64 = time_parts[1].parse().ok()?;
-    let s: f64 = time_parts[2].parse().ok()?;
-    // 验证范围——不允许负值，分钟和秒不超过 60
-    if h < 0.0 || m < 0.0 || s < 0.0 || m >= 60.0 || s >= 60.0 {
+    let h: u32 = time_parts[0].parse().ok()?;
+    let m: u32 = time_parts[1].parse().ok()?;
+    let s: u32 = time_parts[2].parse().ok()?;
+    // u32 隐式保证非负，只需检查范围
+    if m >= 60 || s >= 60 {
         return None;
     }
     let ms: f64 = if sub_parts.len() > 1 {
@@ -388,7 +377,7 @@ fn parse_timestamp_start(range: &str) -> Option<f64> {
     } else {
         0.0
     };
-    Some(h * 3600.0 + m * 60.0 + s + ms)
+    Some(h as f64 * 3600.0 + m as f64 * 60.0 + s as f64 + ms)
 }
 
 #[cfg(test)]
@@ -482,6 +471,27 @@ mod tests {
             height: 1080,
         };
         assert!(validate_export_request(&req).is_ok());
+    }
+
+    /// Test: ExportRequest 校验——空 video_origin_path 返回错误
+    #[test]
+    fn test_validate_empty_video_origin_path() {
+        let req = ExportRequest {
+            script: vec![make_test_clip(0)],
+            video_origin_path: PathBuf::from(""),
+            draft_path: PathBuf::from("/tmp/drafts"),
+            draft_name: "test".to_string(),
+            width: 1920,
+            height: 1080,
+        };
+        let result = validate_export_request(&req);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("原始视频路径不能为空"),
+            "应包含原始视频路径错误: {}",
+            msg
+        );
     }
 
     /// Test: draft_name_or_default 空名称自动生成 NarratoAI_{timestamp}

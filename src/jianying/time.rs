@@ -28,11 +28,14 @@ pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
 
 /// 从 f64 秒数构造 Timerange（Rust API 友好版本）
 ///
-/// 如果 duration 为负数，返回 None。
+/// 如果任一参数为负数、NaN 或 Inf，返回 None。
 pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange> {
+    if !start_secs.is_finite() || start_secs < 0.0 || !duration_secs.is_finite() || duration_secs < 0.0 {
+        return None;
+    }
     let start_us = (start_secs * SEC as f64).round() as i64;
     let duration_us = (duration_secs * SEC as f64).round() as i64;
-    if duration_us < 0 {
+    if start_us < 0 || duration_us < 0 {
         return None;
     }
     Some(Timerange { start: start_us, duration: duration_us })
@@ -137,5 +140,37 @@ mod tests {
     #[test]
     fn test_trange_negative_duration_returns_none() {
         assert!(trange("5s", "-3s").is_none(), "负 duration 应返回 None");
+    }
+
+    #[test]
+    fn test_trange_from_secs_negative_start_returns_none() {
+        assert!(
+            trange_from_secs(-1.0, 5.0).is_none(),
+            "负 start 应返回 None"
+        );
+    }
+
+    #[test]
+    fn test_trange_from_secs_nan_returns_none() {
+        assert!(
+            trange_from_secs(f64::NAN, 5.0).is_none(),
+            "NaN start 应返回 None"
+        );
+        assert!(
+            trange_from_secs(0.0, f64::NAN).is_none(),
+            "NaN duration 应返回 None"
+        );
+    }
+
+    #[test]
+    fn test_trange_from_secs_inf_returns_none() {
+        assert!(
+            trange_from_secs(f64::INFINITY, 5.0).is_none(),
+            "Inf start 应返回 None"
+        );
+        assert!(
+            trange_from_secs(0.0, f64::INFINITY).is_none(),
+            "Inf duration 应返回 None"
+        );
     }
 }

@@ -89,6 +89,14 @@ impl Track {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    /// 计算轨道内所有 segment 的最大结束时间（微秒）
+    pub fn max_end_time(&self) -> i64 {
+        self.segments.iter().map(|seg| match seg {
+            SegmentOutput::Video(v) => v.base.target_timerange.start + v.base.target_timerange.duration,
+            SegmentOutput::Audio(a) => a.base.target_timerange.start + a.base.target_timerange.duration,
+        }).max().unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
