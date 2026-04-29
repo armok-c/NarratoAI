@@ -545,11 +545,11 @@ fn parse_edge_tts_binary(data: &[u8]) -> Option<EdgeTtsContent> {
     let header = std::str::from_utf8(&data[..sep_pos]).ok()?;
     let payload = data[sep_pos + 4..].to_vec();
 
-    // 从 header 中提取 Path 字段
+    // 从 header 中提取 Path 字段（RFC 7230 Section 3.2: 字段名大小写不敏感）
     let path = header
         .lines()
-        .find(|line| line.starts_with("Path:"))
-        .and_then(|line| line.strip_prefix("Path:"))
+        .find(|line| line.to_ascii_lowercase().starts_with("path:"))
+        .and_then(|line| line.splitn(2, ':').nth(1))
         .map(|p| p.trim().to_string())?;
 
     Some(EdgeTtsContent { path, payload })

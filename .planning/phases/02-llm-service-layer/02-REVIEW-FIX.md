@@ -1,76 +1,65 @@
 ---
-phase: 02-llm-service-layer
-fixed_at: '2026-04-29T06:50:00Z'
-review_path: .planning/phases/02-llm-service-layer/02-REVIEW.md
+phase: "02"
+fixed_at: "2026-04-29T15:50:00Z"
+review_path: ".planning/phases/02-llm-service-layer/02-REVIEW.md"
 iteration: 1
-findings_in_scope: 7
-fixed: 7
+findings_in_scope: 6
+fixed: 6
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 02: LLM Service Layer -- Code Review Fix Report
 
-**Fixed at:** 2026-04-29T06:50:00Z
+**Fixed at:** 2026-04-29T15:50:00Z
 **Source review:** .planning/phases/02-llm-service-layer/02-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 7
-- Fixed: 7
+- Findings in scope: 6
+- Fixed: 6
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: Deadlock when `analyze_images` receives `max_concurrency = Some(0)`
+### WR-01: 非 JPEG 路径下存在 TOCTOU 竞态条件
+
+**Files modified:** `src/llm/image_utils.rs`
+**Commit:** 43bb808
+**Applied fix:** 将 `image::open(path)` 替换为 `file.seek(SeekFrom::Start(0))` + `file.read_to_end()` + `image::load_from_memory()`，消除重新按路径打开文件导致的 TOCTOU 窗口。JPEG 直通路径已通过同一文件句柄读取，不受影响。
+
+### WR-02: Vision JSON 回退路径丢失 temperature / max_tokens 参数
+
+**Files modified:** `src/llm/provider.rs`, `src/llm/openai_compatible.rs`, `tests/llm_test.rs`
+**Commit:** eb3f9fd
+**Applied fix:** 为 `LlmProvider::analyze_images` trait 方法添加 `temperature: Option<f32>` 和 `max_tokens: Option<u32>` 参数；在 `OpenAiCompatibleProvider` 实现中捕获并在主请求构建器中设置；为 `create_vision_chat_with_json_fallback` 添加相同参数，在回退重试构建器中设置；更新测试调用点。
+
+### WR-03: 请求重建失败时使用了不一致的 LLMError 变体
 
 **Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** 64c0576
-**Applied fix:** Added `.max(1)` guard to the `bounded_concurrency` initialization. Without this guard, `Some(0).unwrap_or(1)` returns 0, creating a `Semaphore::new(0)` that causes every spawned task to wait forever in `acquire_owned().await`, hanging `analyze_images` permanently.
+**Commit:** fdb86b3
+**Applied fix:** 将 `create_vision_chat_with_json_fallback` 中请求 `build()` 失败的错误变体从 `LLMError::Configuration` 改为 `LLMError::APICall`，与 `generate_text_with_json_fallback` 保持一致。
 
-### WR-01: `max_retries` config parameter silently ignored
+### IN-01: `analyze_images` 中不必要的双重克隆
 
-**Files modified:** `src/llm/openai_compatible.rs`, `Cargo.toml`
-**Commit:** 33082fd
-**Applied fix:** Wired `ProviderConfig.max_retries` into the async-openai `Client` by constructing a custom `backoff::ExponentialBackoff` with `max_elapsed_time` derived from the retry count. When `max_retries = 0`, sets `max_elapsed_time` to `Duration::ZERO` to disable retries entirely. For non-zero values, allocates a reasonable elapsed time budget. Replaced the stale comment acknowledging the gap with the actual wiring. Added `backoff = "0.4"` as a direct dependency.
+**Files modified:** `src/llm/openai_compatible.rs`
+**Commit:** eb3f9fd (与 WR-02 同次提交)
+**Applied fix:** 在 WR-02 修复过程中移除了冗余的 `prompt_fb` 和 `system_prompt_fb` 克隆变量，直接使用 `&prompt_owned` 和 `system_prompt_owned.as_deref()`。
 
-### WR-02: `test_openai_error_mapping` is `#[ignore]`d, leaving error mapping uncovered
+### IN-02: `Registry::get()` 上冗余的 `#[must_use]`
+
+**Files modified:** `src/llm/registry.rs`
+**Commit:** ccf8eab
+**Applied fix:** 移除 `#[must_use]` 标注。`Result` 类型本身已自带 `#[must_use]`。
+
+### IN-03: `tests/llm_test.rs` 中存在未使用的 `Path` 导入
 
 **Files modified:** `tests/llm_test.rs`
-**Commit:** ca87242
-**Applied fix:** Changed `create_test_provider` to use `max_retries: 0` (now wired by WR-01 to actually disable retries) and removed the `#[ignore]` attribute from the error mapping test. The HTTP error responses propagate immediately without hanging because async-openai's `ExponentialBackoff` will not retry when `max_elapsed_time` is `Duration::ZERO`.
-
-### WR-03: `create_vision_chat_with_json_fallback` duplicates message construction logic
-
-**Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** 7fbd676
-**Applied fix:** Extracted the duplicated vision message construction (text + image URL parts wrapping + system prompt handling) from both `analyze_images` main path and `create_vision_chat_with_json_fallback` fallback path into a single `build_vision_messages` associated function. The main path now calls `Self::build_vision_messages(&prompt_owned, system_prompt_owned.as_deref(), &batch)`, and the fallback path calls `Self::build_vision_messages(&json_prompt, system_prompt, batch)`. Any future change to the vision message format now needs to be applied in only one place.
-
-### IN-01: Full JPEG decode contradicts "lightweight verification" comment
-
-**Files modified:** `src/llm/image_utils.rs`
-**Commit:** 8f1c735
-**Applied fix:** Updated the comment to accurately describe the tradeoff: the decode is a full decompression to RGBA (not lightweight), with memory proportional to image size. Replaced "轻量验证 JPEG 完整性" with an explanation of the actual behavior and memory cost.
-
-### IN-02: TOCTOU window between file size check and file open
-
-**Files modified:** `src/llm/image_utils.rs`
-**Commit:** 0d8d704
-**Applied fix:** Changed the order of operations to open the file first (`std::fs::File::open`), then query metadata through the already-open file handle (`file.metadata()`) instead of calling `std::fs::metadata(path)` as a separate syscall. This eliminates the race window where a racer could replace the file with a larger one between the two operations.
-
-### IN-03: Blocking file I/O inside async context without `spawn_blocking`
-
-**Files modified:** `src/llm/openai_compatible.rs`
-**Commit:** c25cbb7
-**Applied fix:** Offloaded the synchronous `image_to_base64_data_url` calls (which perform file I/O, JPEG decode/encode, and base64 encoding) to `tokio::task::spawn_blocking`, collected with `futures::future::join_all`. This prevents tokio worker threads from being blocked by CPU-intensive image processing, avoiding starvation of other async tasks on the same runtime.
-
-## Notes
-
-- The pre-existing compilation error in `src/tts/edge_tts.rs:375` (tungstenite `Utf8Bytes` type mismatch) is unrelated to these fixes and continues to exist after all LLM service layer changes.
-- Each fix was verified via `cargo check --lib` before committing.
+**Commit:** 53e7fa8
+**Applied fix:** 将 `use std::path::{Path, PathBuf};` 改为 `use std::path::PathBuf;`，移除未使用的 `Path`。
 
 ---
 
-_Fixed: 2026-04-29T06:50:00Z_
+_Fixed: 2026-04-29T15:50:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
