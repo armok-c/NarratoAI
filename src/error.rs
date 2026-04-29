@@ -109,9 +109,17 @@ impl From<async_openai::error::OpenAIError> for LLMError {
                     _ => {
                         // 回退到基于消息的启发式判断
                         let lower = msg.to_lowercase();
-                        if lower.contains("rate limit") || lower.contains("too many requests") {
+                        if lower.contains("rate limit")
+                            || lower.contains("too many requests")
+                            || lower.contains("rate_limit")
+                        {
                             LLMError::RateLimit(msg)
-                        } else if lower.contains("auth") || lower.contains("key") {
+                        } else if lower.contains("authentication")
+                            || lower.contains("unauthorized")
+                            || lower.contains("invalid api key")
+                            || lower.contains("invalid_api_key")
+                            || lower.contains("invalid_token")
+                        {
                             LLMError::Authentication(msg)
                         } else {
                             LLMError::APICall(msg)
