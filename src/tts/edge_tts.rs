@@ -445,6 +445,17 @@ impl EdgeTtsEngine {
                             }
                             break;
                         }
+                    } else {
+                        let preview = if data.len() > 256 {
+                            format!(
+                                "{} bytes (first 256 shown: {:?})",
+                                data.len(),
+                                &data[..256]
+                            )
+                        } else {
+                            format!("{:?}", data)
+                        };
+                        tracing::warn!("无法解析 Edge-TTS 二进制消息: {}", preview);
                     }
                 }
                 Message::Text(text) => {
