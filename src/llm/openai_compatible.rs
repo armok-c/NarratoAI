@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use crate::llm::types::LlmResponseFormat;
 /// Provider 配置参数
 ///
 /// 用于构造 OpenAiCompatibleProvider 的配置结构体，避免 7 个位置参数的易错性。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProviderConfig {
     /// API 密钥
     pub api_key: String,
@@ -44,6 +45,20 @@ pub struct ProviderConfig {
     pub proxy_http: Option<String>,
     /// HTTPS 代理 URL，None 表示不使用 HTTPS 代理
     pub proxy_https: Option<String>,
+}
+
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("api_key", &"***REDACTED***")
+            .field("model_name", &self.model_name)
+            .field("base_url", &self.base_url)
+            .field("max_retries", &self.max_retries)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("proxy_http", &self.proxy_http)
+            .field("proxy_https", &self.proxy_https)
+            .finish()
+    }
 }
 
 /// OpenAI 兼容协议的 Provider 实现（D-06）
@@ -298,6 +313,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         system_prompt: Option<&str>,
         batch_size: Option<usize>,
         max_concurrency: Option<usize>,
+        response_format: Option<LlmResponseFormat>,
     ) -> Result<Vec<String>, LLMError> {
         // 预处理所有图片为 base64 data URL
         let data_urls: Vec<String> = images
@@ -327,6 +343,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let prompt_owned = prompt.to_string();
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
             let model_name = self.model_name.clone();
+            let use_json = matches!(response_format, Some(LlmResponseFormat::Json));
 
             handles.push(tokio::spawn(async move {
                 let _permit = sem_clone.acquire_owned().await.map_err(|_| {
@@ -374,13 +391,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     },
                 ));
 
-                let request = CreateChatCompletionRequestArgs::default()
-                    .model(&model_name)
-                    .messages(messages)
-                    .build()
-                    .map_err(|e| {
-                        LLMError::Configuration(format!("请求构建失败: {}", e))
-                    })?;
+                let mut request_builder = CreateChatCompletionRequestArgs::default();
+                request_builder.model(&model_name);
+                request_builder.messages(messages);
+                if use_json {
+                    request_builder.response_format(ResponseFormat::JsonObject);
+                }
+                let request = request_builder.build().map_err(|e| {
+                    LLMError::Configuration(format!("请求构建失败: {}", e))
+                })?;
 
                 let response = client_clone
                     .chat()
@@ -392,7 +411,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     .choices
                     .first()
                     .and_then(|c| c.message.content.as_deref())
-                    .unwrap_or("")
+                    .ok_or_else(|| {
+                        // 检查是否为内容过滤导致的空响应
+                        if let Some(finish_reason) = response.choices.first().and_then(|c| c.finish_reason.as_ref()) {
+                            if *finish_reason == async_openai::types::chat::FinishReason::ContentFilter {
+                                return LLMError::ContentFilter("内容被安全过滤器阻止".to_string());
+                            }
+                        }
+                        LLMError::APICall("响应中没有有效文本内容".to_string())
+                    })?
                     .to_string();
 
                 Ok::<_, LLMError>((batch_idx, text))

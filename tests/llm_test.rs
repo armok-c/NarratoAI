@@ -107,7 +107,7 @@ async fn test_build_vision_message_structure() {
     let img_path = create_test_jpeg_path(dir.path());
 
     let results = provider
-        .analyze_images(&[img_path], "describe this image", None, Some(10), Some(1))
+        .analyze_images(&[img_path], "describe this image", None, Some(10), Some(1), None)
         .await;
 
     assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());
@@ -342,35 +342,43 @@ async fn test_openai_error_mapping() {
 // ---------------------------------------------------------------------------
 // 测试 8: analyze_images 结果顺序（wiremock）
 // ---------------------------------------------------------------------------
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct CyclicResponder {
+    counter: AtomicUsize,
+}
+
+impl wiremock::Respond for CyclicResponder {
+    fn respond(&self, _request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        let idx = self.counter.fetch_add(1, Ordering::SeqCst);
+        wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": format!("resp-{}", idx),
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "content": format!("batch-{}", idx),
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }]
+        }))
+    }
+}
+
 #[tokio::test]
 async fn test_analyze_images_result_ordering() {
     let mock_server = MockServer::start().await;
 
-    // 注册 3 个 mock，每个期望一次调用，返回不同的文本内容
-    for i in 0..3 {
-        Mock::given(method("POST"))
-            .and(path("/v1/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({
-                    "id": format!("resp-{}", i),
-                    "object": "chat.completion",
-                    "created": 1234567890,
-                    "model": "test-model",
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "content": format!("batch-{}", i),
-                            "role": "assistant"
-                        },
-                        "finish_reason": "stop"
-                    }]
-                }),
-            ))
-            .up_to_n_times(1)   // 强制每个 mock 最多匹配 1 次，防止同名 matcher 冲突
-            .expect(1)
-            .mount(&mock_server)
-            .await;
-    }
+    // 使用单一 mock + AtomicUsize 轮询返回不同内容，消除 3 个相同 matcher 的竞态风险
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(CyclicResponder { counter: AtomicUsize::new(0) })
+        .expect(3)  // 期望正好 3 次调用
+        .mount(&mock_server)
+        .await;
 
     let provider = create_test_provider(&mock_server.uri());
     let dir = TempDir::new().expect("创建临时目录失败");
@@ -385,7 +393,7 @@ async fn test_analyze_images_result_ordering() {
     let images = vec![img1, img2_path, img3_path];
 
     let results = provider
-        .analyze_images(&images, "describe", None, Some(1), Some(2))
+        .analyze_images(&images, "describe", None, Some(1), Some(2), None)
         .await;
 
     assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());

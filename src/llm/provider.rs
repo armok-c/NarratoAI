@@ -47,5 +47,6 @@ pub trait LlmProvider: Send + Sync {
         system_prompt: Option<&str>,
         batch_size: Option<usize>,
         max_concurrency: Option<usize>,
+        response_format: Option<LlmResponseFormat>,
     ) -> Result<Vec<String>, LLMError>;
 }
