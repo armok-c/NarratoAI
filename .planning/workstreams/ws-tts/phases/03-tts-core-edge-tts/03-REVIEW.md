@@ -1,205 +1,267 @@
 ---
 phase: 03-tts-core-edge-tts
-reviewed: 2026-04-29T12:00:00Z
+reviewed: 2026-04-29T15:10:00Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
+  - Cargo.toml
+  - src/lib.rs
+  - src/error.rs
   - src/tts/mod.rs
   - src/tts/edge_tts.rs
   - tests/tts_test.rs
-  - src/error.rs
-  - src/lib.rs
-  - Cargo.toml
 findings:
-  critical: 1
-  warning: 2
+  critical: 0
+  warning: 3
   info: 2
   total: 5
 status: issues_found
 ---
 
-# Phase 03: TTS Core + Edge-TTS - Code Review Report
+# Phase 03: TTS Core + Edge-TTS Engine -- Code Review Report (Iteration 2)
 
-**Reviewed:** 2026-04-29T12:00:00Z
+**Reviewed:** 2026-04-29T15:10:00Z
 **Depth:** standard
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-审查了 Phase 03 的 6 个源文件：TTS 核心抽象（`tts/mod.rs`）、Edge-TTS WebSocket 引擎（`tts/edge_tts.rs`）、集成测试（`tests/tts_test.rs`）、错误类型（`error.rs`）、库入口（`lib.rs`）和依赖声明（`Cargo.toml`）。
+This is the second review iteration for phase 03. The first review (03-REVIEW.md, previous version) found 13 issues: 0 critical, 5 warnings, 8 info. **Those 13 issues remain unaddressed** -- none of the phase 03 fix commits have been applied to source files (only phase 02 fixes appear in `git log`). `from_utf8_lossy`, `socks5 => 1080u16`, `wiremock`, and all other previously reported issues still exist in the current code.
 
-此前审查的 8 个发现**已经全部修复**（已验证：commit `4cd2ee9` 修复了 proxy tunnel 的 `connect_req` 未定义问题，commit `ec9c5bf` 和 `507f24b` 分别处理了余下的 8/8 和 9/9 个问题）。NaN/Infinity 的 UB 转换已通过 `is_finite()` 守卫修复，proxy URL 解析已改为 `split_once` + `to_lowercase` 的大小写不敏感方式。
+This second review identifies **5 new findings** (3 warnings, 2 info) that were not caught in the first review. There are **0 critical** issues.
 
-本审查发现了 **1 个 BLOCKER**、**2 个 WARNING** 和 **2 个 INFO** 级别问题。
-
-**BLOCKER 总结：** 代理 CONNECT 响应读取器存在逻辑缺陷——读取循环在遇到第一个 `\r\n\r\n` 后就停止，如果代理将 interim 1xx 响应（如 `100 Continue`）和最终 2xx 响应用**独立 TCP segment** 发送（这是 RFC 7231 允许的常规行为），代码只读到 1xx，无法获取 2xx，导致代理 TTS 功能对大量真实 HTTP 代理完全不可用。
-
-## Critical Issues
-
-### CR-01: 代理 CONNECT 响应读取器无法处理分开发送的 interim 1xx 响应
-
-**File:** `src/tts/edge_tts.rs:219-276`
-**Issue:** 代理 CONNECT 的响应读取循环（第 219-233 行）在读到第一个 `\r\n\r\n` 序列后即停止读取。解析循环（第 239-276 行）处理该缓冲区中的响应。
-
-当代理在独立 TCP segment 中先发送 interim 1xx（如 `HTTP/1.1 100 Continue`）再发送 `HTTP/1.1 200 Connection Established` 时——这是一个常见行为，符合 RFC 7231 Section 4.3.6——读取循环只读到了 1xx 响应末尾的 `\r\n\r\n` 就退出。解析循环处理完 `100` 状态行、跳过其尾部头部后，调用 `lines.next()` 获取下一行时发现无数据。此时 `success` 仍为 `false`，函数最终返回错误：
-
-```
-代理 CONNECT 未收到 2xx 响应
-```
-
-**复现条件：** 任何在发送最终 2xx 之前先发送 interim 1xx 响应的 HTTP 代理都会触发此问题。这是非常多代理的标准行为。Proxyrack、Squid 等主流代理在特定配置下会发送 `100 Continue`。
-
-**影响：** 代理 TTS 功能对大量 HTTP 代理完全不可用。
-
-**Fix:** 需要在内层 CONNECT 响应解析循环中，处理完一个 1xx interim 响应后回到外层的 TCP 读取循环获取更多数据。有两种实现策略：
-
-**方案 A（推荐——重构成两层循环）：**
-
-```rust
-// 取代现有的单次读取+解析，改为循环：读取一个完整响应 -> 解析 -> 决定是否继续
-loop {
-    // 1. 读取直到 \r\n\r\n
-    let mut response_buf = vec![0u8; 4096];
-    let mut total_read = 0usize;
-    loop {
-        let n = tcp.read(&mut response_buf[total_read..]).await
-            .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
-        if n == 0 {
-            return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
-        }
-        total_read += n;
-        if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
-            break;
-        }
-        if total_read >= response_buf.len() {
-            return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
-        }
-    }
-
-    // 2. 解析这个响应
-    let response_str = std::str::from_utf8(&response_buf[..total_read])
-        .map_err(|_| TTSError::ConnectionFailed("代理响应包含无效 UTF-8".to_string()))?;
-
-    let status_line = response_str.lines().next()
-        .ok_or_else(|| TTSError::ConnectionFailed("代理响应为空".to_string()))?;
-    let status_code: u16 = status_line
-        .trim()
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| TTSError::ConnectionFailed(format!("无法解析状态码: {}", status_line)))?;
-
-    if (200..300).contains(&status_code) {
-        break; // 成功
-    } else if (100..200).contains(&status_code) {
-        // 1xx interim — 继续读取下一个响应
-        continue;
-    } else {
-        return Err(TTSError::ConnectionFailed(format!(
-            "代理 CONNECT 失败: {}",
-            status_line.trim()
-        )));
-    }
-}
-```
-
-**方案 B（最小改动——在现有结构中修复）：**
-
-在当前 interim 1xx 处理分支（第 270-275 行）之后，不继续内层 `while let Some(line)` 循环，而是跳出它并返回到外层的 TCP 读取循环（标记跳转或重构）。但此方案需要仔细控制控制流，不如方案 A 清晰。
+New findings summary:
+1. **WR-06**: CONNECT response parsing data loss when 1xx interim and 2xx final responses coalesce in the same TCP segment, causing a permanent hang (no timeout applies during CONNECT).
+2. **WR-07**: `parse_edge_tts_binary` matches the `Path:` header case-sensitively -- a future Edge TTS server change to lowercase `path:` would silently break all binary message parsing.
+3. **WR-08**: `synthesize` validates `text`, `rate`, and `pitch` but not `voice_name` -- an empty voice name produces invalid SSML (`<voice name="">`).
+4. **IN-09**: `expect()` calls for hardcoded `HeaderValue` parsing are a latent panic risk.
+5. **IN-10**: Signature test uses `Path::new("")` -- fragile if the test is ever actually awaited.
 
 ## Warnings
 
-### WR-01: build_ssml 中 XML 控制字符未过滤
+### WR-06: CONNECT 1xx+2xx responses coalesced in same TCP segment cause data loss and hang
 
-**File:** `src/tts/edge_tts.rs:78-81`
-**Issue:** `build_ssml` 函数只转义了 `&`、`<`、`>` 三个 XML 特殊字符，但没有移除 XML 1.0 禁止的控制字符（U+0000-U+0008、U+000B、U+000C、U+000E-U+001F，除 `\t`、`\n`、`\r` 外）。如果输入文本包含这些字符（例如从外部 API 获取的文本包含不可见控制字符），生成的 SSML 是语法无效的 XML，Edge TTS 服务端会拒绝处理。
+**File:** `src/tts/edge_tts.rs:227-272`
+**Severity:** Warning
 
-虽然纪录片解说文案通常不包含控制字符，但此函数是 `pub` 模块的公开 API 的一部分，未来复用边界可能扩大。在无过滤的情况下，对含控制字符的文本进行 TTS 合成会失败，且错误信息指向 WebSocket 层，排查困难。
+**Issue:** The HTTP CONNECT response parsing loop uses a three-level nested structure (outer loop for 1xx retry, inner loop for reading until `\r\n\r\n`). When a proxy sends both a 1xx interim response (e.g., `HTTP/1.1 100 Continue`) and the 2xx final response in the same TCP segment, a single `tcp.read()` call consumes both responses:
 
-**Fix:** 在 `replace` 链后增加 `.chars().filter(...)` 过滤掉 XML 禁止的控制字符：
+1. The inner loop reads all available bytes into `response_buf`, finds the first `\r\n\r\n` (end of the 1xx response), and breaks.
+2. `response_buf[..total_read]` now contains both responses contiguously: `"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 Connection established\r\n\r\n"`.
+3. The parser extracts the status line from `response_str.lines().next()`, which is `"HTTP/1.1 100 Continue"`. Status code 100 -- `continue` goes to the outer loop.
+4. The outer loop **creates a new `response_buf`** (destroying the old one), resetting `total_read = 0`.
+5. The 2xx response bytes that were already consumed from the kernel TCP receive buffer are now lost -- they were in the destroyed `response_buf`.
+6. `tcp.read()` on the new buffer blocks waiting for data that will never arrive. **The CONNECT handshake hangs forever.**
 
-```rust
-fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
-    // ... 现有代码 ...
+The code at lines 210-211 has a detailed comment about avoiding BufReader because `into_inner()` discards buffered data and corrupts the TLS handshake. The same class of data-loss bug exists in the response parsing loop itself.
 
-    let escaped_text: String = text
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .chars()
-        .filter(|&c| {
-            // 保留标准可见字符、回车、换行、制表符
-            c == '\t' || c == '\n' || c == '\r' || c as u32 >= 0x20
-        })
-        .collect();
+This is uncommon because:
+- Most proxies respond to CONNECT with a single 200 OK (no 1xx interim).
+- The CONNECT request does not include `Expect: 100-continue`, so 100 Continue is unusual.
+- TCP segments may not coalesce on every platform.
 
-    // ... format! 不变 ...
-}
-```
+However, when triggered this is a permanent hang -- the `WS_RECEIVE_TIMEOUT` of 120 seconds (line 384) applies to WebSocket message receiving, NOT to the CONNECT handshake stage. The `connect()` function has no timeout of its own.
 
-### WR-02: 认证/连接错误分类逻辑在三个位置重复
-
-**File:** `src/tts/edge_tts.rs:297-301`, `310-313`, `389-393`
-**Issue:** 以下三段代码（分别位于 `connect()` 的代理路径、`connect()` 的直连路径、`synthesize_once()` 的消息接收路径）完全重复了相同的错误分类启发式逻辑：
+**Fix:** Before `continue`ing on a 1xx response, check whether the current `response_buf` already contains additional data after the `\r\n\r\n` separator. If so, process it as the next response instead of creating a fresh buffer:
 
 ```rust
-let lower = err_msg.to_lowercase();
-if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
-    TTSError::AuthenticationFailed(err_msg)
-} else {
-    TTSError::ConnectionFailed(err_msg)  // 或 SynthesisFailed
-}
-```
-
-如果未来需要调整分类逻辑（例如增加 403 状态码的判断、增加对 "403" 的字面匹配），三处必须同步修改。此外第三处返回 `SynthesisFailed` 而非 `ConnectionFailed`，容易在复制粘贴时被忽略。
-
-**Fix:** 提取为一个 `EdgeTtsEngine` 的私有静态方法：
-
-```rust
-impl EdgeTtsEngine {
-    /// 根据错误消息启发式判断是否是认证错误
-    fn classify_connection_error(err_msg: String) -> TTSError {
-        let lower = err_msg.to_lowercase();
-        if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
-            TTSError::AuthenticationFailed(err_msg)
-        } else {
-            TTSError::ConnectionFailed(err_msg)
-        }
-    }
-
-    /// 消息接收错误的分类（返回 SynthesisFailed 而非 ConnectionFailed）
-    fn classify_receive_error(err_msg: String) -> TTSError {
-        let lower = err_msg.to_lowercase();
-        if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
-            TTSError::AuthenticationFailed(err_msg)
-        } else {
-            TTSError::SynthesisFailed(err_msg)
-        }
+} else if (100..200).contains(&status_code) {
+    // 1xx interim -- check for leftover 2xx response in current buffer
+    let sep_end = response_buf[..total_read]
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|p| p + 4)
+        .unwrap_or(0);
+    if sep_end < total_read {
+        // Leftover data exists -- shift it to buffer start and re-parse
+        let extra = response_buf[sep_end..total_read].to_vec();
+        response_buf[..extra.len()].copy_from_slice(&extra);
+        total_read = extra.len();
+        // Re-enter the parsing logic instead of continue
+        // (needs restructuring to avoid goto-like control flow)
+    } else {
+        continue;
     }
 }
 ```
 
-然后在三处分别调用 `Self::classify_connection_error(err_msg)` 或 `Self::classify_receive_error(err_msg)`。
+A simpler alternative: add a timeout to the CONNECT stage itself so that a hang is not permanent:
 
-## Info
+```rust
+use tokio::time::timeout;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-### IN-01: stt_message.into() 是多余的空操作
-
-**File:** `src/tts/edge_tts.rs:373`
-**Issue:** `Message::Text(stt_message.into())` — `stt_message` 已经是 `String` 类型，`Message::Text` 正好接受 `String`。末尾的 `.into()` 是一个 identity 转换（`String -> String`），不产生任何效果但增加了语义噪音。
-
-**Fix:** 简化为 `Message::Text(stt_message)`。
-
-### IN-02: 测试模块中存在多余的类型导入
-
-**File:** `src/tts/mod.rs:100`
-**Issue:** 内联测试模块同时导入了 `use super::*;` 和 `use std::path::Path;`。由于 `super::*` 已包含父模块中的 `use std::path::Path`，第二行是多余的。
-
-**Fix:** 删除 `use std::path::Path;`。
+// wrap the outer loop with timeout
+timeout(CONNECT_TIMEOUT, async {
+    // ... existing CONNECT logic ...
+}).await
+.map_err(|_| TTSError::ConnectionFailed("代理 CONNECT 超时".to_string()))?
+```
 
 ---
 
-_Reviewed: 2026-04-29T12:00:00Z_
+### WR-07: `parse_edge_tts_binary` Path header matching is case-sensitive
+
+**File:** `src/tts/edge_tts.rs:523`
+**Severity:** Warning
+
+**Issue:** The binary message parser uses case-sensitive matching:
+
+```rust
+.find(|line| line.starts_with("Path:"))
+```
+
+If Edge TTS ever sends the header in lowercase (`path:`) or mixed case (`PATH:`), `parse_edge_tts_binary` returns `None` for all binary messages. The consequence:
+
+- All audio frames are discarded -- `audio_data` remains empty.
+- All `wordboundary` and `turn.end` messages are discarded.
+- The function eventually errors with `"未收到音频数据"`.
+- Every binary message triggers a `tracing::warn!("无法解析 Edge-TTS 二进制消息: {}")`.
+
+RFC 7230 Section 3.2 states that HTTP header field names are case-insensitive. While Microsoft's Edge TTS currently sends `Path:` (capital P), this is an implementation detail that could change. The Rust ecosystem standard practice for HTTP header matching is `eq_ignore_ascii_case()` or `to_ascii_lowercase()`.
+
+**Fix:**
+
+```rust
+             .find(|line| line.to_ascii_lowercase().starts_with("path:"))
+```
+
+This adds negligible runtime cost (ASCII lowercasing a short string once per message) and eliminates a latent failure mode.
+
+---
+
+### WR-08: Missing validation for empty `voice_name` in `synthesize`
+
+**File:** `src/tts/edge_tts.rs:540-542`
+**Severity:** Warning
+
+**Issue:** The `TtsProvider::synthesize` implementation validates three input parameters:
+
+```rust
+if text.is_empty() { ... }     // line 540
+if !rate.is_finite() || rate < 0.0 { ... }  // line 543
+if !pitch.is_finite() { ... }  // line 548
+```
+
+But `voice_name` is not validated. An empty `voice_name` string propagates into `build_ssml()` and produces:
+
+```xml
+<voice name="">...</voice>
+```
+
+This is invalid SSML. Edge TTS will reject it with a server-side error that arrives as a generic WebSocket close or error frame, making diagnosis difficult (the error message will mention connection or protocol issues, not the root cause of an empty voice name).
+
+**Fix:** Add validation before the SSML construction:
+
+```rust
+if text.is_empty() {
+    return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
+}
+if voice_name.is_empty() {
+    return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
+}
+if !rate.is_finite() || rate < 0.0 {
+    return Err(TTSError::SynthesisFailed(format!("rate 必须为有限正数: {}", rate)));
+}
+if !pitch.is_finite() {
+    return Err(TTSError::SynthesisFailed(format!("pitch 必须为有限数值: {}", pitch)));
+}
+```
+
+---
+
+## Info
+
+### IN-09: Hardcoded header `expect()` is a latent panic risk
+
+**File:** `src/tts/edge_tts.rs:132, 137`
+**Severity:** Info
+
+**Issue:** The `Origin` and `User-Agent` header values are parsed with `.expect()`:
+
+```rust
+"chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
+    .parse()
+    .expect("Origin 值是硬编码字面量，解析 HeaderValue 不应失败"),
+```
+
+While the current hardcoded strings are valid `HeaderValue`s, if a future modification introduces an invalid character (e.g., non-ASCII, control character, embedded NUL), `parse()` returns `Err` and `expect()` causes a panic at runtime. This is a common pattern in Rust for hardcoded values and the risk is low, but the `expect()` message is misleading -- it says "不应失败" (should not fail) but provides no recourse if it does.
+
+**Suggestion:** Replace with `unwrap()` (shorter, same semantics) and add an explanatory comment. Or, extract the headers into `const` values using `HeaderValue::from_static()` when the values are known to be valid static strings, eliminating the runtime parse entirely:
+
+```rust
+use http::HeaderValue;
+const EDGE_ORIGIN: HeaderValue = HeaderValue::from_static(
+    "chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
+);
+```
+
+(Note: `http` crate is not currently a dependency. This would need to be added, or kept as-is with a clearer comment.)
+
+---
+
+### IN-10: Signature test uses `Path::new("")` empty path
+
+**File:** `tests/tts_test.rs:108`
+**Severity:** Info
+
+**Issue:** The compile-time signature test `test_synthesize_function_signature` passes `Path::new("")` as the output path:
+
+```rust
+#[allow(clippy::let_underscore_future)]
+#[test]
+fn test_synthesize_function_signature() {
+    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new(""), None);
+}
+```
+
+The `let _ =` immediately drops the future without polling it, so the empty path is never used. But this is fragile:
+- If a future refactoring adds `.await` to this test (perhaps to verify more than just the signature), the empty path would cause an I/O error: `tokio::fs::write(output_path, ...)` with an empty string path fails with a platform-dependent error (e.g., "No such file or directory" on Linux, "The filename, directory name, or volume label syntax is incorrect" on Windows).
+- The `#[allow]` suppresses a Clippy lint that exists for a reason.
+
+**Suggestion:** Replace with a non-empty path that is clearly a sentinel:
+
+```rust
+let _ = tts::synthesize(
+    engine, text, voice_name, 1.0, 0.0,
+    Path::new("/tmp/_narratoai_sig_check.mp3"),
+    None,
+);
+```
+
+Or, if the test should remain strictly compile-time and never poll, add a comment explicitly documenting this constraint:
+
+```rust
+// WARNING: This future is NEVER polled. It is a compile-time signature check only.
+// Do NOT add .await or block_on without also providing a valid output_path.
+```
+
+---
+
+## Previously Reported Issues (Still Present -- Not Re-Listed)
+
+The following 13 issues from the first review are still present in the current code (no fix commits applied):
+
+| ID | Severity | Description |
+|----|----------|-------------|
+| WR-01 | Warning | IPv6 proxy without explicit port fails |
+| WR-02 | Warning | Proxy credentials silently dropped |
+| WR-03 | Warning | `from_utf8_lossy` masks data corruption |
+| WR-04 | Warning | turn.end parse failure silently sets duration 0 |
+| WR-05 | Warning | Partial output file not cleaned up on retry exhaustion |
+| IN-01 | Info | XML 1.0 restricted chars 0x7F-0x9F not filtered |
+| IN-02 | Info | `connect` function too long (~180 lines) |
+| IN-03 | Info | Duplicate error classification functions |
+| IN-04 | Info | Unused `wiremock` dev-dependency |
+| IN-05 | Info | Missing boundary value tests for `convert_rate_to_percent` |
+| IN-06 | Info | SOCKS5 handling misleading |
+| IN-07 | Info | `voice_name_to_lang` defaults to "zh-CN" for unknown voices |
+| IN-08 | Info | No unit tests for `parse_edge_tts_binary` |
+
+---
+
+_Reviewed: 2026-04-29T15:10:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Iteration: 2_

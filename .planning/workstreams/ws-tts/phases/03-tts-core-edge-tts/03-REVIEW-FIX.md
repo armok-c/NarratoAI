@@ -1,72 +1,109 @@
 ---
 phase: 03-tts-core-edge-tts
-fixed_at: 2026-04-29T13:50:00+08:00
+fixed_at: 2026-04-29T14:45:00+08:00
 review_path: .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
-iteration: 1
-findings_in_scope: 5
-fixed: 5
-skipped: 0
-status: all_fixed
+iteration: 2
+findings_in_scope: 13
+fixed: 12
+skipped: 1
+status: partial
 ---
 
-# Phase 03: TTS Core + Edge-TTS - Code Review Fix Report
+# Phase 03: TTS Core + Edge-TTS -- Code Review Fix Report
 
-**Fixed at:** 2026-04-29T13:50:00+08:00
+**Fixed at:** 2026-04-29T14:45:00+08:00
 **Source review:** .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
-**Iteration:** 1
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope: 5
-- Fixed: 5
-- Skipped: 0
+- Findings in scope: 13
+- Fixed: 12
+- Skipped: 1
 
 ## Fixed Issues
 
-### CR-01: 代理 CONNECT 响应读取器无法处理分开发送的 interim 1xx 响应
+### WR-01: IPv6 代理地址无显式端口时失败
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 36c16e2
-**Applied fix:** 将原来的"单次读取+单次解析"模式重构为两层嵌套循环：
-- 外层循环：每次读取一个完整响应（直到 `\r\n\r\n`），然后解析该响应
-- 内层循环：从 TCP 读取直到 `\r\n\r\n`
-- 如果状态码是 2xx 则跳出外层循环（CONNECT 成功）
-- 如果状态码是 1xx 则继续外层循环，读取下一个响应
-- 如果状态码是其他值则返回错误
-- 这修复了当代理将 interim 1xx（如 `100 Continue`）和最终 2xx 用独立 TCP segment 发送时的 bug
+**Commit:** 8d10910
+**Applied fix:** 将 `rsplit_once("]:")` 的 `unwrap_or(Err(...))` 立即报错改为 `if let Some/else` 双路处理：有 `]:` 时解析端口，无端口时回退到 `default_proxy_port`（与 IPv4 行为一致）。
 
-### WR-01: build_ssml 中 XML 控制字符未过滤
+### WR-02: 代理 URL 中 `user:pass@` 凭据被静默丢弃
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 62d2df0
-**Applied fix:** 在 `.replace('>', "&gt;")` 链后增加 `.chars().filter()` 调用，过滤掉 XML 1.0 禁止的控制字符（U+0000-U+0008、U+000B、U+000C、U+000E-U+001F，除 `\t`、`\n`、`\r` 外）。`escaped_text` 从隐式 `&str` 改为显式 `String` 类型标注以支持 `.collect()`。
+**Commit:** c32cf76
+**Applied fix:** 在剥离 `user:pass@` 前缀前，通过 `rsplitn(2, '@').nth(1)` 提取凭据，用 `base64` 编码后以 `Proxy-Authorization: Basic` 标头加入 HTTP CONNECT 请求。
 
-### WR-02: 认证/连接错误分类逻辑在三个位置重复
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 4fea468
-**Applied fix:** 提取了两个 `EdgeTtsEngine` 私有静态方法用于错误分类：
-- `classify_connection_error()` -- 用于连接相关错误（映射到 `ConnectionFailed`）
-- `classify_receive_error()` -- 用于消息接收错误（映射到 `SynthesisFailed`）
-- 三个重复位置（connect() 代理路径、connect() 直连路径、synthesize_once() 接收路径）全部替换为方法调用
-
-### IN-01: stt_message.into() 是多余的空操作
+### WR-03: `String::from_utf8_lossy` 掩盖 JSON 数据损坏
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 50ab532
-**Applied fix:** 将 `.send(Message::Text(stt_message.into()))` 简化为 `.send(Message::Text(stt_message))`。`stt_message` 已经是 `String`，`Message::Text` 接受 `String`，`.into()` 是 identity 转换。
+**Commit:** 7bb10f6
+**Applied fix:** 将 wordboundary 和 turn.end 解析中的 `String::from_utf8_lossy()` 替换为 `std::str::from_utf8()`。UTF-8 非法序列时记录警告日志并返回空字符串，避免静默数据损坏。
 
-### IN-02: 测试模块中存在多余的类型导入
+### WR-04: turn.end JSON 解析失败导致 duration 静默为 0
 
-**Files modified:** `src/tts/mod.rs`
-**Commit:** 80878cc
-**Applied fix:** 移除了 `src/tts/mod.rs` 测试模块中的 `use std::path::Path;`。该导入已被 `use super::*;` 覆盖，后者从父模块导入了相同的 `use std::path::Path;`。
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 304cf01
+**Applied fix:** 在 `serde_json::from_str` 失败的 else 分支中添加 `tracing::warn!` 日志，记录 payload 字节数以便诊断。
+
+### WR-05: 重试耗尽后残留输出文件未清理
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** e956b8e
+**Applied fix:** 在 `synthesize_with_retry` 返回 `RetryExhausted` 前调用 `tokio::fs::remove_file(output_path)` 清理不完整/损坏的输出文件。
+
+### IN-01: XML 1.0 受限字符 0x7F-0x9F 未在 SSML 中过滤
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 0bf0def
+**Applied fix:** 扩展字符过滤谓词，在 `code >= 0x20` 基础上增加 `!(0x7F..=0x9F).contains(&code)` 排除 DEL 及 C1 控制字符。
+
+### IN-03: 错误分类函数重复
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** eb616de
+**Applied fix:** 合并 `classify_connection_error` 和 `classify_receive_error` 为泛型函数 `classify_error(err_msg, fallback)`，调用处传入不同的错误变体构造函数。
+
+### IN-04: `wiremock` 开发依赖未使用
+
+**Files modified:** `Cargo.toml`
+**Commit:** d9acb9d
+**Applied fix:** 从 `[dev-dependencies]` 中移除 `wiremock = "0.6"`。
+
+### IN-05: `convert_rate_to_percent` 缺少边界值测试
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 875c43a
+**Applied fix:** 添加了 `rate=0.0`（返回 `-100%`）、`NaN`（返回 `+0%`）、`-0.5`（返回 `+0%`）、`inf` 和 `-inf`（返回 `+0%`）的单元测试。
+
+### IN-06: SOCKS5 代理处理方式存在误导
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 69dfb12
+**Applied fix:** 将原本的 `"socks5" => 1080u16` 默认端口分支改为提前 `return Err(...)` 返回明确错误信息，指出本引擎不支持 SOCKS5。
+
+### IN-07: `voice_name_to_lang` 对无法识别的音色名默认返回 "zh-CN"
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** b6d1e4b
+**Applied fix:** 将 else 分支的默认返回值从 `"zh-CN"` 改为 `String::new()` 空字符串，避免非中文语音被错误标记为 `xml:lang="zh-CN"`。
+
+### IN-08: `parse_edge_tts_binary` 没有单元测试
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 0f3bd82
+**Applied fix:** 添加了 6 个单元测试：audio 消息、wordboundary 消息、turn.end 消息、缺失分隔符、空 payload、缺少 Path 头字段。
 
 ## Skipped Issues
 
-None -- all 5 findings were fixed.
+### IN-02: `connect` 函数过长（约 180 行）
+
+**File:** `src/tts/edge_tts.rs:119-299`
+**Reason:** 拆分为 `connect_direct()` 和 `connect_via_proxy()` 是合理的重构建议，但涉及约 180 行网络/TLS/代理隧道逻辑，拆分风险较高。鉴于该发现为 Info 级别，且当前代码功能正确，跳过此重构以避免引入回归问题。
+**Original issue:** `connect` 函数同时处理直连和代理两条路径，包含 HTTP CONNECT 协商、IPv4/IPv6 地址解析、TLS 升级等复杂逻辑，总长约 180 行。
 
 ---
 
-_Fixed: 2026-04-29T13:50:00+08:00_
+_Fixed: 2026-04-29T14:45:00+08:00_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
