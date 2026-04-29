@@ -48,12 +48,10 @@ fn convert_pitch_to_hz(pitch: f64) -> String {
 /// "en-US-JennyNeural"  → "en-US"
 /// "ja-JP-NanamiNeural" → "ja-JP"
 fn voice_name_to_lang(voice_name: &str) -> String {
-    if let Some(idx) = voice_name
-        .chars()
-        .enumerate()
+    if let Some((idx, _)) = voice_name
+        .char_indices()
         .filter(|(_, c)| *c == '-')
         .nth(1)
-        .map(|(i, _)| i)
     {
         voice_name[..idx].to_string()
     } else {
