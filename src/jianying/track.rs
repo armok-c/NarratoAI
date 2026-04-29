@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+use super::error::JianYingError;
 use super::segment::{AudioSegment, SegmentOutput, VideoSegment};
 use super::types::TrackJson;
 
@@ -58,17 +59,17 @@ impl Track {
     }
 
     /// 导出为 TrackJson
-    pub fn to_json(&self) -> TrackJson {
+    pub fn to_json(&self) -> Result<TrackJson, JianYingError> {
         let segments: Vec<serde_json::Value> = self
             .segments
             .iter()
             .map(|seg| match seg {
-                SegmentOutput::Video(v) => serde_json::to_value(v).expect("VideoSegmentJson 应序列化成功"),
-                SegmentOutput::Audio(a) => serde_json::to_value(a).expect("AudioSegmentJson 应序列化成功"),
+                SegmentOutput::Video(v) => serde_json::to_value(v).map_err(JianYingError::JsonSerialize),
+                SegmentOutput::Audio(a) => serde_json::to_value(a).map_err(JianYingError::JsonSerialize),
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
-        TrackJson {
+        Ok(TrackJson {
             attribute: 0,
             flag: 0,
             id: self.id.clone(),
@@ -76,7 +77,7 @@ impl Track {
             name: self.name.clone(),
             segments,
             type_field: self.track_type.as_str().to_string(),
-        }
+        })
     }
 
     /// 轨道类型
@@ -108,7 +109,7 @@ mod tests {
         let track = Track::new(TrackType::Video, "视频轨道");
         assert_eq!(track.track_type(), TrackType::Video);
         assert_eq!(track.name(), "视频轨道");
-        let json = track.to_json();
+        let json = track.to_json().expect("空轨道应序列化成功");
         assert!(json.segments.is_empty(), "新轨道应无 segment");
         assert_eq!(json.type_field, "video");
         assert_eq!(json.name, "视频轨道");
@@ -129,7 +130,7 @@ mod tests {
             .expect("应成功创建");
         track.add_video_segment(seg2);
 
-        let json = track.to_json();
+        let json = track.to_json().expect("Track 应序列化成功");
         assert_eq!(json.segments.len(), 2, "应有 2 个 segment");
     }
 
@@ -137,9 +138,9 @@ mod tests {
     #[test]
     fn test_track_type_matches_json() {
         let video_track = Track::new(TrackType::Video, "视频轨道");
-        assert_eq!(video_track.to_json().type_field, "video");
+        assert_eq!(video_track.to_json().expect("应序列化成功").type_field, "video");
 
         let audio_track = Track::new(TrackType::Audio, "音频轨道");
-        assert_eq!(audio_track.to_json().type_field, "audio");
+        assert_eq!(audio_track.to_json().expect("应序列化成功").type_field, "audio");
     }
 }

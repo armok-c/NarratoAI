@@ -163,7 +163,7 @@ impl ScriptFile {
         let content_path = draft_dir.join("draft_content.json");
 
         // 计算总时长——最后一个片段的 end 时间
-        let total_duration_us = self.calculate_total_duration();
+        let total_duration_us = self.calculate_total_duration()?;
 
         // 从模板加载基础结构并替换
         let mut content: serde_json::Value = serde_json::from_str(DRAFT_CONTENT_TEMPLATE)?;
@@ -188,9 +188,9 @@ impl ScriptFile {
             .tracks
             .iter()
             .map(|t| {
-                serde_json::to_value(t.to_json()).expect("Track 序列化应成功")
+                serde_json::to_value(t.to_json()?).map_err(JianYingError::JsonSerialize)
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         content["tracks"] = serde_json::json!(tracks_json);
 
         // 写入文件
@@ -201,12 +201,12 @@ impl ScriptFile {
     }
 
     /// 计算时间线总时长（微秒）——扫描所有轨道中所有 segment 的 target_timerange
-    fn calculate_total_duration(&self) -> i64 {
+    fn calculate_total_duration(&self) -> Result<i64, JianYingError> {
         let max_end = self
             .tracks
             .iter()
             .filter_map(|track| {
-                let json = track.to_json();
+                let json = track.to_json().ok()?;
                 json.segments
                     .iter()
                     .filter_map(|seg| {
@@ -221,7 +221,7 @@ impl ScriptFile {
             })
             .max();
 
-        max_end.unwrap_or(60_000_000) // 默认 60 秒
+        Ok(max_end.unwrap_or(60_000_000)) // 默认 60 秒
     }
 }
 
