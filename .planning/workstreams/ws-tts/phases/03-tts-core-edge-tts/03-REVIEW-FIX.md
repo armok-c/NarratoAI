@@ -1,82 +1,62 @@
 ---
 phase: "03"
-fixed_at: 2026-04-29T11:00:00Z
+fixed_at: 2026-04-29T11:30:00Z
 review_path: .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
-iteration: 2
-findings_in_scope: 7
-fixed: 7
-skipped: 0
-status: all_fixed
+iteration: 3
+findings_in_scope: 5
+fixed: 4
+skipped: 1
+status: partial
 ---
 
-# Phase 03: TTS Core + Edge-TTS Engine -- Code Review Fix Report
+# Phase 03: TTS Core + Edge-TTS Engine — Code Review Fix Report (Iteration 3)
 
-**Fixed at:** 2026-04-29T11:00:00Z
-**Source review:** .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
-**Iteration:** 2
+**Fixed at:** 2026-04-29T11:30:00Z
+**Source review:** 03-REVIEW.md (Iteration 3, standard depth)
+**Fix scope:** all (Info included)
 
 **Summary:**
-- Findings in scope: 7 (1 Critical + 6 Warnings)
-- Fixed: 7
-- Skipped: 0
+- Findings in scope: 5 (Info)
+- Fixed: 4
+- Skipped: 1
 
 ## Fixed Issues
 
-### CR-01: voice_name_to_lang 使用字符索引代替字节索引，在多字节字符语音名称上导致 panic
+### IN-02: and_then 应改为 map（闭包始终返回 Some）
 
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** aeb2bd1
-**Applied fix:** 将 `voice_name.chars().enumerate()` 替换为 `voice_name.char_indices()`，同时将模式匹配从 `.map(|(i, _)| i)` 改为直接解构 `Some((idx, _))`。`char_indices()` 返回字节索引，与后续的 `voice_name[..idx]` 字节切片兼容，避免了多字节 UTF-8 语音名称上的运行时 panic。
+**Files modified:** `src/tts/edge_tts.rs:166`
+**Commit:** `5d9ee9d`
+**Applied fix:** 将 `.and_then(|(h, p)| Some((h, p.split('/').next().unwrap_or("443"))))` 替换为 `.map(|(h, p)| (h, p.split('/').next().unwrap_or("443")))`。闭包始终返回 `Some`，使用 `map` 语义更准确。
 
-### WR-01: TTSError::AuthenticationFailed 在 Edge-TTS 引擎中从未被使用
+### IN-03: 硬编码公开令牌的设计风险
 
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** c0e31d6
-**Applied fix:** 在三处 `map_err` 调用中添加认证错误检测，当错误字符串包含 "401"、"authentication" 或 "unauthorized" 时返回 `TTSError::AuthenticationFailed` 而非 `ConnectionFailed`/`SynthesisFailed`：
-1. 直连路径（`connect_async` 失败）
-2. 代理连接路径（`client_async_tls_with_config` 失败）
-3. 消息接收路径（`ws_stream.next()` 失败）
-**Status:** fixed: requires human verification -- 字符串匹配可能无法覆盖所有认证错误变体，建议人工验证认证失败场景的错误映射是否正确。
+**Files modified:** `src/tts/edge_tts.rs:13-16`
+**Commit:** `5d9ee9d`
+**Applied fix:** 在 `EDGE_TTS_WSS_URL` 常量上方添加安全文档注释，说明 `TrustedClientToken` 是公开令牌（广泛见于开源工具如 edge-tts Python 库），不是秘密凭据，以及令牌轮换时的影响。不修改代码逻辑，仅添加文档。
 
-### WR-02: WebSocket 在 turn.end 前关闭导致 duration=0.0 被当作成功返回
+### IN-04: .unwrap() 缺少 .expect() 说明
 
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 3a3a703
-**Applied fix:** 在写入音频文件和 `duration == 0.0` 检查之前添加了 `if !received_turn_end { return Err(...) }` 提前返回。当连接在收到 `turn.end` 消息前关闭时，返回 `Err(TTSError::SynthesisFailed(...))` 而非 `Ok(TtsOutput { duration: 0.0, ... })`。同时简化了 `duration == 0.0` 分支，移除了 `received_turn_end` 为 false 时的死代码分支。
-**Status:** fixed: requires human verification -- 语义逻辑变更，建议人工确认"连接在 turn.end 前关闭即视为错误"的策略是否符合预期行为。
+**Files modified:** `src/tts/edge_tts.rs:119,125`
+**Commit:** `5d9ee9d`
+**Applied fix:** 将两处 `.parse().unwrap()` 替换为 `.parse().expect("...")`：
+- Line 119: `.expect("Origin 值是硬编码字面量，解析 HeaderValue 不应失败")`
+- Line 125: `.expect("User-Agent 值是硬编码字面量，解析 HeaderValue 不应失败")`
 
-### WR-03: max_retries 变量命名与实际语义不符（误导维护者）
+### IN-05: 版本测试绑定硬编码字符串
 
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 28b8fa6
-**Applied fix:** 将 `max_retries` 重命名为 `max_attempts`，更新所有 5 处引用（声明、循环条件、info 日志、sleep 条件、错误消息）。变量值保持 4（1 次初始 + 3 次重试），命名现在清晰反映"总尝试次数"语义。
-
-### WR-04: 库测试与集成测试存在重复测试用例（翻倍维护成本）
-
-**Files modified:** `tests/tts_test.rs`
-**Commit:** d525dc9
-**Applied fix:** 从 `tests/tts_test.rs` 中移除重复的 `test_synthesize_unknown_engine_error` 和 `test_synthesize_unknown_engine_message_contains_name` 测试函数（共 38 行）。这两个测试已经存在于 `src/tts/mod.rs` 中，提供相同的覆盖范围。同时删除了对应的" synthesize 路由器集成测试"章节注释。
-
-### WR-05: test_synthesize_function_signature 丢弃未 poll 的 async future（编译器警告）
-
-**Files modified:** `tests/tts_test.rs`
-**Commit:** a9a169a
-**Applied fix:** 在 `test_synthesize_function_signature` 函数的 `#[test]` 属性之前添加 `#[allow(clippy::let_underscore_future)]`，抑制因有意丢弃未 poll 的 async future 而产生的 clippy 警告。
-
-### WR-06: EdgeTtsEngine 和 new() 的 pub 可见度过于宽松
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** 33c5fc5
-**Applied fix:** 将 `EdgeTtsEngine` 结构体声明、`proxy_enabled`、`proxy_http`、`proxy_https` 字段以及 `new()` 构造函数的可见度从 `pub` 降为 `pub(super)`，将实例化限制在 `tts` 模块内部，防止外部 crate 绕过 `tts::synthesize()` 路由器直接构造引擎实例。
+**Files modified:** `src/lib.rs:17-19`
+**Commit:** `dc51713`
+**Applied fix:** 将 `test_version_returns_0_1_0` 重命名为 `test_version_matches_cargo_toml`，使用 `env!("CARGO_PKG_VERSION")` 替代硬编码版本号 `"0.1.0"`。`env!` 是编译时从 `Cargo.toml` 注入的值，与 `version()` 函数使用同一来源，两者必然相等。
 
 ## Skipped Issues
 
-无 -- 所有 7 个发现（1 个关键 + 6 个警告）均已成功修复。
+### IN-01: 多余的 .into() 转换
 
-Info 级别发现（IN-01 至 IN-05）已按 `fix_scope: critical_warning` 排除。
+**位置:** `src/tts/edge_tts.rs:336`
+**原因:** `Message::Text` 接受 `Utf8Bytes` 类型，而非 `String`。`.into()` 是必要的类型转换（`String` → `Utf8Bytes`），不可移除。最初错误移除了 `.into()`，导致编译错误 `E0308: mismatched types`，已回退。
 
 ---
 
-_Fixed: 2026-04-29T11:00:00Z_
-_Fixer: Claude (gsd-code-fixer)_
-_Iteration: 2_
+_Fixed: 2026-04-29T11:30:00Z_
+_Fixer: Claude (gsd-code-fixer + manual correction)_
+_Iteration: 3_
