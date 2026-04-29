@@ -75,8 +75,9 @@ impl OpenAiCompatibleProvider {
     pub fn new(cfg: ProviderConfig) -> Result<Self, LLMError> {
         let openai_config = OpenAIConfig::new()
             .with_api_key(&cfg.api_key)
-            .with_api_base(cfg.base_url.trim_end_matches('/'))
-            .with_max_retries(cfg.max_retries);
+            .with_api_base(cfg.base_url.trim_end_matches('/'));
+    // 注意: async-openai 0.36 使用默认 RetryConfig (3 次内置重试),
+    // cfg.max_retries 当前未接入客户端重试配置
 
         let mut http_client_builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(cfg.timeout_secs));
