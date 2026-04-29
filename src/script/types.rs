@@ -23,7 +23,12 @@ fn deserialize_id<'de, D: de::Deserializer<'de>>(d: D) -> Result<i64, D::Error> 
             if let Some(i) = n.as_i64() {
                 Ok(i)
             } else if let Some(f) = n.as_f64() {
-                Ok(f as i64)
+                let i = f as i64;
+                // Reject if truncation (fractional part) or saturation occurred
+                if i as f64 != f || i == i64::MAX || i == i64::MIN {
+                    return Err(de::Error::custom("_id 数值超出有效范围"));
+                }
+                Ok(i)
             } else {
                 Err(de::Error::custom("_id 必须是数字"))
             }
@@ -324,5 +329,33 @@ mod tests {
         }"#;
         let result: Result<ScriptClip, _> = serde_json::from_str(json);
         assert!(result.is_err(), "字符串 _id 应反序列化失败");
+    }
+
+    /// Test 10: _id 为超大整数（超出 i64 范围）应反序列化失败
+    #[test]
+    fn test_deserialize_id_oversized_integer() {
+        let json = r#"{
+            "_id": 99999999999999999999,
+            "timestamp": "00:00:00,600-00:00:07,559",
+            "picture": "画面",
+            "narration": "解说",
+            "OST": 0
+        }"#;
+        let result: Result<ScriptClip, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "超出 i64 范围的 _id 应反序列化失败");
+    }
+
+    /// Test 11: _id 为小数（如 1.9）应反序列化失败
+    #[test]
+    fn test_deserialize_id_fractional_fails() {
+        let json = r#"{
+            "_id": 1.9,
+            "timestamp": "00:00:00,600-00:00:07,559",
+            "picture": "画面",
+            "narration": "解说",
+            "OST": 0
+        }"#;
+        let result: Result<ScriptClip, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "小数 _id 应反序列化失败");
     }
 }
