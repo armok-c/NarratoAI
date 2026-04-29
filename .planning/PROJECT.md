@@ -36,6 +36,7 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具（当前 Python 版
 - [ ] Rust 短剧解说流水线
 - [ ] Rust 短剧混剪流水线
 - [ ] Rust 配置系统（TOML 加载）
+- [x] Rust 脚本管理（JSON 加载/保存/编辑/校验） — Validated in Phase 5
 - [ ] Rust 状态管理（文件存储，JSON/TOML）
 - [ ] Rust 视觉分析器（帧提取 + LLM 视觉分析）
 - [ ] Tauri 命令层（暴露 Rust 函数给前端）
@@ -90,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-27 after initialization*
+*Last updated: 2026-04-29 after Phase 5 completion*
