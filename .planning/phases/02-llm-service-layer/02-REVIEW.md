@@ -2,174 +2,170 @@
 phase: 02-llm-service-layer
 reviewed: 2026-04-29T10:00:00Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 13
 files_reviewed_list:
+  - Cargo.lock
   - Cargo.toml
+  - src/error.rs
+  - src/lib.rs
   - src/llm/image_utils.rs
   - src/llm/mod.rs
   - src/llm/openai_compatible.rs
+  - src/llm/provider.rs
   - src/llm/register.rs
   - src/llm/registry.rs
   - src/llm/test_utils.rs
-  - src/llm/provider.rs
   - src/llm/types.rs
-  - src/error.rs
-  - src/config/types.rs
   - tests/llm_test.rs
 findings:
   critical: 2
-  warning: 2
+  warning: 4
   info: 2
-  total: 6
+  total: 8
 status: issues_found
 ---
 
-# Phase 2: LLM Service Layer -- Code Review Report
+# Phase 02: LLM Service Layer -- Code Review Report
 
 **Reviewed:** 2026-04-29T10:00:00Z
 **Depth:** standard
-**Files Reviewed:** 12 (9 scoped + 3 cross-reference)
+**Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-对 Rust LLM 服务层的全面审查，涵盖 Provider 注册中心 (`registry.rs`)、OpenAI 兼容协议 Provider (`openai_compatible.rs`)、配置驱动的 Provider 注册 (`register.rs`)、图片预处理 (`image_utils.rs`)、统一错误类型 (`error.rs`)、配置类型 (`config/types.rs`)、Provider 特征 (`provider.rs`)、类型 (`types.rs`)、测试工具 (`test_utils.rs`) 和集成测试 (`tests/llm_test.rs`)。发现了两个 BLOCKER 级别的缺陷：一是 `register_all_providers` 中 vision/text 两个 provider 使用相同的配置名字时会静默覆盖，二是 `test_analyze_images_result_ordering` 测试由于并发与原子计数器的交互存在竞态条件（flaky test）。此外还发现了多层重试可能放大请求数、错误启发式分类过于宽泛等质量问题。
+Reviewed the Rust LLM service layer: Provider trait, Registry, OpenAiCompatibleProvider implementation, image preprocessing, registration factory, error types, test utilities, and 8 integration tests. The codebase follows a well-organized Provider/Registry pattern with async-openai 0.36.
+
+Two critical issues were found: (1) a missing `wiremock` dev-dependency that prevents integration tests from compiling entirely, and (2) a flaky test caused by CyclicResponder race with concurrent Semaphore-controlled requests. Four warnings were identified including an unused `&self` parameter, overly broad heuristic error classification, potential OOM in JPEG integrity validation, and language-inconsistency in JSON fallback prompts.
 
 ---
 
 ## Critical Issues
 
-### CR-01: Provider 名称冲突导致 vision provider 被 text provider 静默覆盖
+### CR-01: Missing `wiremock` dev-dependency prevents integration test compilation
 
-**File:** `src/llm/register.rs:63-67, 89-93`
-**Issue:** `register_all_providers` 使用配置字段 `vision_llm_provider` / `text_llm_provider` 的值作为注册键。这两个字段的默认值均为 `"openai"`（定义在 `src/config/defaults.rs:8,13`）。当用户同时配置 vision 和 text 两套 API Key 时，执行流程如下：
+**File:** `E:\GitLib\NarratoAI\Cargo.toml:28-29`
+**Issue:** `tests/llm_test.rs` imports and extensively uses `wiremock::{Mock, MockServer, ResponseTemplate}` and `wiremock::matchers::{method, path, body_string_contains}`. However, `Cargo.toml` only lists `tempfile` in `[dev-dependencies]`. `wiremock` is not listed in either `[dependencies]` or `[dev-dependencies]`. The `Cargo.lock` confirms `wiremock` does not exist in the dependency tree at any version. Every invocation of `cargo test` will fail to compile with `cannot find crate 'wiremock'`.
 
-1. Vision provider 以键 `"openai"` 注册到 `Registry.providers` HashMap
-2. Text provider 以键 `"openai"` 再次注册，覆盖上一步写入的 vision provider
-3. 后续 `registry.get("openai")` 返回的是 text provider，vision 功能静默返回 text 模型的结果
+All 8 integration tests in `tests/llm_test.rs` depend on wiremock for mocking HTTP responses. Without this dependency, the entire test file is dead code:
 
-触发路径：默认在 `config.toml` 中填入 vision 和 text 两套 API key 且不改动 provider 名称时（典型使用场景），vision 功能完全失效且无告警。
+- `test_registry_register_and_get` does not use wiremock (would compile), but lives in the same file as wiremock-using tests
+- All other tests (7 out of 8) wiremock-dependent tests fail to compile
 
-现有单元测试 `test_both_providers_registered` 使用了两个不同的名称（`"openai_vision"` / `"openai_text"`），恰好避开了这个缺陷，没有覆盖名称冲突的场景。
+**Fix:** Add `wiremock` to `[dev-dependencies]`:
 
-**Fix (推荐方案):** 使用内部固定键，不依赖配置中的 provider 名称。将注册逻辑改为始终使用 `VISION_PROVIDER_NAME` 和 `TEXT_PROVIDER_NAME` 常量作为注册键：
-
-```rust
-// register.rs 中约第 77 行
-Ok(provider) => registry.register(VISION_PROVIDER_NAME, Arc::new(provider)),
-// 约第 103 行
-Ok(provider) => registry.register(TEXT_PROVIDER_NAME, Arc::new(provider)),
+```toml
+[dev-dependencies]
+tempfile = "3.27.0"
+wiremock = "0.6"
 ```
-
-同时，在 `register_all_providers` 函数文档中明确说明 provider 名称配置项当前仅用于兼容性目的，注册键固定为 `"openai_vision"` / `"openai_text"`。
 
 ---
 
-### CR-02: `test_analyze_images_result_ordering` 存在竞态条件（flaky test）
+### CR-02: Flaky test due to CyclicResponder race with concurrent Semaphore-controlled requests
 
-**File:** `tests/llm_test.rs:372-406`
-**Issue:** 测试使用 `CyclicResponder` 配合 `AtomicUsize` 为每个请求分配递增序号。三个图片分别作为三个独立批次（`batch_size=1`），通过 `max_concurrency=2` 并发发送请求。原子计数器的递增顺序取决于三个请求到达 wiremock server 的时序，而该时序因并发执行而不确定。
+**File:** `E:\GitLib\NarratoAI\tests\llm_test.rs:372-406`
+**Issue:** `test_analyze_images_result_ordering` uses a single `CyclicResponder` (counter incremented per-request via `AtomicUsize::fetch_add`) with Semaphore-controlled concurrency (`max_concurrency=2`). Three image batches are `tokio::spawn`-ed concurrently, and the order in which requests reach the wiremock server is non-deterministic.
 
-典型失败场景：
-1. 任务 batch_idx=2 的 HTTP 请求先于 batch_idx=0 到达 wiremock
-2. `CyclicResponder` 为 batch_idx=2 分配序号 `0`，返回 `"batch-0"`
-3. batch_idx=0 获得序号 `1`，返回 `"batch-1"`
-4. batch_idx=1 获得序号 `2`，返回 `"batch-2"`
-5. 结果按 batch_idx 排序后得到 `["batch-1", "batch-0", "batch-2"]`
-6. 断言 `results[0] == "batch-0"` 失败
+**Failure scenario:**
+1. Batch 2 arrives at wiremock before batch 0
+2. CyclicResponder assigns `"batch-0"` to the batch-2 request (first to arrive)
+3. Batch 0 receives `"batch-1"`, batch 1 receives `"batch-2"`
+4. Sorted results: `["batch-1", "batch-0", "batch-2"]`
+5. Assertion `results[0] == "batch-0"` fails
 
-这是一个真正的数据竞争，在不同机器和负载条件下间歇性复现。理论上每次测试运行都有可能失败。
+The test is inherently flaky and may fail under CI load, different scheduling, or on multi-core machines.
 
-**Fix (方案 A -- 推荐):** 让所有请求返回相同响应，仅验证结果数量而非具体值：
+**Fix:** Replace CyclicResponder with individual mocks that have fixed responses and use `expect(N)` for call count assertions:
 
 ```rust
-let mock_response = serde_json::json!({
-    "id": "resp",
-    "object": "chat.completion",
-    "created": 1234567890,
-    "model": "test-model",
-    "choices": [{
-        "index": 0,
-        "message": {
-            "content": "result",
-            "role": "assistant"
-        },
-        "finish_reason": "stop"
-    }]
-});
+#[tokio::test]
+async fn test_analyze_images_result_ordering() {
+    let mock_server = MockServer::start().await;
 
-Mock::given(method("POST"))
-    .and(path("/v1/chat/completions"))
-    .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
-    .expect(3)
-    .mount(&mock_server)
-    .await;
+    // Use a single fixed response for all requests
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({
+                "id": "resp",
+                "object": "chat.completion",
+                "created": 1234567890,
+                "model": "test-model",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "content": "analysis result",
+                        "role": "assistant"
+                    },
+                    "finish_reason": "stop"
+                }]
+            }),
+        ))
+        .expect(3)
+        .mount(&mock_server)
+        .await;
 
-let results = provider.analyze_images(...).await.unwrap();
-assert_eq!(results.len(), 3);
-for (i, r) in results.iter().enumerate() {
-    assert!(!r.is_empty(), "结果 {} 不应为空", i);
+    let provider = create_test_provider(&mock_server.uri());
+    let dir = TempDir::new().expect("create temp dir failed");
+
+    let img1 = create_test_jpeg_path(dir.path());
+    let img2_path = dir.path().join("test_image2.jpg");
+    write_test_jpeg(&img2_path).expect("write test image failed");
+    let img3_path = dir.path().join("test_image3.jpg");
+    write_test_jpeg(&img3_path).expect("write test image failed");
+
+    let images = vec![img1, img2_path, img3_path];
+
+    let results = provider
+        .analyze_images(&images, "describe", None, Some(1), Some(2), None, None, None)
+        .await;
+
+    assert!(results.is_ok(), "analyze_images should succeed: {:?}", results.err());
+    let results = results.unwrap();
+    assert_eq!(results.len(), 3, "should have exactly 3 results");
+    // Verify each result is non-empty -- order is non-deterministic with concurrent execution
+    for (i, r) in results.iter().enumerate() {
+        assert!(!r.is_empty(), "result {} should not be empty", i);
+    }
 }
 ```
 
-**Fix (方案 B):** 将 `max_concurrency` 设为 1，强制串行执行，消除竞态：
-
-```rust
-let results = provider
-    .analyze_images(&images, "describe", None, Some(1), Some(1), None, None, None)
-    .await;
-```
+This approach: (a) eliminates the data race entirely by using identical responses, (b) verifies call count via `.expect(3)`, (c) still verifies all 3 results are returned and non-empty.
 
 ---
 
 ## Warnings
 
-### WR-01: JSON response_format 回退与客户端 backoff 重试可能导致请求数放大
+### WR-01: Unused `&self` parameter on `build_text_messages`
 
-**File:** `src/llm/openai_compatible.rs:101-110, 212-262, 268-313`
-**Issue:** `generate_text_with_json_fallback` 和 `create_vision_chat_with_json_fallback` 中嵌套了两层重试机制：
+**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:121`
+**Issue:** `fn build_text_messages(&self, prompt: &str, system_prompt: Option<&str>)` takes `&self` but never accesses any instance field. Meanwhile, `build_vision_messages` at line 150 is correctly implemented as an associated function (no `&self`). This inconsistency forces all callers to go through an instance reference when no instance state is needed. The method docs also describe it as "building messages," not as an operation dependent on provider state.
 
-- **内层：** `async-openai` 客户端通过 `ExponentialBackoff` 自动重试。`max_elapsed_time` 配置为 `max_retries * 10` 秒（默认 30s）。在内层退避时间内，客户端持续重试失败的请求。
-- **外层：** JSON fallback 函数捕获到内层最终返回的 `response_format` 相关错误后，修改 prompt 并发起新的请求。新的请求再次进入内层的 backoff 重试循环。
-
-当 `max_retries=3`（默认值）时，一次 `generate_text` 或 `analyze_images` 调用的实际 HTTP 请求数可能远远超过 3，具体取决于 backoff 时间窗口内的退避次数（默认初始间隔 500ms、倍增因子 1.5，30 秒内可产生约 8-10 次内部重试）。每一轮 fallback 重试也重复这个模式。
-
-这不仅是性能问题——在 `llm_max_retries = 0` 时行为正确（backoff 瞬间终止），但在 `llm_max_retries > 0` 时所有 fallback 路径都会放大请求量。
-
-**Fix:** 在 fallback 路径中使用一个不带 backoff 的独立客户端实例，或重试请求的 backoff 参数设为最短退避（`max_elapsed_time = Duration::ZERO`）：
+**Fix:** Remove `&self` and update all callers:
 
 ```rust
-// 在 ProviderConfig 中新增备用客户端，或在 fallback 方法中创建临时无重试客户端
-fn build_no_retry_client(cfg: &ProviderConfig) -> Result<Client<OpenAIConfig>, LLMError> {
-    let openai_config = OpenAIConfig::new()
-        .with_api_key(&cfg.api_key)
-        .with_api_base(cfg.base_url.trim_end_matches('/'));
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(cfg.timeout_secs))
-        .build()
-        .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
-    let no_retry_backoff = ExponentialBackoff {
-        max_elapsed_time: Some(Duration::ZERO),
-        ..ExponentialBackoff::default()
-    };
-    Ok(Client::build(http_client, openai_config, no_retry_backoff))
-}
+fn build_text_messages(
+    prompt: &str,
+    system_prompt: Option<&str>,
+) -> Vec<ChatCompletionRequestMessage> {
 ```
+
+Callers at line 326 (`self.build_text_messages(...)`) and line 371 (`self.build_text_messages(...)`) should become `Self::build_text_messages(...)`.
 
 ---
 
-### WR-02: 错误启发式分类中 `.contains("key")` 匹配过于宽泛
+### WR-02: Overly broad heuristic substring matching in error classification
 
-**File:** `src/error.rs:111-118`
-**Issue:** `From<OpenAIError>` 实现中，当 `ApiError.code` 不匹配已知规则时，回退到对错误消息的消息启发式判断。其中 `lower.contains("key")` 会匹配任何包含子串 `"key"` 的错误消息，包括模型名称中含 `"key"`、参数名中含 `"api_key"` 等非认证错误。
+**File:** `E:\GitLib\NarratoAI\src\error.rs:112-115`
+**Issue:** The fallback error classification in `From<OpenAIError> for LLMError` matches substrings `"auth"` and `"key"` anywhere in the error message text. This is overly broad:
 
-例如以下可能的错误消息都会被误判为 `Authentication`：
-- `"The model key HN-123 is invalid for this endpoint"`（可能是不支持模型而非认证问题）
-- `"The request was rejected because it uses an API key that is not authorized for this region"`（包含 `"key"` 但已是正确分类）
+- `"key"` matches: `"api_key"`, `"key not found in response"`, `"the model key was not recognized"`, `"key index out of range"` -- most of which are not authentication errors
+- `"auth"` matches: `"authentication"`, `"authorization"`, but also edge cases like `"authoritative source unavailable"`
 
-`"auth"` 的匹配也存在类似问题（如 `"default_value"` 不包含 `"auth"`，但 `"auth_request_id"` 会被匹配）。
+This can cause downstream callers to misclassify `APICall` errors as `Authentication`, potentially triggering wrong retry or credential refresh logic.
 
-**Fix:** 提高启发式的精确度：
+**Fix:** Use more specific patterns that match the actual semantic context:
 
 ```rust
 _ => {
@@ -181,8 +177,9 @@ _ => {
         LLMError::RateLimit(msg)
     } else if lower.contains("authentication")
         || lower.contains("unauthorized")
-        || lower.contains("auth failed")
-        || (lower.contains("api key") && lower.contains("invalid"))
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+        || lower.contains("invalid_token")
     {
         LLMError::Authentication(msg)
     } else {
@@ -193,32 +190,115 @@ _ => {
 
 ---
 
-## Info
+### WR-03: JPEG integrity verification decodes full image, risking OOM under concurrency
 
-### IN-01: API Key 以明文 String 存储，无内存安全清理
+**File:** `E:\GitLib\NarratoAI\src\llm\image_utils.rs:44`
+**Issue:** The JPEG fast-path calls `image::load_from_memory(&raw_bytes)` to verify JPEG integrity. For a maximum-sized file (50 MB), the decoded RGBA image can allocate ~200 MB in memory. While the decoded image is immediately dropped, the temporary allocation is still made. In `analyze_images`, image preprocessing tasks run concurrently via `futures::future::join_all` (line 424, `openai_compatible.rs`), meaning multiple 200 MB allocations can occur simultaneously.
 
-**File:** `src/llm/openai_compatible.rs:35`
-**Issue:** `ProviderConfig.api_key` 的类型为 `String`，在内存中以明文存在且 drop 时不会清零。虽然 `Debug` 实现已遮盖密钥值，且 `config.toml` 已被 `.gitignore` 排除，但进程核心转储或侧信道攻击仍可能泄露密钥。`async-openai` 内部使用 `secrecy::SecretString` 处理密钥，但用户在 `ProviderConfig` 中传递的密钥未使用同样措施。
+Example: Processing 10 images (none JPEG) would decode each into memory during the non-JPEG path's `image::load_from_memory` on line 57 anyway -- so the JPEG path is not uniquely affected. However, the JPEG path double-decodes (once for integrity, once implicitly via the JPEG fast path skip), wasting work.
 
-**Fix（可选）:** 使用 `secrecy::SecretString` 包装 `ProviderConfig.api_key` 字段。当前风险较低，建议标记为后续安全加固项。
+**Fix:** Skip the full decode integrity check for JPEG files. Downstream (the LLM API) will reject invalid images with an appropriate error. If validation is desired, either validate only small JPEGs or use a lightweight JPEG marker structure validator:
+
+```rust
+if magic.starts_with(&[0xFF, 0xD8, 0xFF]) {
+    // JPEG fast path: skip full decode integrity check.
+    // Full decode of a 50 MB JPEG can allocate ~200 MB, risking OOM
+    // under concurrent preprocessing. Downstream API will reject
+    // corrupted images with a clear error.
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| LLMError::General(format!("file seek failed: {}", e)))?;
+    let mut raw_bytes = Vec::new();
+    file.read_to_end(&mut raw_bytes)
+        .map_err(|e| LLMError::General(format!("file read failed: {}", e)))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
+    return Ok(format!("data:image/jpeg;base64,{}", b64));
+}
+```
 
 ---
 
-### IN-02: `build_text_messages` 接收未使用的 `&self` 参数
+### WR-04: JSON fallback prompt uses Chinese, inconsistent with potential English system prompt
 
-**File:** `src/llm/openai_compatible.rs:122-145`
-**Issue:** `build_text_messages(&self, prompt, system_prompt)` 是一个实例方法，但方法体中没有使用 `self`。对比之下 `build_vision_messages` 是关联函数（无 `&self`）。两处方法设计不一致，增加了不必要的约束（调用方需要持有 provider 实例引用，即使该方法不依赖任何实例状态）。这不会产生编译警告，但降低了代码的一致性。
+**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:230-232` and `openai_compatible.rs:284-286`
+**Issue:** The JSON response_format fallback appends Chinese text to the original prompt:
 
-**Fix:** 将 `build_text_messages` 改为关联函数：
-
-```rust
-fn build_text_messages(
-    prompt: &str,
-    system_prompt: Option<&str>,
-) -> Vec<ChatCompletionRequestMessage> {
+```
+\n\n请确保输出严格的JSON格式，不要包含任何其他文字或标记。
 ```
 
-并在 `generate_text`（第 326 行）和 `generate_text_stream`（第 371 行）两处调用点将 `self.build_text_messages(...)` 改为 `Self::build_text_messages(...)`。
+If the system prompt and original prompt are in English, this language mixing can confuse the LLM, potentially causing unreliable JSON output or the model reverting to Chinese. The project's `CLAUDE.md` indicates the core project supports Chinese and English use cases, so the prompt language should match the user's selected language or be language-neutral.
+
+**Fix:** Use a language-neutral or English instruction that works consistently across languages:
+
+```rust
+let json_prompt = format!(
+    "{}\n\nIMPORTANT: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks.",
+    original_prompt
+);
+```
+
+Alternatively, add a configuration field or heuristic to detect the primary language from the system prompt and select the appropriate instruction language.
+
+---
+
+## Info
+
+### IN-01: `response.choices.first()` called twice in analyze_images
+
+**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:509,514`
+**Issue:** In `analyze_images`, `response.choices.first()` is called once at line 509 (inside `and_then`) and again at line 514 (inside the `ok_or_else` closure). The choices vector has not been mutated between these calls, making the second `.first()` redundant. It is also called a third time at line 518 (`response.choices.first().and_then(...)`) for the finish_reason check.
+
+**Fix:** Extract the first choice into a local variable to avoid repeated slice access:
+
+```rust
+let first_choice = response.choices.first();
+let text = first_choice
+    .and_then(|c| c.message.content.as_deref())
+    .ok_or_else(|| {
+        if let Some(finish_reason) = first_choice.and_then(|c| c.finish_reason.as_ref()) {
+            if *finish_reason == async_openai::types::chat::FinishReason::ContentFilter {
+                return LLMError::ContentFilter(
+                    "content blocked by safety filter".to_string(),
+                );
+            }
+        }
+        LLMError::APICall("response contains no valid text content".to_string())
+    })?
+    .to_string();
+```
+
+---
+
+### IN-02: Double `.into_iter().collect()` chain reduces readability
+
+**File:** `E:\GitLib\NarratoAI\src\llm\openai_compatible.rs:429-433`
+**Issue:** The image preprocessing result chain uses two `.into_iter().collect::<Result<Vec<_>, _>>()` calls in sequence: the first collects `JoinHandle` results (flattening `Vec<Result<Result<..>, JoinError>>`), the second collects per-image preprocessing results (`Vec<Result<String, LLMError>>`). While semantically correct, this double-collect pattern is difficult to read and fragile to type inference changes (a minor refactor could change the intermediate type and break compilation).
+
+**Fix:** Split into explicit intermediate type annotations:
+
+```rust
+use tokio::task::JoinHandle;
+
+let handles: Vec<JoinHandle<Result<String, LLMError>>> = images
+    .iter()
+    .map(|p| {
+        let p = p.clone();
+        tokio::task::spawn_blocking(move || image_to_base64_data_url(&p))
+    })
+    .collect();
+
+let join_results: Vec<Result<String, LLMError>> = futures::future::join_all(handles)
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|join_err| {
+        LLMError::General(format!("image preprocessing task failed: {}", join_err))
+    })?;
+
+let data_urls: Vec<String> = join_results
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
+```
 
 ---
 
