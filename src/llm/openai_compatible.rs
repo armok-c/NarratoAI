@@ -409,11 +409,17 @@ impl LlmProvider for OpenAiCompatibleProvider {
         max_concurrency: Option<usize>,
         response_format: Option<LlmResponseFormat>,
     ) -> Result<Vec<String>, LLMError> {
-        // 预处理所有图片为 base64 data URL
-        let data_urls: Vec<String> = images
-            .iter()
-            .map(|p| image_to_base64_data_url(p))
-            .collect::<Result<Vec<_>, _>>()?;
+        // 预处理所有图片为 base64 data URL（通过 spawn_blocking 避免阻塞 tokio worker 线程）
+        let data_urls: Vec<String> = futures::future::join_all(images.iter().map(|p| {
+            let p = p.clone();
+            tokio::task::spawn_blocking(move || image_to_base64_data_url(&p))
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|join_err| LLMError::General(format!("图片预处理任务失败: {}", join_err)))?
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
 
         if data_urls.is_empty() {
             return Ok(Vec::new());
