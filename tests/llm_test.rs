@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use narratoai_core::error::LLMError;
@@ -6,7 +6,6 @@ use narratoai_core::llm::image_utils::image_to_base64_data_url;
 use narratoai_core::llm::openai_compatible::OpenAiCompatibleProvider;
 use narratoai_core::llm::provider::LlmProvider;
 use narratoai_core::llm::registry::Registry;
-use narratoai_core::llm::test_utils::{create_test_jpeg_path, write_test_jpeg};
 use narratoai_core::llm::types::LlmResponseFormat;
 use tempfile::TempDir;
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -330,8 +329,9 @@ async fn test_openai_error_mapping() {
             "HTTP {} 应返回错误",
             tc.status
         );
+        let err = result.as_ref().unwrap_err();
         assert!(
-            (tc.expected)(result.err().as_ref().unwrap()),
+            (tc.expected)(err),
             "HTTP {} 错误变体不匹配: {:?}",
             tc.status,
             result,
@@ -411,5 +411,26 @@ fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
         None,
     )
     .expect("测试 provider 创建失败")
+}
+
+// ---------------------------------------------------------------------------
+// 测试辅助函数
+// ---------------------------------------------------------------------------
+
+/// 生成一个 32x32 的测试 JPEG 图片并写入指定路径
+fn write_test_jpeg(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut img = image::DynamicImage::new_rgba8(32, 32);
+    for pixel in img.as_mut_rgba8().unwrap().pixels_mut() {
+        *pixel = image::Rgba([255u8, 0u8, 0u8, 255u8]);
+    }
+    img.save_with_format(path, image::ImageFormat::Jpeg)?;
+    Ok(())
+}
+
+/// 创建测试 JPEG 图片的路径并写入文件，返回路径
+fn create_test_jpeg_path(dir: &Path) -> PathBuf {
+    let path = dir.join("test_image.jpg");
+    write_test_jpeg(&path).expect("测试图片写入失败");
+    path
 }
 
