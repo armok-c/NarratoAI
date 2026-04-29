@@ -75,10 +75,16 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
     let rate_str = convert_rate_to_percent(rate);
     let pitch_str = convert_pitch_to_hz(pitch);
     let voice_lang = voice_name_to_lang(voice_name);
-    let escaped_text = text
+    let escaped_text: String = text
         .replace('&', "&amp;")
         .replace('<', "&lt;")
-        .replace('>', "&gt;");
+        .replace('>', "&gt;")
+        .chars()
+        .filter(|&c| {
+            // 保留标准可见字符、回车、换行、制表符；过滤 XML 1.0 禁止的控制字符
+            c == '\t' || c == '\n' || c == '\r' || c as u32 >= 0x20
+        })
+        .collect();
 
     format!(
         r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
