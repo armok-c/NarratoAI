@@ -598,6 +598,36 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_rate_to_percent_zero() {
+        // rate=0.0 should produce -100% (one full step slower)
+        assert_eq!(convert_rate_to_percent(0.0), "-100%");
+    }
+
+    #[test]
+    fn test_convert_rate_to_percent_nan() {
+        // NaN should fall back to +0%
+        assert_eq!(convert_rate_to_percent(f64::NAN), "+0%");
+    }
+
+    #[test]
+    fn test_convert_rate_to_percent_negative() {
+        // Negative rate should fall back to +0%
+        assert_eq!(convert_rate_to_percent(-0.5), "+0%");
+    }
+
+    #[test]
+    fn test_convert_rate_to_percent_inf() {
+        // Infinity should fall back to +0%
+        assert_eq!(convert_rate_to_percent(f64::INFINITY), "+0%");
+    }
+
+    #[test]
+    fn test_convert_rate_to_percent_neg_inf() {
+        // Negative infinity should fall back to +0%
+        assert_eq!(convert_rate_to_percent(f64::NEG_INFINITY), "+0%");
+    }
+
+    #[test]
     fn test_convert_pitch_to_hz_default() {
         assert_eq!(convert_pitch_to_hz(0.0), "+0Hz");
     }
