@@ -15,7 +15,11 @@ pub struct RegistrationErrors(pub Vec<LLMError>);
 
 impl std::fmt::Display for RegistrationErrors {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "provider 注册失败 ({} 个错误)", self.0.len())
+        write!(f, "provider 注册失败 ({} 个错误):", self.0.len())?;
+        for (i, err) in self.0.iter().enumerate() {
+            write!(f, "\n  [{}] {}", i + 1, err)?;
+        }
+        Ok(())
     }
 }
 
