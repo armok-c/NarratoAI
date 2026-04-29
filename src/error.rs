@@ -120,7 +120,7 @@ impl From<async_openai::error::OpenAIError> for LLMError {
                 }
             }
             async_openai::error::OpenAIError::Reqwest(e) => {
-                if e.is_timeout() {
+                if e.is_timeout() || e.to_string().to_lowercase().contains("timeout") {
                     LLMError::APICall(format!("请求超时: {}", e))
                 } else if e.is_status() {
                     let status = e.status().unwrap_or_default();
