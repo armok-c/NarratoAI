@@ -1,88 +1,85 @@
 ---
 phase: 03-tts-core-edge-tts
-fixed_at: 2026-04-29T10:00:00Z
+fixed_at: 2026-04-29T12:45:00+08:00
 review_path: .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
 iteration: 1
-findings_in_scope: 7
-fixed: 6
-fixed_requires_human_verification: 1
+findings_in_scope: 8
+fixed: 8
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 03: TTS Core + Edge-TTS Engine -- Code Review Fix Report
 
-**Fixed at:** 2026-04-29T10:00:00Z
-**Source review:** `.planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md`
+**Fixed at:** 2026-04-29T12:45:00+08:00
+**Source review:** .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-
-- Findings in scope: 7
-- Fixed: 6
-- Fixed (requires human verification): 1
+- Findings in scope: 8
+- Fixed: 8
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: tokio-tungstenite feature `rustls-tls` does not exist in v0.29.0; proxy code path requires `native-tls`
+### CR-01: undefined variable `connect_req` in HTTP CONNECT proxy tunnel -- compile error
 
-**Status: fixed**
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 29777ec, 4cd2ee9
+**Applied fix:** Constructed the HTTP CONNECT request string using `target_host` and `target_port` before sending it over the proxy TCP connection. Also fixed pre-existing `let tcp` to `let mut tcp` to allow mutable borrows for `write_all`, `flush`, and `read` calls in the proxy tunnel. The `target_host` and `target_port` variables (previously dead code, IN-01) are now consumed by `connect_req`.
+
+### CR-02: undefined behavior on NaN/infinity rate or pitch in conversion functions
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 2f173cf
+**Applied fix:** Added `!rate.is_finite() || rate < 0.0` guard in `convert_rate_to_percent` and `!pitch.is_finite()` guard in `convert_pitch_to_hz`. Both return safe fallback values (`+0%` and `+0Hz` respectively) when input is non-finite. This prevents the undefined behavior that occurs in Rust when casting NaN/infinity `f64` values to `i32`.
+
+### WR-01: no input validation before establishing WebSocket connection
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 07d0dff
+**Applied fix:** Added input validation at the start of `EdgeTtsEngine::synthesize()`: empty `text` returns `Err(TTSError::SynthesisFailed)`; non-finite or negative `rate` returns `Err(TTSError::SynthesisFailed)`; non-finite `pitch` returns `Err(TTSError::SynthesisFailed)`. Validation happens before SSML construction and WebSocket connection, avoiding wasted connections.
+
+### WR-02: binary message parse failure silently discarded -- no diagnostic
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** 68ca0a7
+**Applied fix:** Added `else` branch to the `if let Some(content) = parse_edge_tts_binary(&data)` block. When parsing fails (returns `None`), a `tracing::warn!` is emitted with the raw bytes truncated to 256 bytes for diagnostic visibility.
+
+### WR-03: fragile proxy URL parsing -- uppercase scheme, missing scheme, unknown scheme
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** d9d29b3
+**Applied fix:** Replaced case-sensitive `starts_with("https://")` and `trim_start_matches("http://")`/`trim_start_matches("https://")` with case-insensitive `split_once("://")` + `to_lowercase()` scheme matching. Added explicit port defaults for `wss` (443) and `socks5` (1080) schemes.
+
+### IN-01: unused variables `target_host` and `target_port`
+
+**Status:** automatically resolved by CR-01. These variables are now consumed by the `connect_req` construction. No separate commit needed.
+
+### IN-02: pre-release dependency `notify = "9.0.0-rc.3"`
 
 **Files modified:** `Cargo.toml`
-**Commit:** 777f24e
-**Applied fix:** Changed `features = ["rustls-tls"]` to `features = ["native-tls", "rustls-tls-native-roots"]` for tokio-tungstenite v0.29.0. The `native-tls` feature enables `Connector::NativeTls` used in the HTTP CONNECT proxy tunnel; `rustls-tls-native-roots` replaces the non-existent `rustls-tls` for direct WebSocket connections.
+**Commit:** d6922d0
+**Applied fix:** Added inline comment documenting the known risk: `# 已知风险: RC 版 API 不稳定，9.0.0 正式版可能破坏兼容性`. Documents the risk without changing the pin.
 
-### CR-02: HTTP CONNECT proxy tunnel -- `BufReader::into_inner()` discards read-ahead buffer, risk of TLS data corruption
-
-**Status: fixed: requires human verification** (logic-level correctness fix -- the I/O pattern has been restructured; human review is recommended to confirm the revised approach is correct.)
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** d569dc2
-**Applied fix:** Replaced `tokio::io::BufReader` wrapping of the TCP stream with a fixed-size `Vec<u8>` buffer (4096 bytes) that reads the CONNECT response directly into the raw `TcpStream`. The response is parsed from the buffer after full reception. The raw `TcpStream` is then passed directly to `client_async_tls_with_config`, eliminating the risk of data loss from `BufReader::into_inner()` discarding read-ahead bytes that belonged to the TLS handshake. The interim 1xx response handling logic (RFC 7231 Section 4.3.6) is preserved using string parsing from the pre-read buffer.
-
-### WR-01: Proxy URL parser breaks on IPv6 addresses
-
-**Status: fixed**
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** c1f0895
-**Applied fix:** Added IPv6 bracket notation detection before host:port splitting. If the host_port string starts with `[`, the code uses `rsplit_once("]:")` to correctly extract the IPv6 address and port. Otherwise, the original `split_once(':')` logic applies. This enables proxy addresses like `http://[::1]:7890`.
-
-### WR-02: EdgeTtsEngine struct missing `Debug` derive, impairs diagnostics
-
-**Status: fixed**
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** ac25429
-**Applied fix:** Added `#[derive(Debug)]` to the `EdgeTtsEngine` struct. All fields (`bool`, `String`, `String`) already implement `Debug`, so the derive is zero-cost.
-
-### IN-01: Version test is a tautology
-
-**Status: fixed**
-
-**Files modified:** `src/lib.rs`
-**Commit:** 3eec948
-**Applied fix:** Replaced `assert_eq!(version(), env!("CARGO_PKG_VERSION"))` (both sides are the same compile-time constant) with `assert!(!version().is_empty())` and `assert!(version().contains('.'))`, which verify the version string is non-empty and follows semver format. Renamed test to `test_version_is_nonempty_semver`.
-
-### IN-02: Redundant `use async_trait::async_trait` in test module
-
-**Status: fixed**
-
-**Files modified:** `src/tts/mod.rs`
-**Commit:** 549bf95
-**Applied fix:** Removed the redundant `use async_trait::async_trait;` import from the test module. This import is already brought into scope by `use super::*;` on the preceding line, making it a clippy-redundant import.
-
-### IN-03: Test comment mislabels microseconds vs nanoseconds
-
-**Status: fixed**
+### IN-03: signature test uses opaque empty-string parameters
 
 **Files modified:** `tests/tts_test.rs`
-**Commit:** 3e343f3
-**Applied fix:** Changed `微秒` to `纳秒` in the doc comment on line 78. The value `5_000_000_000` is the count of nanoseconds (not microseconds) for 5 seconds.
+**Commit:** 1a79f81
+**Applied fix:** Changed `tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None)` to use descriptive variable bindings (`engine`, `text`, `voice_name`) so readers can identify which empty-string maps to which parameter.
+
+## Verification Notes
+
+- All 8 in-scope findings addressed (7 findings requiring explicit changes, 1 auto-resolved by CR-01).
+- `cargo check` confirms all modified files compile correctly. Pre-existing errors in `image_utils.rs` (missing `GenericImageView` import) and `openai_compatible.rs` (`with_max_retries` method not found) are unrelated to TTS changes and were present before this fix iteration.
+- The `let mut tcp` fix was added as an auxiliary change to CR-01 since the proxy tunnel code requires mutable access to the TCP stream for `write_all`, `flush`, and `read`. This was a pre-existing bug hidden by the CR-01 compile error.
+
+## Skipped Issues
+
+None -- all 8 findings were fixed.
 
 ---
 
-_Fixed: 2026-04-29T10:00:00Z_
+_Fixed: 2026-04-29T12:45:00+08:00_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
