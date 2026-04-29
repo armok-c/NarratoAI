@@ -287,6 +287,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         &self,
         images: &[PathBuf],
         prompt: &str,
+        system_prompt: Option<&str>,
         batch_size: Option<usize>,
         max_concurrency: Option<usize>,
     ) -> Result<Vec<String>, LLMError> {
@@ -316,6 +317,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let sem_clone = semaphore.clone();
             let client_clone = self.client.clone();
             let prompt_owned = prompt.to_string();
+            let system_prompt_owned = system_prompt.map(|s| s.to_string());
             let model_name = self.model_name.clone();
 
             handles.push(tokio::spawn(async move {
@@ -348,12 +350,21 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     );
                 }
 
-                let messages = vec![ChatCompletionRequestMessage::User(
+                let mut messages: Vec<ChatCompletionRequestMessage> = Vec::with_capacity(2);
+                if let Some(sp) = system_prompt_owned {
+                    messages.push(ChatCompletionRequestMessage::System(
+                        ChatCompletionRequestSystemMessage {
+                            content: ChatCompletionRequestSystemMessageContent::Text(sp),
+                            name: None,
+                        },
+                    ));
+                }
+                messages.push(ChatCompletionRequestMessage::User(
                     ChatCompletionRequestUserMessage {
                         content: ChatCompletionRequestUserMessageContent::Array(content_parts),
                         name: None,
                     },
-                )];
+                ));
 
                 let request = CreateChatCompletionRequestArgs::default()
                     .model(&model_name)

@@ -44,6 +44,7 @@ pub trait LlmProvider: Send + Sync {
         &self,
         images: &[PathBuf],
         prompt: &str,
+        system_prompt: Option<&str>,
         batch_size: Option<usize>,
         max_concurrency: Option<usize>,
     ) -> Result<Vec<String>, LLMError>;
