@@ -11,6 +11,19 @@ use crate::error::LLMError;
 /// 流水线：
 /// image::open() -> resize(1024,Lanczos3) -> JPEG quality 85 -> base64 encode -> data URL
 pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
+    // 文件大小检查（防御性限制，防止 OOM）
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
+
+    const MAX_IMAGE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB 限制
+    if metadata.len() > MAX_IMAGE_SIZE {
+        return Err(LLMError::General(format!(
+            "图片文件过大: {} bytes (最大允许 {} bytes)",
+            metadata.len(),
+            MAX_IMAGE_SIZE
+        )));
+    }
+
     let img = image::open(path)
         .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
 
