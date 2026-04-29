@@ -37,6 +37,10 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
         // JPEG 直通：重新读取完整文件
         let raw_bytes = std::fs::read(path)
             .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+        // 轻量验证 JPEG 完整性
+        if let Err(e) = image::load_from_memory(&raw_bytes) {
+            return Err(LLMError::General(format!("JPEG 图片损坏: {}", e)));
+        }
         let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
         return Ok(format!("data:image/jpeg;base64,{}", b64));
     }
