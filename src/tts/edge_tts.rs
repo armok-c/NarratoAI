@@ -142,15 +142,16 @@ impl EdgeTtsEngine {
                 return Err(TTSError::ConnectionFailed("代理已启用但未配置代理地址".to_string()));
             };
 
-            // Parse proxy URL for host:port (strip scheme, strip credentials, split host:port)
-            let default_proxy_port = if proxy_url.starts_with("https://") {
-                443u16
-            } else {
-                80u16
+            // Parse proxy URL for host:port (case-insensitive scheme, strip credentials, split host:port)
+            let (proxy_scheme, proxy_rest) = proxy_url
+                .split_once("://")
+                .unwrap_or(("", proxy_url));
+            let proxy_addr = proxy_rest;
+            let default_proxy_port = match proxy_scheme.to_lowercase().as_str() {
+                "https" | "wss" => 443u16,
+                "socks5" => 1080u16,
+                _ => 80u16,
             };
-            let proxy_addr = proxy_url
-                .trim_start_matches("http://")
-                .trim_start_matches("https://");
             // Strip any user:pass@ prefix (use rsplit to handle @ in credentials)
             let host_port = proxy_addr
                 .rsplit('@')
