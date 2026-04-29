@@ -301,7 +301,7 @@ impl OpenAiCompatibleProvider {
                     let retry_request = retry_builder
                         .build()
                         .map_err(|e| {
-                            LLMError::Configuration(format!("请求重建失败: {}", e))
+                            LLMError::APICall(format!("请求重建失败: {}", e))
                         })?;
                     client.chat().create(retry_request).await.map_err(LLMError::from)
                 } else {
