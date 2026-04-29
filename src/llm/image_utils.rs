@@ -3,6 +3,7 @@ use std::io::Read;
 use std::path::Path;
 
 use base64::Engine;
+use image::GenericImageView;  // required for .dimensions()
 use image::imageops::FilterType::Lanczos3;
 
 use crate::error::LLMError;
