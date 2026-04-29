@@ -77,7 +77,7 @@ fn export_ost1_clips(clips: Vec<ScriptClip>, dir: &TempDir) -> (PathBuf, serde_j
         height: 1080,
     };
     let content_path = export_draft(&req).expect("OST=1 导出应成功");
-    let draft_dir = content_path.parent().unwrap().to_path_buf();
+    let draft_dir = content_path.parent().expect("draft_content.json 应有父目录").to_path_buf();
     let json = load_draft_content(&draft_dir);
     (draft_dir, json)
 }
@@ -130,7 +130,7 @@ fn test_ost_narration_only_timeline() {
     };
 
     let draft_dir = export_draft(&req).expect("导出应成功");
-    let json = load_draft_content(draft_dir.parent().unwrap());
+    let json = load_draft_content(draft_dir.parent().expect("导出路径应有父目录"));
 
     let tracks = json["tracks"].as_array().expect("tracks 应为数组");
     assert_eq!(tracks.len(), 2, "应有 2 个轨道（video + audio）");
@@ -248,7 +248,7 @@ fn test_ost_mixed_timeline() {
     };
 
     let draft_dir = export_draft(&req).expect("导出应成功");
-    let json = load_draft_content(draft_dir.parent().unwrap());
+    let json = load_draft_content(draft_dir.parent().expect("导出路径应有父目录"));
 
     let tracks = json["tracks"].as_array().expect("tracks 应为数组");
 
