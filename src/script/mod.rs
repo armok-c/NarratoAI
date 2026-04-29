@@ -7,36 +7,57 @@ use std::path::Path;
 use crate::script::error::ScriptError;
 use crate::script::types::{Script, ValidationError};
 
-/// 校验 timestamp 格式: `HH:MM:SS,mmm-HH:MM:SS,mmm`
+/// 将单个时间戳字符串转换为毫秒数
 ///
+/// 接受两种格式: `HH:MM:SS,mmm` 或 `HH:MM:SS`（毫秒部分可选，默认 0）。
+fn timestamp_to_millis(ts: &str) -> Option<u64> {
+    let sub_parts: Vec<&str> = ts.split(',').collect();
+    let time_str = sub_parts.first()?;
+    let time_parts: Vec<&str> = time_str.split(':').collect();
+    if time_parts.len() != 3 {
+        return None;
+    }
+    for tp in &time_parts {
+        if tp.len() != 2 || !tp.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+    }
+    let h: u64 = time_parts[0].parse().ok()?;
+    let m: u64 = time_parts[1].parse().ok()?;
+    let s: u64 = time_parts[2].parse().ok()?;
+    if h > 23 || m > 59 || s > 59 {
+        return None;
+    }
+    let ms: u64 = if sub_parts.len() > 1 {
+        let millis_str = sub_parts[1];
+        if millis_str.len() != 3 || !millis_str.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        millis_str.parse().ok()?
+    } else {
+        0
+    };
+    Some((h * 3600 + m * 60 + s) * 1000 + ms)
+}
+
+/// 校验 timestamp 格式: `HH:MM:SS,mmm-HH:MM:SS,mmm` 或 `HH:MM:SS-HH:MM:SS`
+///
+/// 毫秒部分可选，与 Python 管道兼容。同时校验范围和起止顺序。
 /// 手写校验，避免引入 regex 依赖。
-fn validate_timestamp(ts: &str) -> bool {
+pub(crate) fn validate_timestamp(ts: &str) -> bool {
     let parts: Vec<&str> = ts.split('-').collect();
     if parts.len() != 2 {
         return false;
     }
-    for part in &parts {
-        let sub_parts: Vec<&str> = part.split(',').collect();
-        if sub_parts.len() != 2 {
-            return false;
-        }
-        // 时间部分 HH:MM:SS
-        let time_parts: Vec<&str> = sub_parts[0].split(':').collect();
-        if time_parts.len() != 3 {
-            return false;
-        }
-        for tp in &time_parts {
-            if tp.len() != 2 || !tp.chars().all(|c| c.is_ascii_digit()) {
-                return false;
-            }
-        }
-        // 毫秒部分 mmm
-        let millis = sub_parts[1];
-        if millis.len() != 3 || !millis.chars().all(|c| c.is_ascii_digit()) {
-            return false;
-        }
-    }
-    true
+    let start_millis = match timestamp_to_millis(parts[0]) {
+        Some(v) => v,
+        None => return false,
+    };
+    let end_millis = match timestamp_to_millis(parts[1]) {
+        Some(v) => v,
+        None => return false,
+    };
+    end_millis >= start_millis
 }
 
 /// 校验脚本——收集所有错误一次性返回
@@ -74,7 +95,7 @@ pub fn validate(script: &Script) -> Result<(), ScriptError> {
                 clip_index: i,
                 field: "timestamp".to_string(),
                 message: format!(
-                    "时间戳格式无效，正确格式: HH:MM:SS,mmm-HH:MM:SS,mmm，当前值: {}",
+                    "时间戳格式无效，正确格式: HH:MM:SS,mmm-HH:MM:SS,mmm 或 HH:MM:SS-HH:MM:SS，当前值: {}",
                     clip.timestamp
                 ),
             });
@@ -478,8 +499,8 @@ mod tests {
             "无效格式应失败"
         );
         assert!(
-            !validate_timestamp("00:00:00-00:00:07"),
-            "缺少毫秒应失败"
+            validate_timestamp("00:00:00-00:00:07"),
+            "无毫秒格式（Python 管道格式）应通过"
         );
         assert!(
             !validate_timestamp("0:00:00,600-00:00:07,559"),
@@ -496,6 +517,49 @@ mod tests {
         assert!(
             !validate_timestamp(""),
             "空字符串应失败"
+        );
+
+        // WR-01: 范围校验 — 不可能的时间值应失败
+        assert!(
+            !validate_timestamp("99:99:99,999-99:99:99,999"),
+            "超出范围的时间值应失败"
+        );
+        assert!(
+            !validate_timestamp("24:00:00,000-25:00:00,000"),
+            "小时 > 23 应失败"
+        );
+        assert!(
+            !validate_timestamp("00:60:00,000-00:61:00,000"),
+            "分钟 > 59 应失败"
+        );
+        assert!(
+            !validate_timestamp("00:00:60,000-00:00:61,000"),
+            "秒 > 59 应失败"
+        );
+
+        // WR-02: 起止顺序校验 — 结束时间早于起始时间应失败
+        assert!(
+            !validate_timestamp("00:00:10,000-00:00:05,000"),
+            "结束时间早于起始时间应失败"
+        );
+        // 起止相等应通过
+        assert!(
+            validate_timestamp("00:00:05,000-00:00:05,000"),
+            "起止时间相等应通过"
+        );
+
+        // CR-01: Python 管道格式（无毫秒）+ 范围校验组合
+        assert!(
+            validate_timestamp("00:00:00-00:00:26"),
+            "Python 管道标准格式应通过"
+        );
+        assert!(
+            !validate_timestamp("99:99:99-99:99:99"),
+            "Python 管道格式但超出范围应失败"
+        );
+        assert!(
+            !validate_timestamp("00:00:10-00:00:05"),
+            "Python 管道格式但结束早于起始应失败"
         );
     }
 }

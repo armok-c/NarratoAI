@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde::de;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 /// OST 类型——决定视频裁剪时如何处理音频
@@ -14,12 +15,30 @@ pub enum OstType {
     Mixed = 2,
 }
 
+/// 自定义 _id 反序列化——同时接受整数和浮点数（如 LLM 生成的 `1.0`）
+fn deserialize_id<'de, D: de::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    let val = serde_json::Value::deserialize(d)?;
+    match val {
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(i)
+            } else if let Some(f) = n.as_f64() {
+                Ok(f as i64)
+            } else {
+                Err(de::Error::custom("_id 必须是数字"))
+            }
+        }
+        _ => Err(de::Error::custom("_id 必须是数字")),
+    }
+}
+
 /// 脚本片段——对应 Python 版 VideoClipParams 的核心字段 + 管道扩展字段
 ///
 /// 5 个核心字段（`_id`, `timestamp`, `picture`, `narration`, `OST`）在 JSON 中必须有值。
 /// 6 个管道扩展字段用 `Option<T>`，加载时为 `None`，管道处理后可能有值。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptClip {
+    #[serde(deserialize_with = "deserialize_id")]
     pub _id: i64,
     pub timestamp: String,
     pub picture: String,
@@ -277,5 +296,33 @@ mod tests {
             "应包含中文消息: {}",
             msg
         );
+    }
+
+    /// Test 8: _id 为浮点数（如 LLM 生成的 1.0）应正确反序列化为整数 1
+    #[test]
+    fn test_deserialize_id_from_float() {
+        let json = r#"{
+            "_id": 1.0,
+            "timestamp": "00:00:00,600-00:00:07,559",
+            "picture": "画面",
+            "narration": "解说",
+            "OST": 0
+        }"#;
+        let clip: ScriptClip = serde_json::from_str(json).expect("浮点数 _id 应反序列化成功");
+        assert_eq!(clip._id, 1, "_id 1.0 应转为整数 1");
+    }
+
+    /// Test 9: _id 为非数字值应反序列化失败
+    #[test]
+    fn test_deserialize_id_from_string_fails() {
+        let json = r#"{
+            "_id": "abc",
+            "timestamp": "00:00:00,600-00:00:07,559",
+            "picture": "画面",
+            "narration": "解说",
+            "OST": 0
+        }"#;
+        let result: Result<ScriptClip, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "字符串 _id 应反序列化失败");
     }
 }
