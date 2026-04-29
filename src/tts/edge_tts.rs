@@ -153,9 +153,15 @@ impl EdgeTtsEngine {
                 .split_once("://")
                 .unwrap_or(("", proxy_url));
             let proxy_addr = proxy_rest;
-            let default_proxy_port = match proxy_scheme.to_lowercase().as_str() {
+            // SOCKS5 is not supported — HTTP CONNECT tunnel requires HTTP proxy
+            let proxy_scheme_lower = proxy_scheme.to_lowercase();
+            if proxy_scheme_lower == "socks5" {
+                return Err(TTSError::ConnectionFailed(
+                    "本引擎不支持 SOCKS5 代理，请使用 HTTP/HTTPS 代理".to_string()
+                ));
+            }
+            let default_proxy_port = match proxy_scheme_lower.as_str() {
                 "https" | "wss" => 443u16,
-                "socks5" => 1080u16,
                 _ => 80u16,
             };
             // Extract user:pass credentials before stripping (rsplitn to handle @ in password)
