@@ -34,9 +34,11 @@ impl Registry {
             .ok_or_else(|| LLMError::ProviderNotFound(name.to_string()))
     }
 
-    /// 返回已注册的所有 provider 名称列表
+    /// 返回已注册的所有 provider 名称列表（排序后以保证稳定性）
     pub fn list_providers(&self) -> Vec<String> {
-        self.providers.keys().cloned().collect()
+        let mut names: Vec<String> = self.providers.keys().cloned().collect();
+        names.sort();
+        names
     }
 }
 
