@@ -54,6 +54,24 @@ impl ExportRequest {
 }
 
 // ---------------------------------------------------------------------------
+// 草稿名称校验
+// ---------------------------------------------------------------------------
+
+/// 校验草稿名称——拒绝路径分隔符、遍历序列和空字符
+fn validate_draft_name(name: &str) -> Result<(), JianYingError> {
+    if name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || name.contains('\0')
+    {
+        return Err(JianYingError::Validation {
+            details: format!("草稿名称包含非法字符: {}", name),
+        });
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // DraftFolder（per pyJianYingDraft draft_folder.py）
 // ---------------------------------------------------------------------------
 
@@ -71,14 +89,16 @@ impl DraftFolder {
         width: u32,
         height: u32,
     ) -> Result<(Self, ScriptFile), JianYingError> {
+        validate_draft_name(draft_name)?;
         let draft_dir = draft_path.join(draft_name);
         std::fs::create_dir_all(&draft_dir)?;
 
         // 写入 draft_meta_info.json（per RESEARCH Pitfall 7）
         let draft_id = Uuid::new_v4().to_string().replace("-", "");
-        let meta_content = DRAFT_META_INFO_TEMPLATE
-            .replace("DRAFT_ID_PLACEHOLDER", &draft_id)
-            .replace("DRAFT_NAME_PLACEHOLDER", draft_name);
+        let mut meta: serde_json::Value = serde_json::from_str(DRAFT_META_INFO_TEMPLATE)?;
+        meta["draft_id"] = serde_json::json!(draft_id);
+        meta["draft_name"] = serde_json::json!(draft_name);
+        let meta_content = serde_json::to_string(&meta)?;
         std::fs::write(draft_dir.join("draft_meta_info.json"), meta_content)?;
 
         let script_file = ScriptFile::new(width, height, draft_id);
@@ -284,16 +304,24 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
 
         // 音频片段（per D-08 OST 映射）
         if clip.ost == OstType::NarrationOnly || clip.ost == OstType::Mixed {
-            if let Some(ref audio_path) = clip.audio {
-                let audio_duration = probe_audio(audio_path)
-                    .map_err(|e| JianYingError::ProbeError(e.to_string()))?;
-                let safe_duration = duration.min(audio_duration); // per D-10
-                let audio_target = trange_from_secs(current_time_secs, safe_duration)
-                    .ok_or_else(|| JianYingError::Validation {
-                        details: format!("第 {} 段构造音频时间范围失败（duration 不应为负数）", i + 1),
-                    })?;
-                let audio_seg = AudioSegment::new(audio_path, audio_target)?;
-                script_file.add_audio_segment(audio_seg, "音频轨道")?;
+            match clip.audio {
+                Some(ref audio_path) => {
+                    let audio_duration = probe_audio(audio_path)
+                        .map_err(|e| JianYingError::ProbeError(e.to_string()))?;
+                    let safe_duration = duration.min(audio_duration); // per D-10
+                    let audio_target = trange_from_secs(current_time_secs, safe_duration)
+                        .ok_or_else(|| JianYingError::Validation {
+                            details: format!("第 {} 段构造音频时间范围失败（duration 不应为负数）", i + 1),
+                        })?;
+                    let audio_seg = AudioSegment::new(audio_path, audio_target)?;
+                    script_file.add_audio_segment(audio_seg, "音频轨道")?;
+                }
+                None => {
+                    return Err(JianYingError::MissingField {
+                        field: "audio".to_string(),
+                        clip_index: i,
+                    });
+                }
             }
         }
 
@@ -725,6 +753,41 @@ mod tests {
         assert!(parse_timestamp_start("invalid").is_none());
         assert!(parse_timestamp_start("").is_none());
         assert!(parse_timestamp_start("--").is_none());
+    }
+
+    // --- validate_draft_name 测试 ---
+
+    /// Test: validate_draft_name 拒绝路径遍历序列
+    #[test]
+    fn test_validate_draft_name_rejects_traversal() {
+        assert!(
+            validate_draft_name("../../etc/cron.d").is_err(),
+            "路径遍历应被拒绝"
+        );
+        assert!(
+            validate_draft_name("foo\\bar").is_err(),
+            "反斜杠应被拒绝"
+        );
+        assert!(
+            validate_draft_name("foo/bar").is_err(),
+            "正斜杠应被拒绝"
+        );
+        assert!(
+            validate_draft_name("foo\0bar").is_err(),
+            "空字符应被拒绝"
+        );
+        assert!(
+            validate_draft_name("..").is_err(),
+            "双点应被拒绝"
+        );
+        assert!(
+            validate_draft_name("正常名称").is_ok(),
+            "合法名称应通过"
+        );
+        assert!(
+            validate_draft_name("my-draft-2024").is_ok(),
+            "正常名称应通过"
+        );
     }
 
     // --- 辅助函数 ---

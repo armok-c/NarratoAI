@@ -17,7 +17,7 @@ pub struct Timerange {
 pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
     let start_us = parse_seconds(start)?;
     let duration_us = parse_seconds(duration)?;
-    if duration_us < 0 {
+    if start_us < 0 || duration_us < 0 {
         return None;
     }
     Some(Timerange {
@@ -140,6 +140,11 @@ mod tests {
     #[test]
     fn test_trange_negative_duration_returns_none() {
         assert!(trange("5s", "-3s").is_none(), "负 duration 应返回 None");
+    }
+
+    #[test]
+    fn test_trange_negative_start_returns_none() {
+        assert!(trange("-2s", "5s").is_none(), "负 start 应返回 None");
     }
 
     #[test]
