@@ -212,71 +212,57 @@ impl EdgeTtsEngine {
             // Read CONNECT response into a fixed buffer to preserve raw TcpStream
             // (BufReader::into_inner() discards the internal buffer, which can lose TLS
             // handshake bytes that arrived in the same TCP segment as the CONNECT response)
+            //
+            // Loop: read one complete response -> parse -> if 1xx interim continue reading next
+            // (handles proxies that send interim 1xx and final 2xx in separate TCP segments,
+            // per RFC 7231 Section 4.3.6)
             use tokio::io::AsyncReadExt;
-            let mut response_buf = vec![0u8; 4096];
-            let mut total_read = 0usize;
 
             loop {
-                let n = tcp.read(&mut response_buf[total_read..]).await
-                    .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
-                if n == 0 {
-                    return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
-                }
-                total_read += n;
-                // Look for end-of-headers marker (\r\n\r\n)
-                if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-                if total_read >= response_buf.len() {
-                    return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
-                }
-            }
+                let mut response_buf = vec![0u8; 4096];
+                let mut total_read = 0usize;
 
-            // Parse CONNECT response from buffer (handle interim 1xx per RFC 7231 Section 4.3.6)
-            let response_str = std::str::from_utf8(&response_buf[..total_read])
-                .map_err(|_| TTSError::ConnectionFailed("代理响应包含无效 UTF-8".to_string()))?;
-
-            let mut lines = response_str.lines().peekable();
-            let mut success = false;
-
-            while let Some(line) = lines.next() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
+                // Read until \r\n\r\n (one complete response)
+                loop {
+                    let n = tcp.read(&mut response_buf[total_read..]).await
+                        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+                    if n == 0 {
+                        return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
+                    }
+                    total_read += n;
+                    if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                    if total_read >= response_buf.len() {
+                        return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
+                    }
                 }
 
-                let status_code: u16 = trimmed
+                // Parse this response
+                let response_str = std::str::from_utf8(&response_buf[..total_read])
+                    .map_err(|_| TTSError::ConnectionFailed("代理响应包含无效 UTF-8".to_string()))?;
+
+                let status_line = response_str.lines().next()
+                    .ok_or_else(|| TTSError::ConnectionFailed("代理响应为空".to_string()))?;
+                let status_code: u16 = status_line
+                    .trim()
                     .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
-                    .unwrap_or(0);
+                    .ok_or_else(|| TTSError::ConnectionFailed(format!("无法解析状态码: {}", status_line)))?;
 
                 if (200..300).contains(&status_code) {
-                    success = true;
-                    // Skip trailing headers of the 2xx response
-                    for header_line in lines.by_ref() {
-                        if header_line.trim().is_empty() {
-                            break;
-                        }
-                    }
+                    // 2xx success — CONNECT established
                     break;
-                }
-                if status_code < 100 || status_code >= 300 {
+                } else if (100..200).contains(&status_code) {
+                    // 1xx interim — continue reading next response
+                    continue;
+                } else {
                     return Err(TTSError::ConnectionFailed(format!(
                         "代理 CONNECT 失败: {}",
-                        trimmed
+                        status_line.trim()
                     )));
                 }
-                // Interim 1xx: skip its trailing headers, then continue
-                for header_line in lines.by_ref() {
-                    if header_line.trim().is_empty() {
-                        break;
-                    }
-                }
-            }
-
-            if !success {
-                return Err(TTSError::ConnectionFailed("代理 CONNECT 未收到 2xx 响应".to_string()));
             }
 
             // TLS + WebSocket upgrade over tunnel (raw TcpStream — no buffer data loss)
