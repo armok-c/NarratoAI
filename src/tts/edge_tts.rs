@@ -66,7 +66,7 @@ fn voice_name_to_lang(voice_name: &str) -> String {
     {
         voice_name[..idx].to_string()
     } else {
-        "zh-CN".to_string()
+        String::new()
     }
 }
 
