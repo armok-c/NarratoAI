@@ -1,14 +1,15 @@
-use std::path::Path;
-use std::time::Duration;
+use crate::error::TTSError;
+use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
 use async_trait::async_trait;
 use futures::SinkExt;
 use futures::StreamExt;
+use std::path::Path;
+use std::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
-use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
 
 const WS_RECEIVE_TIMEOUT: Duration = Duration::from_secs(120);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Edge TTS WebSocket 端点 URL（硬编码，不可配置）
 ///
@@ -59,11 +60,7 @@ fn convert_pitch_to_hz(pitch: f64) -> String {
 /// "en-US-JennyNeural"  → "en-US"
 /// "ja-JP-NanamiNeural" → "ja-JP"
 fn voice_name_to_lang(voice_name: &str) -> String {
-    if let Some((idx, _)) = voice_name
-        .char_indices()
-        .filter(|(_, c)| *c == '-')
-        .nth(1)
-    {
+    if let Some((idx, _)) = voice_name.char_indices().filter(|(_, c)| *c == '-').nth(1) {
         voice_name[..idx].to_string()
     } else {
         String::new()
@@ -82,7 +79,10 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
         .chars()
         .filter(|&c| {
             // 保留标准可见字符、回车、换行、制表符；过滤 XML 1.0 禁止的控制字符
-            c == '\t' || c == '\n' || c == '\r' || (c as u32 >= 0x20 && !(0x7F..=0x9F).contains(&(c as u32)))
+            c == '\t'
+                || c == '\n'
+                || c == '\r'
+                || (c as u32 >= 0x20 && !(0x7F..=0x9F).contains(&(c as u32)))
         })
         .collect();
 
@@ -116,235 +116,249 @@ impl EdgeTtsEngine {
     /// 如果 proxy_enabled 为 true，通过代理连接；否则直连
     /// 对应 D-01: 原生 Rust WebSocket（tokio-tungstenite）
     /// 对应 D-02: 支持代理（从 config.proxy 读取）
-    async fn connect(&self) -> Result<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, TTSError> {
-        use tokio_tungstenite::connect_async;
-        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-
-        let mut request = EDGE_TTS_WSS_URL
-            .into_client_request()
-            .map_err(|e| TTSError::ConnectionFailed(format!("构建请求失败: {}", e)))?;
-
-        // 添加 Edge TTS 所需 HTTP 头
-        // SAFETY: 硬编码字面量包含的字符都是有效的 HeaderValue（ASCII 可见字符），
-        // parse() 不会失败。使用 unwrap() 代替 expect() 以避免 expect 消息误导。
-        request.headers_mut().insert(
-            "Origin",
-            "chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
-                .parse()
-                .unwrap(),
-        );
-        request.headers_mut().insert(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
-                .parse()
-                .unwrap(),
-        );
-
-        if self.proxy_enabled {
-            // 通过代理连接
-            let proxy_url = if !self.proxy_https.is_empty() {
-                &self.proxy_https
-            } else if !self.proxy_http.is_empty() {
-                &self.proxy_http
-            } else {
-                return Err(TTSError::ConnectionFailed("代理已启用但未配置代理地址".to_string()));
-            };
-
-            // Parse proxy URL for host:port (case-insensitive scheme, strip credentials, split host:port)
-            let (proxy_scheme, proxy_rest) = proxy_url
-                .split_once("://")
-                .unwrap_or(("", proxy_url));
-            let proxy_addr = proxy_rest;
-            // SOCKS5 is not supported — HTTP CONNECT tunnel requires HTTP proxy
-            let proxy_scheme_lower = proxy_scheme.to_lowercase();
-            if proxy_scheme_lower == "socks5" {
-                return Err(TTSError::ConnectionFailed(
-                    "本引擎不支持 SOCKS5 代理，请使用 HTTP/HTTPS 代理".to_string()
-                ));
-            }
-            let default_proxy_port = match proxy_scheme_lower.as_str() {
-                "https" | "wss" => 443u16,
-                _ => 80u16,
-            };
-            // Extract user:pass credentials before stripping (rsplitn to handle @ in password)
-            let credentials = proxy_addr.rsplitn(2, '@').nth(1);
-
-            // Strip any user:pass@ prefix
-            let host_port = proxy_addr
-                .rsplit('@')
-                .next()
-                .unwrap_or(proxy_addr);
-            let (proxy_host, proxy_port) = if host_port.starts_with('[') {
-                // IPv6 bracket notation: [::1]:7890 or [::1] (no explicit port)
-                if let Some((addr_inner, port_str)) = host_port.rsplit_once("]:") {
-                    let port: u16 = port_str
-                        .parse()
-                        .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
-                    (&addr_inner[1..], port)
+    async fn connect(
+        &self,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        TTSError,
+    > {
+        tokio::time::timeout(CONNECT_TIMEOUT, async move {
+            use tokio_tungstenite::connect_async;
+            use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    
+            let mut request = EDGE_TTS_WSS_URL
+                .into_client_request()
+                .map_err(|e| TTSError::ConnectionFailed(format!("构建请求失败: {}", e)))?;
+    
+            // 添加 Edge TTS 所需 HTTP 头
+            // SAFETY: 硬编码字面量包含的字符都是有效的 HeaderValue（ASCII 可见字符），
+            // parse() 不会失败。使用 unwrap() 代替 expect() 以避免 expect 消息误导。
+            request.headers_mut().insert(
+                "Origin",
+                "chrome-extension://jdiccldimpdaibmpcddlniojbpldgahh"
+                    .parse()
+                    .unwrap(),
+            );
+            request.headers_mut().insert(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+                    .parse()
+                    .unwrap(),
+            );
+    
+            if self.proxy_enabled {
+                // 通过代理连接
+                let proxy_url = if !self.proxy_https.is_empty() {
+                    &self.proxy_https
+                } else if !self.proxy_http.is_empty() {
+                    &self.proxy_http
                 } else {
-                    // No explicit port — fall back to default_proxy_port (consistent with IPv4)
-                    let addr = host_port.trim_start_matches('[').trim_end_matches(']');
-                    (addr, default_proxy_port)
+                    return Err(TTSError::ConnectionFailed("代理已启用但未配置代理地址".to_string()));
+                };
+    
+                // Parse proxy URL for host:port (case-insensitive scheme, strip credentials, split host:port)
+                let (proxy_scheme, proxy_rest) = proxy_url
+                    .split_once("://")
+                    .unwrap_or(("", proxy_url));
+                let proxy_addr = proxy_rest;
+                // SOCKS5 is not supported — HTTP CONNECT tunnel requires HTTP proxy
+                let proxy_scheme_lower = proxy_scheme.to_lowercase();
+                if proxy_scheme_lower == "socks5" {
+                    return Err(TTSError::ConnectionFailed(
+                        "本引擎不支持 SOCKS5 代理，请使用 HTTP/HTTPS 代理".to_string()
+                    ));
                 }
-            } else {
-                match host_port.split_once(':') {
-                    Some((host, port_str)) => {
+                let default_proxy_port = match proxy_scheme_lower.as_str() {
+                    "https" | "wss" => 443u16,
+                    _ => 80u16,
+                };
+                // Extract user:pass credentials before stripping (rsplitn to handle @ in password)
+                let credentials = proxy_addr.rsplitn(2, '@').nth(1);
+    
+                // Strip any user:pass@ prefix
+                let host_port = proxy_addr
+                    .rsplit('@')
+                    .next()
+                    .unwrap_or(proxy_addr);
+                let (proxy_host, proxy_port) = if host_port.starts_with('[') {
+                    // IPv6 bracket notation: [::1]:7890 or [::1] (no explicit port)
+                    if let Some((addr_inner, port_str)) = host_port.rsplit_once("]:") {
                         let port: u16 = port_str
                             .parse()
                             .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
-                        (host, port)
+                        (&addr_inner[1..], port)
+                    } else {
+                        // No explicit port — fall back to default_proxy_port (consistent with IPv4)
+                        let addr = host_port.trim_start_matches('[').trim_end_matches(']');
+                        (addr, default_proxy_port)
                     }
-                    None => (host_port, default_proxy_port),
-                }
-            };
-
-            // Parse target WSS URL manually
-            let target_addr = EDGE_TTS_WSS_URL.trim_start_matches("wss://");
-            let target_host_only = target_addr.split('/').next().unwrap_or(target_addr);
-            let (target_host, target_port_str) = target_addr
-                .split_once(':')
-                .map(|(h, p)| (h, p.split('/').next().unwrap_or("443")))
-                .unwrap_or((target_host_only, "443"));
-            let target_port: u16 = target_port_str
-                .parse()
-                .map_err(|_| TTSError::ConnectionFailed("目标端口格式错误".to_string()))?;
-
-            // Construct HTTP CONNECT request string with optional Proxy-Authorization
-            use base64::Engine;
-            let connect_req = if let Some(creds) = credentials {
-                let encoded = base64::engine::general_purpose::STANDARD.encode(creds);
-                format!(
-                    "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\nProxy-Authorization: Basic {}\r\n\r\n",
-                    target_host, target_port, target_host, target_port, encoded
-                )
-            } else {
-                format!(
-                    "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-                    target_host, target_port, target_host, target_port
-                )
-            };
-
-            // HTTP CONNECT tunnel
-            let mut tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
-                .await
-                .map_err(|e| TTSError::ConnectionFailed(format!("连接代理失败: {}", e)))?;
-
-            // Write CONNECT request directly to TcpStream (no BufReader — avoids read-ahead
-            // data loss on into_inner() that would corrupt TLS handshake)
-            use tokio::io::AsyncWriteExt;
-            tcp.write_all(connect_req.as_bytes()).await
-                .map_err(|e| TTSError::ConnectionFailed(format!("发送 CONNECT 请求失败: {}", e)))?;
-            tcp.flush().await
-                .map_err(|e| TTSError::ConnectionFailed(format!("刷新 CONNECT 请求失败: {}", e)))?;
-
-            // Read CONNECT response into a fixed buffer to preserve raw TcpStream
-            // (BufReader::into_inner() discards the internal buffer, which can lose TLS
-            // handshake bytes that arrived in the same TCP segment as the CONNECT response)
-            //
-            // Loop: read one complete response -> parse -> if 1xx interim continue reading next
-            // (handles proxies that send interim 1xx and final 2xx in separate TCP segments,
-            // per RFC 7231 Section 4.3.6)
-            //
-            // IMPORTANT: The buffer is allocated once (outside the inner loop) to prevent data
-            // loss when 1xx and 2xx responses coalesce in the same TCP segment. When a 1xx
-            // response is found, any leftover bytes after the \r\n\r\n separator are compacted
-            // to the front of the buffer and re-parsed rather than discarded.
-            use tokio::io::AsyncReadExt;
-
-            let mut response_buf = vec![0u8; 4096];
-            let mut total_read = 0usize;
-
-            loop {
-                // Read until \r\n\r\n (one complete response)
-                loop {
-                    let n = tcp.read(&mut response_buf[total_read..]).await
-                        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
-                    if n == 0 {
-                        return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
-                    }
-                    total_read += n;
-                    if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
-                        break;
-                    }
-                    if total_read >= response_buf.len() {
-                        return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
-                    }
-                }
-
-                // Parse this response
-                let response_str = std::str::from_utf8(&response_buf[..total_read])
-                    .map_err(|_| TTSError::ConnectionFailed("代理响应包含无效 UTF-8".to_string()))?;
-
-                let status_line = response_str.lines().next()
-                    .ok_or_else(|| TTSError::ConnectionFailed("代理响应为空".to_string()))?;
-                let status_code: u16 = status_line
-                    .trim()
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse().ok())
-                    .ok_or_else(|| TTSError::ConnectionFailed(format!("无法解析状态码: {}", status_line)))?;
-
-                if (200..300).contains(&status_code) {
-                    // 2xx success — CONNECT established
-                    break;
-                } else if (100..200).contains(&status_code) {
-                    // 1xx interim — check for leftover 2xx data in same buffer
-                    // (proxies may coalesce 1xx + 2xx in a single TCP segment)
-                    let sep_end = response_buf[..total_read]
-                        .windows(4)
-                        .position(|w| w == b"\r\n\r\n")
-                        .map(|p| p + 4)
-                        .unwrap_or(0);
-                    if sep_end < total_read {
-                        // Leftover data exists — compact to buffer start and re-parse
-                        let extra_len = total_read - sep_end;
-                        response_buf.copy_within(sep_end..total_read, 0);
-                        total_read = extra_len;
-                        continue;
-                    }
-                    // No leftover — reset and read next response
-                    total_read = 0;
-                    continue;
                 } else {
-                    return Err(TTSError::ConnectionFailed(format!(
-                        "代理 CONNECT 失败: {}",
-                        status_line.trim()
-                    )));
+                    match host_port.split_once(':') {
+                        Some((host, port_str)) => {
+                            let port: u16 = port_str
+                                .parse()
+                                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
+                            (host, port)
+                        }
+                        None => (host_port, default_proxy_port),
+                    }
+                };
+    
+                // Parse target WSS URL manually
+                let target_addr = EDGE_TTS_WSS_URL.trim_start_matches("wss://");
+                let target_host_only = target_addr.split('/').next().unwrap_or(target_addr);
+                let (target_host, target_port_str) = target_addr
+                    .split_once(':')
+                    .map(|(h, p)| (h, p.split('/').next().unwrap_or("443")))
+                    .unwrap_or((target_host_only, "443"));
+                let target_port: u16 = target_port_str
+                    .parse()
+                    .map_err(|_| TTSError::ConnectionFailed("目标端口格式错误".to_string()))?;
+    
+                // Construct HTTP CONNECT request string with optional Proxy-Authorization
+                use base64::Engine;
+                let connect_req = if let Some(creds) = credentials {
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(creds);
+                    format!(
+                        "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\nProxy-Authorization: Basic {}\r\n\r\n",
+                        target_host, target_port, target_host, target_port, encoded
+                    )
+                } else {
+                    format!(
+                        "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
+                        target_host, target_port, target_host, target_port
+                    )
+                };
+    
+                // HTTP CONNECT tunnel
+                let mut tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
+                    .await
+                    .map_err(|e| TTSError::ConnectionFailed(format!("连接代理失败: {}", e)))?;
+    
+                // Write CONNECT request directly to TcpStream (no BufReader — avoids read-ahead
+                // data loss on into_inner() that would corrupt TLS handshake)
+                use tokio::io::AsyncWriteExt;
+                tcp.write_all(connect_req.as_bytes()).await
+                    .map_err(|e| TTSError::ConnectionFailed(format!("发送 CONNECT 请求失败: {}", e)))?;
+                tcp.flush().await
+                    .map_err(|e| TTSError::ConnectionFailed(format!("刷新 CONNECT 请求失败: {}", e)))?;
+    
+                // Read CONNECT response into a fixed buffer to preserve raw TcpStream
+                // (BufReader::into_inner() discards the internal buffer, which can lose TLS
+                // handshake bytes that arrived in the same TCP segment as the CONNECT response)
+                //
+                // Loop: read one complete response -> parse -> if 1xx interim continue reading next
+                // (handles proxies that send interim 1xx and final 2xx in separate TCP segments,
+                // per RFC 7231 Section 4.3.6)
+                //
+                // IMPORTANT: The buffer is allocated once (outside the inner loop) to prevent data
+                // loss when 1xx and 2xx responses coalesce in the same TCP segment. When a 1xx
+                // response is found, any leftover bytes after the \r\n\r\n separator are compacted
+                // to the front of the buffer and re-parsed rather than discarded.
+                use tokio::io::AsyncReadExt;
+    
+                let mut response_buf = vec![0u8; 4096];
+                let mut total_read = 0usize;
+    
+                loop {
+                    // Read until \r\n\r\n (one complete response)
+                    loop {
+                        let n = tcp.read(&mut response_buf[total_read..]).await
+                            .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
+                        if n == 0 {
+                            return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
+                        }
+                        total_read += n;
+                        if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                        if total_read >= response_buf.len() {
+                            return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
+                        }
+                    }
+    
+                    // Parse this response
+                    let response_str = std::str::from_utf8(&response_buf[..total_read])
+                        .map_err(|_| TTSError::ConnectionFailed("代理响应包含无效 UTF-8".to_string()))?;
+    
+                    let status_line = response_str.lines().next()
+                        .ok_or_else(|| TTSError::ConnectionFailed("代理响应为空".to_string()))?;
+                    let status_code: u16 = status_line
+                        .trim()
+                        .split_whitespace()
+                        .nth(1)
+                        .and_then(|s| s.parse().ok())
+                        .ok_or_else(|| TTSError::ConnectionFailed(format!("无法解析状态码: {}", status_line)))?;
+    
+                    if (200..300).contains(&status_code) {
+                        // 2xx success — CONNECT established
+                        break;
+                    } else if (100..200).contains(&status_code) {
+                        // 1xx interim — check for leftover 2xx data in same buffer
+                        // (proxies may coalesce 1xx + 2xx in a single TCP segment)
+                        let sep_end = response_buf[..total_read]
+                            .windows(4)
+                            .position(|w| w == b"\r\n\r\n")
+                            .map(|p| p + 4)
+                            .unwrap_or(0);
+                        if sep_end < total_read {
+                            // Leftover data exists — compact to buffer start and re-parse
+                            let extra_len = total_read - sep_end;
+                            response_buf.copy_within(sep_end..total_read, 0);
+                            total_read = extra_len;
+                            continue;
+                        }
+                        // No leftover — reset and read next response
+                        total_read = 0;
+                        continue;
+                    } else {
+                        return Err(TTSError::ConnectionFailed(format!(
+                            "代理 CONNECT 失败: {}",
+                            status_line.trim()
+                        )));
+                    }
                 }
+    
+                // TLS + WebSocket upgrade over tunnel (raw TcpStream — no buffer data loss)
+                let tls_connector = native_tls::TlsConnector::builder()
+                    .build()
+                    .map_err(|e| TTSError::ConnectionFailed(format!("TLS 构建失败: {}", e)))?;
+    
+                let (ws_stream, _) = tokio_tungstenite::client_async_tls_with_config(
+                    request,
+                    tcp,
+                    None,
+                    Some(tokio_tungstenite::Connector::NativeTls(tls_connector)),
+                )
+                    .await
+                    .map_err(|e| {
+                        let err_msg = format!("WebSocket 代理连接失败: {}", e);
+                        Self::classify_error(err_msg, TTSError::ConnectionFailed)
+                    })?;
+                Ok(ws_stream)
+            } else {
+                let (ws_stream, _) = connect_async(request)
+                    .await
+                    .map_err(|e| {
+                        let err_msg = format!("WebSocket 连接失败: {}", e);
+                        Self::classify_error(err_msg, TTSError::ConnectionFailed)
+                    })?;
+                Ok(ws_stream)
             }
-
-            // TLS + WebSocket upgrade over tunnel (raw TcpStream — no buffer data loss)
-            let tls_connector = native_tls::TlsConnector::builder()
-                .build()
-                .map_err(|e| TTSError::ConnectionFailed(format!("TLS 构建失败: {}", e)))?;
-
-            let (ws_stream, _) = tokio_tungstenite::client_async_tls_with_config(
-                request,
-                tcp,
-                None,
-                Some(tokio_tungstenite::Connector::NativeTls(tls_connector)),
-            )
-                .await
-                .map_err(|e| {
-                    let err_msg = format!("WebSocket 代理连接失败: {}", e);
-                    Self::classify_error(err_msg, TTSError::ConnectionFailed)
-                })?;
-            Ok(ws_stream)
-        } else {
-            let (ws_stream, _) = connect_async(request)
-                .await
-                .map_err(|e| {
-                    let err_msg = format!("WebSocket 连接失败: {}", e);
-                    Self::classify_error(err_msg, TTSError::ConnectionFailed)
-                })?;
-            Ok(ws_stream)
-        }
+        })
+        .await
+        .map_err(|_| TTSError::ConnectionFailed("Edge-TTS CONNECT 超时 (30s)".to_string()))?
     }
 
     /// 根据错误消息启发式判断是否是认证错误
     fn classify_error(err_msg: String, fallback: fn(String) -> TTSError) -> TTSError {
         let lower = err_msg.to_lowercase();
-        if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
+        if err_msg.contains("401")
+            || lower.contains("authentication")
+            || lower.contains("unauthorized")
+        {
             TTSError::AuthenticationFailed(err_msg)
         } else {
             fallback(err_msg)
@@ -391,11 +405,7 @@ impl EdgeTtsEngine {
     }
 
     /// 单次 TTS 合成（无重试）
-    async fn synthesize_once(
-        &self,
-        ssml: &str,
-        output_path: &Path,
-    ) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(&self, ssml: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
         let mut ws_stream = self.connect().await?;
 
         // 生成 SSML 请求中的 request ID
@@ -419,14 +429,14 @@ impl EdgeTtsEngine {
         let mut word_boundaries: Vec<WordBoundary> = Vec::new();
         let mut duration: f64 = 0.0;
         let mut received_turn_end = false;
-        while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, ws_stream.next()).await
+        while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, ws_stream.next())
+            .await
             .map_err(|_| TTSError::SynthesisFailed("接收消息超时: 服务器无响应".to_string()))?
         {
-            let msg =
-                msg_result.map_err(|e| {
-                    let err_msg = format!("接收消息失败: {}", e);
-                    Self::classify_error(err_msg, TTSError::SynthesisFailed)
-                })?;
+            let msg = msg_result.map_err(|e| {
+                let err_msg = format!("接收消息失败: {}", e);
+                Self::classify_error(err_msg, TTSError::SynthesisFailed)
+            })?;
 
             match msg {
                 Message::Binary(data) => {
@@ -441,7 +451,9 @@ impl EdgeTtsEngine {
                             // Parse individual WordBoundary event
                             match std::str::from_utf8(&content.payload) {
                                 Ok(payload_str) => {
-                                    if let Ok(wb_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                                    if let Ok(wb_json) =
+                                        serde_json::from_str::<serde_json::Value>(payload_str)
+                                    {
                                         if let (Some(offset), Some(duration_100ns), Some(text)) = (
                                             wb_json["offset"].as_u64(),
                                             wb_json["duration"].as_u64(),
@@ -461,7 +473,11 @@ impl EdgeTtsEngine {
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::warn!("wordboundary payload 包含无效 UTF-8: {} ({} bytes)", e, content.payload.len());
+                                    tracing::warn!(
+                                        "wordboundary payload 包含无效 UTF-8: {} ({} bytes)",
+                                        e,
+                                        content.payload.len()
+                                    );
                                 }
                             }
                         } else if content.path == "turn.end" {
@@ -472,11 +488,16 @@ impl EdgeTtsEngine {
                                     if let Ok(metadata) =
                                         serde_json::from_str::<serde_json::Value>(payload_str)
                                     {
-                                        duration = if let Some(d) = metadata["audio_duration"].as_f64() {
+                                        duration = if let Some(d) =
+                                            metadata["audio_duration"].as_f64()
+                                        {
                                             d / 10_000_000.0
-                                        } else if let Some(s) = metadata["audio_duration"].as_str() {
+                                        } else if let Some(s) = metadata["audio_duration"].as_str()
+                                        {
                                             s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
-                                        } else if let Some(ticks) = metadata["audio_duration"]["ticks"].as_u64() {
+                                        } else if let Some(ticks) =
+                                            metadata["audio_duration"]["ticks"].as_u64()
+                                        {
                                             ticks as f64 / 10_000_000.0
                                         } else {
                                             0.0
@@ -490,7 +511,11 @@ impl EdgeTtsEngine {
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::warn!("turn.end payload 包含无效 UTF-8: {} ({} bytes)", e, content.payload.len());
+                                    tracing::warn!(
+                                        "turn.end payload 包含无效 UTF-8: {} ({} bytes)",
+                                        e,
+                                        content.payload.len()
+                                    );
                                     duration = 0.0;
                                 }
                             }
@@ -498,11 +523,7 @@ impl EdgeTtsEngine {
                         }
                     } else {
                         let preview = if data.len() > 256 {
-                            format!(
-                                "{} bytes (first 256 shown: {:?})",
-                                data.len(),
-                                &data[..256]
-                            )
+                            format!("{} bytes (first 256 shown: {:?})", data.len(), &data[..256])
                         } else {
                             format!("{:?}", data)
                         };
@@ -542,9 +563,7 @@ impl EdgeTtsEngine {
 
         tokio::fs::write(output_path, &audio_data)
             .await
-            .map_err(|e| {
-                TTSError::SynthesisFailed(format!("写入音频文件失败: {}", e))
-            })?;
+            .map_err(|e| TTSError::SynthesisFailed(format!("写入音频文件失败: {}", e)))?;
 
         Ok(TtsOutput {
             audio_file_path: output_path.to_path_buf(),
@@ -597,14 +616,16 @@ impl TtsProvider for EdgeTtsEngine {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
         if !rate.is_finite() || rate < 0.0 {
-            return Err(TTSError::SynthesisFailed(
-                format!("rate 必须为有限正数: {}", rate),
-            ));
+            return Err(TTSError::SynthesisFailed(format!(
+                "rate 必须为有限正数: {}",
+                rate
+            )));
         }
         if !pitch.is_finite() {
-            return Err(TTSError::SynthesisFailed(
-                format!("pitch 必须为有限数值: {}", pitch),
-            ));
+            return Err(TTSError::SynthesisFailed(format!(
+                "pitch 必须为有限数值: {}",
+                pitch
+            )));
         }
         let ssml = build_ssml(text, voice_name, rate, pitch);
         self.synthesize_with_retry(&ssml, output_path).await
@@ -703,7 +724,11 @@ mod tests {
 
     #[test]
     fn test_edge_tts_engine_new() {
-        let engine = EdgeTtsEngine::new(true, "http://127.0.0.1:7890".to_string(), "http://127.0.0.1:7890".to_string());
+        let engine = EdgeTtsEngine::new(
+            true,
+            "http://127.0.0.1:7890".to_string(),
+            "http://127.0.0.1:7890".to_string(),
+        );
         assert!(engine.proxy_enabled);
         assert_eq!(engine.proxy_http, "http://127.0.0.1:7890");
         assert_eq!(engine.proxy_https, "http://127.0.0.1:7890");
@@ -727,7 +752,13 @@ mod tests {
         let output_path = dir.path().join("test_output.mp3");
 
         let result = engine
-            .synthesize("这是一个测试。", "zh-CN-XiaoyiNeural", 1.0, 0.0, &output_path)
+            .synthesize(
+                "这是一个测试。",
+                "zh-CN-XiaoyiNeural",
+                1.0,
+                0.0,
+                &output_path,
+            )
             .await;
 
         assert!(result.is_ok(), "Edge-TTS 集成测试失败: {:?}", result.err());
@@ -749,7 +780,8 @@ mod tests {
     #[test]
     fn test_parse_edge_tts_binary_audio() {
         // Audio message
-        let data = b"Path: audio\r\nX-RequestId: abc\r\nContent-Type: audio/mpeg\r\n\r\n\xff\xf3\x00\x00";
+        let data =
+            b"Path: audio\r\nX-RequestId: abc\r\nContent-Type: audio/mpeg\r\n\r\n\xff\xf3\x00\x00";
         let result = parse_edge_tts_binary(data);
         assert!(result.is_some());
         let content = result.unwrap();
