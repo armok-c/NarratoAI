@@ -24,6 +24,14 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
         )));
     }
 
+    // JPEG 直通优化：检测 JPEG 魔术字节，直接 base64 编码原始数据以避免重编码损失
+    let raw_bytes = std::fs::read(path)
+        .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+    if raw_bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
+        return Ok(format!("data:image/jpeg;base64,{}", b64));
+    }
+
     let img = image::open(path)
         .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
 
