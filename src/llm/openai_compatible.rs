@@ -396,8 +396,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         }
 
         let batch_size = batch_size.unwrap_or(10).max(1);
-        let max_concurrency = max_concurrency.unwrap_or(1);
-        let bounded_concurrency = max_concurrency.max(1);
+        let bounded_concurrency = max_concurrency.unwrap_or(1);
 
         // 将 data_urls 分片
         let chunks: Vec<Vec<String>> = data_urls.chunks(batch_size).map(|c| c.to_vec()).collect();
