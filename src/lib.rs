@@ -14,7 +14,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_version_returns_0_1_0() {
-        assert_eq!(version(), "0.1.0");
+    fn test_version_matches_cargo_toml() {
+        assert_eq!(version(), env!("CARGO_PKG_VERSION"));
     }
 }
