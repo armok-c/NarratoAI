@@ -568,6 +568,9 @@ impl TtsProvider for EdgeTtsEngine {
         if text.is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
+        if voice_name.is_empty() {
+            return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
+        }
         if !rate.is_finite() || rate < 0.0 {
             return Err(TTSError::SynthesisFailed(
                 format!("rate 必须为有限正数: {}", rate),
