@@ -244,12 +244,17 @@ impl EdgeTtsEngine {
             // Loop: read one complete response -> parse -> if 1xx interim continue reading next
             // (handles proxies that send interim 1xx and final 2xx in separate TCP segments,
             // per RFC 7231 Section 4.3.6)
+            //
+            // IMPORTANT: The buffer is allocated once (outside the inner loop) to prevent data
+            // loss when 1xx and 2xx responses coalesce in the same TCP segment. When a 1xx
+            // response is found, any leftover bytes after the \r\n\r\n separator are compacted
+            // to the front of the buffer and re-parsed rather than discarded.
             use tokio::io::AsyncReadExt;
 
-            loop {
-                let mut response_buf = vec![0u8; 4096];
-                let mut total_read = 0usize;
+            let mut response_buf = vec![0u8; 4096];
+            let mut total_read = 0usize;
 
+            loop {
                 // Read until \r\n\r\n (one complete response)
                 loop {
                     let n = tcp.read(&mut response_buf[total_read..]).await
@@ -283,7 +288,22 @@ impl EdgeTtsEngine {
                     // 2xx success — CONNECT established
                     break;
                 } else if (100..200).contains(&status_code) {
-                    // 1xx interim — continue reading next response
+                    // 1xx interim — check for leftover 2xx data in same buffer
+                    // (proxies may coalesce 1xx + 2xx in a single TCP segment)
+                    let sep_end = response_buf[..total_read]
+                        .windows(4)
+                        .position(|w| w == b"\r\n\r\n")
+                        .map(|p| p + 4)
+                        .unwrap_or(0);
+                    if sep_end < total_read {
+                        // Leftover data exists — compact to buffer start and re-parse
+                        let extra_len = total_read - sep_end;
+                        response_buf.copy_within(sep_end..total_read, 0);
+                        total_read = extra_len;
+                        continue;
+                    }
+                    // No leftover — reset and read next response
+                    total_read = 0;
                     continue;
                 } else {
                     return Err(TTSError::ConnectionFailed(format!(
