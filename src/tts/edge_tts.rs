@@ -415,45 +415,56 @@ impl EdgeTtsEngine {
                             // turn.start metadata — word boundaries arrive as separate wordboundary messages
                         } else if content.path == "wordboundary" {
                             // Parse individual WordBoundary event
-                            if let Ok(wb_json) = serde_json::from_str::<serde_json::Value>(
-                                &String::from_utf8_lossy(&content.payload),
-                            ) {
-                                if let (Some(offset), Some(duration_100ns), Some(text)) = (
-                                    wb_json["offset"].as_u64(),
-                                    wb_json["duration"].as_u64(),
-                                    wb_json["text"].as_str(),
-                                ) {
-                                    word_boundaries.push(WordBoundary {
-                                        start_offset: offset,
-                                        end_offset: offset.saturating_add(duration_100ns),
-                                        text: text.to_string(),
-                                    });
-                                } else {
-                                    tracing::warn!(
-                                        "Failed to parse word boundary fields from JSON: {:?}",
-                                        wb_json
-                                    );
+                            match std::str::from_utf8(&content.payload) {
+                                Ok(payload_str) => {
+                                    if let Ok(wb_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                                        if let (Some(offset), Some(duration_100ns), Some(text)) = (
+                                            wb_json["offset"].as_u64(),
+                                            wb_json["duration"].as_u64(),
+                                            wb_json["text"].as_str(),
+                                        ) {
+                                            word_boundaries.push(WordBoundary {
+                                                start_offset: offset,
+                                                end_offset: offset.saturating_add(duration_100ns),
+                                                text: text.to_string(),
+                                            });
+                                        } else {
+                                            tracing::warn!(
+                                                "Failed to parse word boundary fields from JSON: {:?}",
+                                                wb_json
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("wordboundary payload 包含无效 UTF-8: {} ({} bytes)", e, content.payload.len());
                                 }
                             }
                         } else if content.path == "turn.end" {
                             received_turn_end = true;
                             // 解析结束事件中的音频时长
-                            if let Ok(metadata) =
-                                serde_json::from_str::<serde_json::Value>(
-                                    &String::from_utf8_lossy(&content.payload),
-                                )
-                            {
-                                duration = if let Some(d) = metadata["audio_duration"].as_f64() {
-                                    d / 10_000_000.0
-                                } else if let Some(s) = metadata["audio_duration"].as_str() {
-                                    s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
-                                } else if let Some(ticks) = metadata["audio_duration"]["ticks"].as_u64() {
-                                    ticks as f64 / 10_000_000.0
-                                } else {
-                                    0.0
-                                };
-                            } else {
-                                duration = 0.0;
+                            match std::str::from_utf8(&content.payload) {
+                                Ok(payload_str) => {
+                                    if let Ok(metadata) =
+                                        serde_json::from_str::<serde_json::Value>(payload_str)
+                                    {
+                                        duration = if let Some(d) = metadata["audio_duration"].as_f64() {
+                                            d / 10_000_000.0
+                                        } else if let Some(s) = metadata["audio_duration"].as_str() {
+                                            s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
+                                        } else if let Some(ticks) = metadata["audio_duration"]["ticks"].as_u64() {
+                                            ticks as f64 / 10_000_000.0
+                                        } else {
+                                            0.0
+                                        };
+                                    } else {
+                                        duration = 0.0;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("turn.end payload 包含无效 UTF-8: {} ({} bytes)", e, content.payload.len());
+                                    duration = 0.0;
+                                }
                             }
                             break;
                         }
