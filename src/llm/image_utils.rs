@@ -14,8 +14,12 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     let img = image::open(path)
         .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
 
-    // 缩放到 1024px 保持宽高比，使用 Lanczos3 滤镜对齐 Python PIL.Image.thumbnail LANCZOS
     let (w, h) = img.dimensions();
+    if w == 0 || h == 0 {
+        return Err(LLMError::General("图片尺寸为零，无法处理".to_string()));
+    }
+
+    // 缩放到 1024px 保持宽高比，使用 Lanczos3 滤镜对齐 Python PIL.Image.thumbnail LANCZOS
     let thumb = if w > h {
         img.resize(1024, (1024 * h / w).max(1), Lanczos3)
     } else {
