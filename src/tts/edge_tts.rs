@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::time::Duration;
 use async_trait::async_trait;
-use futures_util::SinkExt;
-use futures_util::StreamExt;
+use futures::SinkExt;
+use futures::StreamExt;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use crate::error::TTSError;
