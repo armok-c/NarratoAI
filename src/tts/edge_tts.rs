@@ -82,7 +82,7 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
         .chars()
         .filter(|&c| {
             // 保留标准可见字符、回车、换行、制表符；过滤 XML 1.0 禁止的控制字符
-            c == '\t' || c == '\n' || c == '\r' || c as u32 >= 0x20
+            c == '\t' || c == '\n' || c == '\r' || (c as u32 >= 0x20 && !(0x7F..=0x9F).contains(&(c as u32)))
         })
         .collect();
 
