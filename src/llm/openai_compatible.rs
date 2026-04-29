@@ -129,12 +129,20 @@ impl OpenAiCompatibleProvider {
     ///
     /// 某些网关不支持 response_format=json_object，会返回 400 错误。
     /// 此时回退到在 prompt 中追加 JSON 约束指示重新请求。
+    ///
+    /// 回退路径使用 builder API 重建请求而非 serde_json round-trip，
+    /// 避免与 async-openai 的 serde 表示耦合。
+    /// 注意：回退请求使用 build_text_messages() 重新构建消息列表，
+    /// 该方法始终将 prompt 作为末条 user message，与原始请求结构一致。
     async fn generate_text_with_json_fallback(
         &self,
         request: CreateChatCompletionRequest,
         original_prompt: &str,
+        system_prompt: Option<&str>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
     ) -> Result<CreateChatCompletionResponse, LLMError> {
-        let result = self.client.chat().create(request.clone()).await;
+        let result = self.client.chat().create(request).await;
 
         match result {
             Ok(response) => Ok(response),
@@ -142,43 +150,25 @@ impl OpenAiCompatibleProvider {
                 let msg_lower = api_err.message.to_lowercase();
 
                 if msg_lower.contains("response_format") {
-                    // 回退：修改 messages 中最后一条 user message 的 content
+                    // 回退：使用 builder API 重建请求，避免 serde_json round-trip
                     let json_prompt = format!(
                         "{}\n\n请确保输出严格的JSON格式，不要包含任何其他文字或标记。",
                         original_prompt
                     );
 
-                    // Clone the request and modify via serde_json manipulation
-                    let mut request_json = serde_json::to_value(&request)
-                        .map_err(|e| LLMError::APICall(format!("请求序列化失败: {}", e)))?;
-
-                    if let Some(obj) = request_json.as_object_mut() {
-                        // 更新 messages 中最后一条 user message 的 content
-                        if let Some(messages_val) = obj.get_mut("messages") {
-                            if let Some(messages_arr) = messages_val.as_array_mut() {
-                                if let Some(last_msg) = messages_arr.last_mut() {
-                                    if let Some(content) = last_msg.get_mut("content") {
-                                        if content.is_string() {
-                                            *content =
-                                                serde_json::Value::String(json_prompt);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // 移除 response_format
-                        obj.remove("response_format");
-
-                        // 移除 stream 字段（如果存在）
-                        obj.remove("stream");
+                    let retry_messages = self.build_text_messages(&json_prompt, system_prompt);
+                    let mut retry_builder = CreateChatCompletionRequestArgs::default();
+                    retry_builder.model(&self.model_name);
+                    retry_builder.messages(retry_messages);
+                    if let Some(t) = temperature {
+                        retry_builder.temperature(t);
                     }
-
-                    let retry_request: CreateChatCompletionRequest =
-                        serde_json::from_value(request_json)
-                            .map_err(|e| {
-                                LLMError::APICall(format!("请求反序列化失败: {}", e))
-                            })?;
+                    if let Some(mt) = max_tokens {
+                        retry_builder.max_tokens(mt);
+                    }
+                    let retry_request = retry_builder
+                        .build()
+                        .map_err(|e| LLMError::APICall(format!("请求重建失败: {}", e)))?;
 
                     let retry_response = self
                         .client
@@ -232,7 +222,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             .map_err(|e| LLMError::Configuration(format!("请求构建失败: {}", e)))?;
 
         let response = if use_json {
-            self.generate_text_with_json_fallback(request, prompt)
+            self.generate_text_with_json_fallback(request, prompt, system_prompt, temperature, max_tokens)
                 .await?
         } else {
             self.client
