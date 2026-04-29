@@ -25,6 +25,27 @@ use crate::llm::image_utils::image_to_base64_data_url;
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 
+/// Provider 配置参数
+///
+/// 用于构造 OpenAiCompatibleProvider 的配置结构体，避免 7 个位置参数的易错性。
+#[derive(Debug, Clone)]
+pub struct ProviderConfig {
+    /// API 密钥
+    pub api_key: String,
+    /// 模型名称
+    pub model_name: String,
+    /// API 基础 URL（如 https://api.openai.com/v1）
+    pub base_url: String,
+    /// 最大重试次数，传递给 OpenAI 客户端配置
+    pub max_retries: u32,
+    /// 请求超时秒数
+    pub timeout_secs: u64,
+    /// HTTP 代理 URL，None 表示不使用 HTTP 代理
+    pub proxy_http: Option<String>,
+    /// HTTPS 代理 URL，None 表示不使用 HTTPS 代理
+    pub proxy_https: Option<String>,
+}
+
 /// OpenAI 兼容协议的 Provider 实现（D-06）
 ///
 /// 支持任意符合 OpenAI /v1/chat/completions 协议的 API 网关。
@@ -35,41 +56,23 @@ pub struct OpenAiCompatibleProvider {
 }
 
 impl OpenAiCompatibleProvider {
-    /// 创建 OpenAiCompatibleProvider 实例
-    ///
-    /// # Arguments
-    ///
-    /// * `api_key` - API 密钥
-    /// * `model_name` - 模型名称
-    /// * `base_url` - API 基础 URL（如 https://api.openai.com/v1）
-    /// * `max_retries` - 最大重试次数，传递给 OpenAI 客户端配置
-    /// * `timeout_secs` - 请求超时秒数
-    /// * `proxy_http` - HTTP 代理 URL，None 表示不使用 HTTP 代理
-    /// * `proxy_https` - HTTPS 代理 URL，None 表示不使用 HTTPS 代理
-    pub fn new(
-        api_key: String,
-        model_name: String,
-        base_url: String,
-        max_retries: u32,
-        timeout_secs: u64,
-        proxy_http: Option<String>,
-        proxy_https: Option<String>,
-    ) -> Result<Self, LLMError> {
-        let config = OpenAIConfig::new()
-            .with_api_key(&api_key)
-            .with_api_base(base_url.trim_end_matches('/'))
-            .with_max_retries(max_retries);
+    /// 使用 ProviderConfig 创建 OpenAiCompatibleProvider 实例
+    pub fn new(cfg: ProviderConfig) -> Result<Self, LLMError> {
+        let openai_config = OpenAIConfig::new()
+            .with_api_key(&cfg.api_key)
+            .with_api_base(cfg.base_url.trim_end_matches('/'))
+            .with_max_retries(cfg.max_retries);
 
         let mut http_client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(timeout_secs));
+            .timeout(Duration::from_secs(cfg.timeout_secs));
 
-        if let Some(ref proxy_url) = proxy_http {
+        if let Some(ref proxy_url) = cfg.proxy_http {
             let proxy = reqwest::Proxy::http(proxy_url)
                 .map_err(|e| LLMError::Configuration(format!("HTTP 代理配置失败: {}", e)))?;
             http_client_builder = http_client_builder.proxy(proxy);
         }
 
-        if let Some(ref proxy_url) = proxy_https {
+        if let Some(ref proxy_url) = cfg.proxy_https {
             let proxy = reqwest::Proxy::https(proxy_url)
                 .map_err(|e| LLMError::Configuration(format!("HTTPS 代理配置失败: {}", e)))?;
             http_client_builder = http_client_builder.proxy(proxy);
@@ -79,11 +82,11 @@ impl OpenAiCompatibleProvider {
             .build()
             .map_err(|e| LLMError::Configuration(format!("HTTP 客户端构建失败: {}", e)))?;
 
-        let client = Client::with_config(config)
+        let client = Client::with_config(openai_config)
             .with_http_client(http_client);
 
         Ok(Self {
-            model_name,
+            model_name: cfg.model_name,
             client,
         })
     }

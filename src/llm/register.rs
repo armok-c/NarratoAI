@@ -38,15 +38,15 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
     if !config.app.vision_openai_api_key.is_empty()
         && !config.app.vision_openai_model_name.is_empty()
     {
-        match OpenAiCompatibleProvider::new(
-            config.app.vision_openai_api_key.clone(),
-            config.app.vision_openai_model_name.clone(),
-            config.app.vision_openai_base_url.clone(),
-            config.app.llm_max_retries,
-            config.app.llm_vision_timeout,
-            proxy_http.clone(),
-            proxy_https.clone(),
-        ) {
+        match OpenAiCompatibleProvider::new(crate::llm::openai_compatible::ProviderConfig {
+            api_key: config.app.vision_openai_api_key.clone(),
+            model_name: config.app.vision_openai_model_name.clone(),
+            base_url: config.app.vision_openai_base_url.clone(),
+            max_retries: config.app.llm_max_retries,
+            timeout_secs: config.app.llm_vision_timeout,
+            proxy_http: proxy_http.clone(),
+            proxy_https: proxy_https.clone(),
+        }) {
             Ok(provider) => registry.register("openai_vision", Arc::new(provider)),
             Err(e) => {
                 tracing::error!("vision provider 注册失败: {}", e);
@@ -59,15 +59,15 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
     if !config.app.text_openai_api_key.is_empty()
         && !config.app.text_openai_model_name.is_empty()
     {
-        match OpenAiCompatibleProvider::new(
-            config.app.text_openai_api_key.clone(),
-            config.app.text_openai_model_name.clone(),
-            config.app.text_openai_base_url.clone(),
-            config.app.llm_max_retries,
-            config.app.llm_text_timeout,
+        match OpenAiCompatibleProvider::new(crate::llm::openai_compatible::ProviderConfig {
+            api_key: config.app.text_openai_api_key.clone(),
+            model_name: config.app.text_openai_model_name.clone(),
+            base_url: config.app.text_openai_base_url.clone(),
+            max_retries: config.app.llm_max_retries,
+            timeout_secs: config.app.llm_text_timeout,
             proxy_http,
             proxy_https,
-        ) {
+        }) {
             Ok(provider) => registry.register("openai_text", Arc::new(provider)),
             Err(e) => {
                 tracing::error!("text provider 注册失败: {}", e);

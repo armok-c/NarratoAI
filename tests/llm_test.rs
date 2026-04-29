@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use narratoai_core::error::LLMError;
 use narratoai_core::llm::image_utils::image_to_base64_data_url;
-use narratoai_core::llm::openai_compatible::OpenAiCompatibleProvider;
+use narratoai_core::llm::openai_compatible::{OpenAiCompatibleProvider, ProviderConfig};
 use narratoai_core::llm::provider::LlmProvider;
 use narratoai_core::llm::registry::Registry;
 use narratoai_core::llm::types::LlmResponseFormat;
@@ -402,15 +402,15 @@ async fn test_analyze_images_result_ordering() {
 fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
     // provider 构造函数需要 /v1 路径；wiremock 的 uri() 返回类似 http://127.0.0.1:PORT
     let api_base = format!("{}/v1", base_url.trim_end_matches('/'));
-    OpenAiCompatibleProvider::new(
-        "test-key".to_string(),
-        "test-model".to_string(),
-        api_base,
-        3,
-        30,
-        None,
-        None,
-    )
+    OpenAiCompatibleProvider::new(ProviderConfig {
+        api_key: "test-key".to_string(),
+        model_name: "test-model".to_string(),
+        base_url: api_base,
+        max_retries: 3,
+        timeout_secs: 30,
+        proxy_http: None,
+        proxy_https: None,
+    })
     .expect("测试 provider 创建失败")
 }
 
