@@ -48,7 +48,13 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
         return Ok(format!("data:image/jpeg;base64,{}", b64));
     }
 
-    let img = image::open(path)
+    // 从已打开的文件句柄重新读取全部字节，避免再次按路径打开文件（TOCTOU）
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| LLMError::General(format!("文件寻址失败: {}", e)))?;
+    let mut raw_bytes = Vec::new();
+    file.read_to_end(&mut raw_bytes)
+        .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+    let img = image::load_from_memory(&raw_bytes)
         .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
 
     let (w, h) = img.dimensions();
