@@ -21,6 +21,7 @@ use async_openai::{
 use backoff::ExponentialBackoff;
 use futures::stream::{Stream, StreamExt};
 use tokio::sync::Semaphore;
+use tokio::task::JoinHandle;
 
 use crate::error::LLMError;
 use crate::llm::image_utils::image_to_base64_data_url;
@@ -420,16 +421,25 @@ impl LlmProvider for OpenAiCompatibleProvider {
         max_tokens: Option<u32>,
     ) -> Result<Vec<String>, LLMError> {
         // 预处理所有图片为 base64 data URL（通过 spawn_blocking 避免阻塞 tokio worker 线程）
-        let data_urls: Vec<String> = futures::future::join_all(images.iter().map(|p| {
-            let p = p.clone();
-            tokio::task::spawn_blocking(move || image_to_base64_data_url(&p))
-        }))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|join_err| LLMError::General(format!("图片预处理任务失败: {}", join_err)))?
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
+        let handles: Vec<JoinHandle<Result<String, LLMError>>> = images
+            .iter()
+            .map(|p| {
+                let p = p.clone();
+                tokio::task::spawn_blocking(move || image_to_base64_data_url(&p))
+            })
+            .collect();
+
+        let join_results: Vec<Result<String, LLMError>> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|join_err| {
+                LLMError::General(format!("图片预处理任务失败: {}", join_err))
+            })?;
+
+        let data_urls: Vec<String> = join_results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
 
         if data_urls.is_empty() {
             return Ok(Vec::new());
