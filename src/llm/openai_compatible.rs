@@ -144,6 +144,47 @@ impl OpenAiCompatibleProvider {
         messages
     }
 
+    /// 构建视觉分析消息列表（文本 + 图片 base64 URL）
+    ///
+    /// 被 analyze_images 的主路径和 create_vision_chat_with_json_fallback 回退路径共用。
+    fn build_vision_messages(
+        prompt: &str,
+        system_prompt: Option<&str>,
+        batch: &[String],
+    ) -> Vec<ChatCompletionRequestMessage> {
+        let mut parts: Vec<ChatCompletionRequestUserMessageContentPart> =
+            Vec::with_capacity(1 + batch.len());
+        parts.push(ChatCompletionRequestUserMessageContentPart::Text(
+            ChatCompletionRequestMessageContentPartText { text: prompt.to_string() },
+        ));
+        for b64 in batch {
+            parts.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
+                ChatCompletionRequestMessageContentPartImage {
+                    image_url: ImageUrl {
+                        url: b64.clone(),
+                        detail: None,
+                    },
+                },
+            ));
+        }
+        let mut messages = Vec::with_capacity(2);
+        if let Some(sp) = system_prompt {
+            messages.push(ChatCompletionRequestMessage::System(
+                ChatCompletionRequestSystemMessage {
+                    content: ChatCompletionRequestSystemMessageContent::Text(sp.to_string()),
+                    name: None,
+                },
+            ));
+        }
+        messages.push(ChatCompletionRequestMessage::User(
+            ChatCompletionRequestUserMessage {
+                content: ChatCompletionRequestUserMessageContent::Array(parts),
+                name: None,
+            },
+        ));
+        messages
+    }
+
     /// 从 chat completion 响应中提取文本内容
     fn extract_text(response: &CreateChatCompletionResponse) -> Result<String, LLMError> {
         response
@@ -241,41 +282,14 @@ impl OpenAiCompatibleProvider {
                         "{}\n\n请确保输出严格的JSON格式，不要包含任何其他文字或标记。",
                         original_prompt
                     );
-                    let mut parts: Vec<ChatCompletionRequestUserMessageContentPart> =
-                        Vec::with_capacity(1 + batch.len());
-                    parts.push(ChatCompletionRequestUserMessageContentPart::Text(
-                        ChatCompletionRequestMessageContentPartText { text: json_prompt },
-                    ));
-                    for b64 in batch {
-                        parts.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
-                            ChatCompletionRequestMessageContentPartImage {
-                                image_url: ImageUrl {
-                                    url: b64.clone(),
-                                    detail: None,
-                                },
-                            },
-                        ));
-                    }
-                    let mut messages: Vec<ChatCompletionRequestMessage> = Vec::with_capacity(2);
-                    if let Some(sp) = system_prompt {
-                        messages.push(ChatCompletionRequestMessage::System(
-                            ChatCompletionRequestSystemMessage {
-                                content: ChatCompletionRequestSystemMessageContent::Text(
-                                    sp.to_string(),
-                                ),
-                                name: None,
-                            },
-                        ));
-                    }
-                    messages.push(ChatCompletionRequestMessage::User(
-                        ChatCompletionRequestUserMessage {
-                            content: ChatCompletionRequestUserMessageContent::Array(parts),
-                            name: None,
-                        },
-                    ));
+                    let retry_messages = Self::build_vision_messages(
+                        &json_prompt,
+                        system_prompt,
+                        batch,
+                    );
                     let retry_request = CreateChatCompletionRequestArgs::default()
                         .model(model_name)
-                        .messages(messages)
+                        .messages(retry_messages)
                         .build()
                         .map_err(|e| {
                             LLMError::Configuration(format!("请求重建失败: {}", e))
@@ -432,45 +446,11 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 })?;
 
                 // 构建包含图片和文本的 vision 消息
-                let mut content_parts: Vec<ChatCompletionRequestUserMessageContentPart> =
-                    Vec::with_capacity(1 + batch.len());
-
-                content_parts.push(
-                    ChatCompletionRequestUserMessageContentPart::Text(
-                        ChatCompletionRequestMessageContentPartText {
-                            text: prompt_owned,
-                        },
-                    ),
+                let messages = Self::build_vision_messages(
+                    &prompt_owned,
+                    system_prompt_owned.as_deref(),
+                    &batch,
                 );
-
-                for b64 in &batch {
-                    content_parts.push(
-                        ChatCompletionRequestUserMessageContentPart::ImageUrl(
-                            ChatCompletionRequestMessageContentPartImage {
-                                image_url: ImageUrl {
-                                    url: b64.clone(),
-                                    detail: None,
-                                },
-                            },
-                        ),
-                    );
-                }
-
-                let mut messages: Vec<ChatCompletionRequestMessage> = Vec::with_capacity(2);
-                if let Some(sp) = system_prompt_owned {
-                    messages.push(ChatCompletionRequestMessage::System(
-                        ChatCompletionRequestSystemMessage {
-                            content: ChatCompletionRequestSystemMessageContent::Text(sp),
-                            name: None,
-                        },
-                    ));
-                }
-                messages.push(ChatCompletionRequestMessage::User(
-                    ChatCompletionRequestUserMessage {
-                        content: ChatCompletionRequestUserMessageContent::Array(content_parts),
-                        name: None,
-                    },
-                ));
 
                 let mut request_builder = CreateChatCompletionRequestArgs::default();
                 request_builder.model(&model_name);
