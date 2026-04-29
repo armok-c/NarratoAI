@@ -12,11 +12,13 @@ use crate::error::LLMError;
 /// 流水线：
 /// image::open() -> resize(1024,Lanczos3) -> JPEG quality 85 -> base64 encode -> data URL
 pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
-    // 文件大小检查（防御性限制，防止 OOM）
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
-
     const MAX_IMAGE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB 限制
+
+    // 先打开文件，再通过已打开的文件句柄读取元数据，消除 metadata/open 之间的 TOCTOU 窗口
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| LLMError::General(format!("文件打开失败: {}", e)))?;
+    let metadata = file.metadata()
+        .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
     if metadata.len() > MAX_IMAGE_SIZE {
         return Err(LLMError::General(format!(
             "图片文件过大: {} bytes (最大允许 {} bytes)",
@@ -26,8 +28,6 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     }
 
     // JPEG 直通优化：仅读取前 4 字节检测 JPEG 魔术字节，避免全文件读取
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| LLMError::General(format!("文件打开失败: {}", e)))?;
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic)
         .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
