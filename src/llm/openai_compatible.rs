@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use crate::llm::types::LlmResponseFormat;
 /// Provider 配置参数
 ///
 /// 用于构造 OpenAiCompatibleProvider 的配置结构体，避免 7 个位置参数的易错性。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProviderConfig {
     /// API 密钥
     pub api_key: String,
@@ -44,6 +45,20 @@ pub struct ProviderConfig {
     pub proxy_http: Option<String>,
     /// HTTPS 代理 URL，None 表示不使用 HTTPS 代理
     pub proxy_https: Option<String>,
+}
+
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("api_key", &"***REDACTED***")
+            .field("model_name", &self.model_name)
+            .field("base_url", &self.base_url)
+            .field("max_retries", &self.max_retries)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("proxy_http", &self.proxy_http)
+            .field("proxy_https", &self.proxy_https)
+            .finish()
+    }
 }
 
 /// OpenAI 兼容协议的 Provider 实现（D-06）
