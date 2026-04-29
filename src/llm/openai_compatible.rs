@@ -69,6 +69,8 @@ impl fmt::Debug for ProviderConfig {
 pub struct OpenAiCompatibleProvider {
     model_name: String,
     client: Client<OpenAIConfig>,
+    /// 不带 backoff 重试的客户端，用于 fallback 路径，避免嵌套重试放大请求数（WR-01）
+    fallback_client: Client<OpenAIConfig>,
 }
 
 impl OpenAiCompatibleProvider {
@@ -109,11 +111,22 @@ impl OpenAiCompatibleProvider {
             ..ExponentialBackoff::default()
         };
 
+        // 构建不带 backoff 的 fallback 客户端（WR-01）
+        // 复用同一个 reqwest::Client（Arc 内部句柄，克隆成本很低）
+        let fallback_openai_config = OpenAIConfig::new()
+            .with_api_key(&cfg.api_key)
+            .with_api_base(cfg.base_url.trim_end_matches('/'));
+        let no_retry_backoff = ExponentialBackoff {
+            max_elapsed_time: Some(Duration::ZERO),
+            ..ExponentialBackoff::default()
+        };
+        let fallback_client = Client::build(http_client.clone(), fallback_openai_config, no_retry_backoff);
         let client = Client::build(http_client, openai_config, backoff);
 
         Ok(Self {
             model_name: cfg.model_name,
             client,
+            fallback_client,
         })
     }
 
@@ -246,7 +259,7 @@ impl OpenAiCompatibleProvider {
                         .map_err(|e| LLMError::APICall(format!("请求重建失败: {}", e)))?;
 
                     let retry_response = self
-                        .client
+                        .fallback_client
                         .chat()
                         .create(retry_request)
                         .await
@@ -267,6 +280,7 @@ impl OpenAiCompatibleProvider {
     /// 回退到在 prompt 中追加 JSON 约束指示重新请求。
     async fn create_vision_chat_with_json_fallback(
         client: &Client<OpenAIConfig>,
+        fallback_client: &Client<OpenAIConfig>,
         request: CreateChatCompletionRequest,
         model_name: &str,
         original_prompt: &str,
@@ -303,7 +317,8 @@ impl OpenAiCompatibleProvider {
                         .map_err(|e| {
                             LLMError::APICall(format!("请求重建失败: {}", e))
                         })?;
-                    client.chat().create(retry_request).await.map_err(LLMError::from)
+                    // 使用 fallback_client（无 backoff）避免嵌套重试放大请求数（WR-01）
+                    fallback_client.chat().create(retry_request).await.map_err(LLMError::from)
                 } else {
                     Err(LLMError::from(OpenAIError::ApiError(api_err)))
                 }
@@ -450,6 +465,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         for (batch_idx, batch) in chunks.into_iter().enumerate() {
             let sem_clone = semaphore.clone();
             let client_clone = self.client.clone();
+            let fallback_client_clone = self.fallback_client.clone();
             let prompt_owned = prompt.to_string();
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
             let model_name = self.model_name.clone();
@@ -488,6 +504,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 let response = if use_json {
                     Self::create_vision_chat_with_json_fallback(
                         &client_clone,
+                        &fallback_client_clone,
                         request,
                         &model_name,
                         &prompt_owned,
