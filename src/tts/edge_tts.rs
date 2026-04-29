@@ -713,4 +713,75 @@ mod tests {
         // 中文语音应有词边界数据
         assert!(!output.word_boundaries.is_empty(), "应有词边界数据");
     }
+
+    // ============================================================
+    // parse_edge_tts_binary 单元测试
+    // ============================================================
+
+    #[test]
+    fn test_parse_edge_tts_binary_audio() {
+        // Audio message
+        let data = b"Path: audio\r\nX-RequestId: abc\r\nContent-Type: audio/mpeg\r\n\r\n\xff\xf3\x00\x00";
+        let result = parse_edge_tts_binary(data);
+        assert!(result.is_some());
+        let content = result.unwrap();
+        assert_eq!(content.path, "audio");
+        assert_eq!(content.payload, b"\xff\xf3\x00\x00");
+    }
+
+    #[test]
+    fn test_parse_edge_tts_binary_wordboundary() {
+        // WordBoundary message
+        let payload = r#"{"offset":0,"duration":5000000,"text":"hello"}"#;
+        let data = format!(
+            "Path: wordboundary\r\nX-RequestId: xyz\r\nContent-Type: application/json\r\n\r\n{}",
+            payload
+        );
+        let result = parse_edge_tts_binary(data.as_bytes());
+        assert!(result.is_some());
+        let content = result.unwrap();
+        assert_eq!(content.path, "wordboundary");
+        assert_eq!(content.payload, payload.as_bytes());
+    }
+
+    #[test]
+    fn test_parse_edge_tts_binary_turn_end() {
+        // Turn.End message
+        let payload = r#"{"audio_duration":52500000}"#;
+        let data = format!(
+            "Path: turn.end\r\nX-RequestId: xyz\r\nContent-Type: application/json\r\n\r\n{}",
+            payload
+        );
+        let result = parse_edge_tts_binary(data.as_bytes());
+        assert!(result.is_some());
+        let content = result.unwrap();
+        assert_eq!(content.path, "turn.end");
+    }
+
+    #[test]
+    fn test_parse_edge_tts_binary_missing_separator() {
+        // No \r\n\r\n separator
+        let data = b"Path: audio\r\nX-RequestId: abc";
+        let result = parse_edge_tts_binary(data);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_edge_tts_binary_empty_payload() {
+        // Empty payload after separator
+        let data = b"Path: audio\r\nX-RequestId: abc\r\n\r\n";
+        let result = parse_edge_tts_binary(data);
+        assert!(result.is_some());
+        let content = result.unwrap();
+        assert_eq!(content.path, "audio");
+        assert!(content.payload.is_empty());
+    }
+
+    #[test]
+    fn test_parse_edge_tts_binary_missing_path() {
+        // No Path: header field
+        let data = b"X-RequestId: abc\r\nContent-Type: audio/mpeg\r\n\r\npayload";
+        let result = parse_edge_tts_binary(data);
+        assert!(result.is_none());
+    }
 }
