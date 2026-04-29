@@ -69,8 +69,6 @@ impl fmt::Debug for ProviderConfig {
 pub struct OpenAiCompatibleProvider {
     model_name: String,
     client: Client<OpenAIConfig>,
-    /// 不带 backoff 重试的客户端，用于 fallback 路径，避免嵌套重试放大请求数（WR-01）
-    fallback_client: Client<OpenAIConfig>,
 }
 
 impl OpenAiCompatibleProvider {
@@ -111,27 +109,17 @@ impl OpenAiCompatibleProvider {
             ..ExponentialBackoff::default()
         };
 
-        // 构建不带 backoff 的 fallback 客户端（WR-01）
-        // 复用同一个 reqwest::Client（Arc 内部句柄，克隆成本很低）
-        let fallback_openai_config = OpenAIConfig::new()
-            .with_api_key(&cfg.api_key)
-            .with_api_base(cfg.base_url.trim_end_matches('/'));
-        let no_retry_backoff = ExponentialBackoff {
-            max_elapsed_time: Some(Duration::ZERO),
-            ..ExponentialBackoff::default()
-        };
-        let fallback_client = Client::build(http_client.clone(), fallback_openai_config, no_retry_backoff);
         let client = Client::build(http_client, openai_config, backoff);
 
         Ok(Self {
             model_name: cfg.model_name,
             client,
-            fallback_client,
         })
     }
 
     /// 构建文本生成的消息列表
     fn build_text_messages(
+        &self,
         prompt: &str,
         system_prompt: Option<&str>,
     ) -> Vec<ChatCompletionRequestMessage> {
@@ -243,7 +231,7 @@ impl OpenAiCompatibleProvider {
                         original_prompt
                     );
 
-                    let retry_messages = Self::build_text_messages(&json_prompt, system_prompt);
+                    let retry_messages = self.build_text_messages(&json_prompt, system_prompt);
                     let mut retry_builder = CreateChatCompletionRequestArgs::default();
                     retry_builder.model(&self.model_name);
                     retry_builder.messages(retry_messages);
@@ -258,7 +246,7 @@ impl OpenAiCompatibleProvider {
                         .map_err(|e| LLMError::APICall(format!("请求重建失败: {}", e)))?;
 
                     let retry_response = self
-                        .fallback_client
+                        .client
                         .chat()
                         .create(retry_request)
                         .await
@@ -279,7 +267,6 @@ impl OpenAiCompatibleProvider {
     /// 回退到在 prompt 中追加 JSON 约束指示重新请求。
     async fn create_vision_chat_with_json_fallback(
         client: &Client<OpenAIConfig>,
-        fallback_client: &Client<OpenAIConfig>,
         request: CreateChatCompletionRequest,
         model_name: &str,
         original_prompt: &str,
@@ -316,8 +303,7 @@ impl OpenAiCompatibleProvider {
                         .map_err(|e| {
                             LLMError::APICall(format!("请求重建失败: {}", e))
                         })?;
-                    // 使用 fallback_client（无 backoff）避免嵌套重试放大请求数（WR-01）
-                    fallback_client.chat().create(retry_request).await.map_err(LLMError::from)
+                    client.chat().create(retry_request).await.map_err(LLMError::from)
                 } else {
                     Err(LLMError::from(OpenAIError::ApiError(api_err)))
                 }
@@ -337,7 +323,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         max_tokens: Option<u32>,
         response_format: Option<LlmResponseFormat>,
     ) -> Result<String, LLMError> {
-        let messages = Self::build_text_messages(prompt, system_prompt);
+        let messages = self.build_text_messages(prompt, system_prompt);
 
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder.model(&self.model_name);
@@ -382,7 +368,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         temperature: Option<f32>,
         max_tokens: Option<u32>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
-        let messages = Self::build_text_messages(prompt, system_prompt);
+        let messages = self.build_text_messages(prompt, system_prompt);
 
         let mut request_builder = CreateChatCompletionRequestArgs::default();
         request_builder.model(&self.model_name);
@@ -464,7 +450,6 @@ impl LlmProvider for OpenAiCompatibleProvider {
         for (batch_idx, batch) in chunks.into_iter().enumerate() {
             let sem_clone = semaphore.clone();
             let client_clone = self.client.clone();
-            let fallback_client_clone = self.fallback_client.clone();
             let prompt_owned = prompt.to_string();
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
             let model_name = self.model_name.clone();
@@ -503,7 +488,6 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 let response = if use_json {
                     Self::create_vision_chat_with_json_fallback(
                         &client_clone,
-                        &fallback_client_clone,
                         request,
                         &model_name,
                         &prompt_owned,

@@ -31,10 +31,10 @@ impl std::error::Error for RegistrationErrors {}
 /// 创建 OpenAiCompatibleProvider 实例并注册到 Registry。
 ///
 /// 注册逻辑：
-/// - 若 vision_openai_api_key 非空 → 注册 provider，注册键固定为 VISION_PROVIDER_NAME
-/// - 若 text_openai_api_key 非空 → 注册 provider，注册键固定为 TEXT_PROVIDER_NAME
-/// - 配置中的 vision_llm_provider / text_llm_provider 字段保留用于兼容性目的，不影响注册键
-/// - 使用固定注册键避免用户同时配置 vision 和 text 时 provider 名称冲突（CR-01）
+/// - 若 vision_openai_api_key 非空 → 注册 provider，名称取自 vision_llm_provider（若空则使用 VISION_PROVIDER_NAME）
+/// - 若 text_openai_api_key 非空 → 注册 provider，名称取自 text_llm_provider（若空则使用 TEXT_PROVIDER_NAME）
+/// - provider 名称与 D-08 的默认 provider 选择逻辑配合
+/// - 使用配置中的 provider 名称作为注册键，以支持未来多 provider 实现共存
 ///
 /// 代理支持（D-16）：proxy.enabled=true 时透传 proxy.http / proxy.https 到 provider 构造函数
 ///
@@ -60,6 +60,11 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
     if !config.app.vision_openai_api_key.is_empty()
         && !config.app.vision_openai_model_name.is_empty()
     {
+        let vision_name = if config.app.vision_llm_provider.is_empty() {
+            VISION_PROVIDER_NAME
+        } else {
+            &config.app.vision_llm_provider
+        };
         match OpenAiCompatibleProvider::new(ProviderConfig {
             api_key: config.app.vision_openai_api_key.clone(),
             model_name: config.app.vision_openai_model_name.clone(),
@@ -69,7 +74,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
             proxy_http: proxy_http.clone(),
             proxy_https: proxy_https.clone(),
         }) {
-            Ok(provider) => registry.register(VISION_PROVIDER_NAME, Arc::new(provider)),
+            Ok(provider) => registry.register(vision_name, Arc::new(provider)),
             Err(e) => {
                 tracing::error!("vision provider 注册失败: {}", e);
                 errors.push(e);
@@ -81,6 +86,11 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
     if !config.app.text_openai_api_key.is_empty()
         && !config.app.text_openai_model_name.is_empty()
     {
+        let text_name = if config.app.text_llm_provider.is_empty() {
+            TEXT_PROVIDER_NAME
+        } else {
+            &config.app.text_llm_provider
+        };
         match OpenAiCompatibleProvider::new(ProviderConfig {
             api_key: config.app.text_openai_api_key.clone(),
             model_name: config.app.text_openai_model_name.clone(),
@@ -90,7 +100,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
             proxy_http,
             proxy_https,
         }) {
-            Ok(provider) => registry.register(TEXT_PROVIDER_NAME, Arc::new(provider)),
+            Ok(provider) => registry.register(text_name, Arc::new(provider)),
             Err(e) => {
                 tracing::error!("text provider 注册失败: {}", e);
                 errors.push(e);
