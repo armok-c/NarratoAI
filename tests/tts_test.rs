@@ -102,5 +102,8 @@ fn test_word_boundary_time_unit_semantics() {
 #[allow(clippy::let_underscore_future)]
 #[test]
 fn test_synthesize_function_signature() {
-    let _ = tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None);
+    let engine = "edge_tts";
+    let text = "";
+    let voice_name = "";
+    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new(""), None);
 }
