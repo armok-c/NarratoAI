@@ -42,7 +42,7 @@ impl OpenAiCompatibleProvider {
     /// * `api_key` - API 密钥
     /// * `model_name` - 模型名称
     /// * `base_url` - API 基础 URL（如 https://api.openai.com/v1）
-    /// * `max_retries` - 最大重试次数（当前未使用，保留接口对齐）
+    /// * `max_retries` - 最大重试次数，传递给 OpenAI 客户端配置
     /// * `timeout_secs` - 请求超时秒数
     /// * `proxy_http` - HTTP 代理 URL，None 表示不使用 HTTP 代理
     /// * `proxy_https` - HTTPS 代理 URL，None 表示不使用 HTTPS 代理
@@ -57,9 +57,8 @@ impl OpenAiCompatibleProvider {
     ) -> Result<Self, LLMError> {
         let config = OpenAIConfig::new()
             .with_api_key(&api_key)
-            .with_api_base(base_url.trim_end_matches('/'));
-
-        let _ = max_retries; // 保留用于接口对齐，backoff 使用 Default::default()
+            .with_api_base(base_url.trim_end_matches('/'))
+            .with_max_retries(max_retries);
 
         let mut http_client_builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs));
