@@ -1,6 +1,6 @@
 ---
 phase: 03-tts-core-edge-tts
-reviewed: 2026-04-29T16:30:00Z
+reviewed: 2026-04-29T16:45:00Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
@@ -13,32 +13,31 @@ files_reviewed_list:
 findings:
   critical: 1
   warning: 2
-  info: 5
-  total: 8
+  info: 8
+  total: 11
 status: issues_found
 ---
 
 # Phase 03: TTS Core + Edge-TTS Engine -- Code Review Report
 
-**审查时间:** 2026-04-29T16:30:00Z
+**审查时间:** 2026-04-29T16:45:00Z
 **深度:** standard
 **审查文件数:** 6
 **状态:** issues_found
 
 ## 摘要
 
-对 Phase 03（TTS 核心抽象 + Edge-TTS 引擎）的当前源代码进行了标准深度审查。此前审查迭代（Iteration 2, 03-REVIEW.md 旧版）报告的 13 个问题中，绝大多数已通过 `git log` 确认的修复提交得到解决，包括 WR-06（CONNECT 响应数据丢失）、WR-07（Path 头大小写匹配）、WR-08（voice_name 空值校验）以及多项 INFO 级问题均已修复。
+对 Phase 03（TTS 核心抽象 + Edge-TTS 引擎）的当前源代码进行了 standard 深度审查。项目范围包括 `src/tts/mod.rs`（TtsProvider trait、synthesize 路由器）、`src/tts/edge_tts.rs`（Edge-TTS WebSocket 引擎）、`src/error.rs`（TTSError 定义）、`src/lib.rs`（模块声明）、`Cargo.toml`（依赖管理）和 `tests/tts_test.rs`（集成测试）。
 
-本报告基于 **当前代码状态** 进行审查，仅报告当前代码中仍然存在的问题。
-
-**核心发现：** 项目存在 1 个 BLOCKER 编译错误——`Message::Text(stt_message)` 在 tungstenite 0.29.0 中存在类型不匹配，导致整个项目无法通过编译。此外存在 2 个 WARNING（重试策略未排除不可重试错误、`connect()` 缺少超时机制）和 5 个 INFO 级问题。
+**总览：** 共发现 11 个问题：1 个 BLOCKER（编译错误）、2 个 WARNING（重试策略和超时缺失）、8 个 INFO。关键问题 CR-01 导致项目无法通过编译，必须优先修复。此前审查报告中的所有问题均未修复。
 
 ## Critical Issues
 
-### CR-01: `Message::Text` 类型不匹配导致编译失败
+### CR-01: `Message::Text(stt_message)` 类型不匹配导致编译失败
 
 **File:** `src/tts/edge_tts.rs:410`
-**Issue:** 将 `stt_message`（`String` 类型）直接传入 `Message::Text()`，但 `tungstenite 0.29.0` 的 `Message::Text` 变体期望 `Utf8Bytes` 而非 `String`。这是 tungstenite 从 0.28.x 升级到 0.29.0 时的 API 变更。编译错误信息如下：
+
+**Issue:** `stt_message` 是 `String` 类型，但 `tungstenite 0.29.0` 的 `Message::Text` 变体接受 `Utf8Bytes` 而非 `String`。`Utf8Bytes` 虽然实现了 `From<String>`，但 Rust 不会在枚举变体构造函数参数中进行隐式转换，因此直接传入 `String` 会触发类型不匹配编译错误。错误信息如下：
 
 ```
 error[E0308]: mismatched types
@@ -48,10 +47,9 @@ error[E0308]: mismatched types
     |                   ------------- ^^^^^^^^^^^ expected `Utf8Bytes`, found `String`
 ```
 
-编译器已自动附着修复建议。
+编译器已自动附着修复建议。`cargo check` 确认该错误存在，项目当前无法通过编译。
 
-**Fix:** 在第 410 行添加 `.into()` 转换：
-
+**Fix:**
 ```rust
 ws_stream
     .send(Message::Text(stt_message.into()))
@@ -64,18 +62,18 @@ ws_stream
 ### WR-01: 重试逻辑未排除不可重试错误类型
 
 **File:** `src/tts/edge_tts.rs:357-388`
-**Issue:** `synthesize_with_retry` 对 `synthesize_once` 返回的 **所有** 错误一律执行 3 次重试（每次间隔 1 秒）。但 `TTSError` 中包含不可重试的错误变体：
 
-- `AuthenticationFailed`：认证凭据无效时，无论如何重试都会失败
-- 每当尝试建立 WebSocket 连接时都会重新触发认证失败，每次尝试浪费数秒
+**Issue:** `synthesize_with_retry` 对 `synthesize_once` 返回的所有错误类型一律执行 3 次重试（每次间隔 1 秒），未利用 `classify_error`（第 345-352 行）已识别的错误分类信息。以下两类错误是不可重试的：
 
-虽然当前 `TrustedClientToken` 是硬编码且长期稳定的，但此设计缺陷会在将来支持可配置 token 时显现。错误分类函数 `classify_error`（第 345 行）已能识别认证错误，但重试逻辑未利用此信息。
+- `TTSError::AuthenticationFailed`：WebSocket 认证失败（`TrustedClientToken` 无效或过期）。重试不会改变凭据，每次重试浪费约 1+ 秒并产生无用网络流量。
+- `TTSError::ConnectionFailed` 中由 URL 格式错误、TLS 配置错误等永久性缺陷引起的错误亦无重试意义。
 
-**Fix:** 在匹配 `Err(e)` 时，对不可重试的错误类型短路返回：
+虽然当前 `TrustedClientToken` 是硬编码且长期稳定的常量，认证失败概率低，但此设计缺陷在处理代理认证失败或将来支持可配置 token 时会导致不必要的延迟。
 
+**Fix:** 在 `Err(e)` 匹配分支中对不可重试的错误短路：
 ```rust
 Err(e) => {
-    if matches!(&e, TTSError::AuthenticationFailed(_) | TTSError::UnknownEngine { .. }) {
+    if matches!(&e, TTSError::AuthenticationFailed(_)) {
         return Err(e);
     }
     tracing::warn!("Edge-TTS 合成尝试 {} 失败: {}", attempt, e);
@@ -86,28 +84,26 @@ Err(e) => {
 }
 ```
 
-### WR-02: `connect()` 函数缺少超时机制
+### WR-02: `connect()` 函数缺少超时保护
 
-**File:** `src/tts/edge_tts.rs:119-342`（整体 `connect` 函数，~220 行）
-**Issue:** `connect()` 函数在执行代理 CONNECT 握手时没有任何超时保护。以下场景会导致函数永久阻塞：
+**File:** `src/tts/edge_tts.rs:119-342`
 
-1. 代理服务器在 CONNECT 阶段无响应（TCP 连接成功但不回复数据）
-2. 代理发送不完整的 HTTP 响应头（缺少 `\r\n\r\n` 终止符），读循环无限等待
-3. DNS 解析和 TCP 连接本身有系统级超时，但 CONNECT 阶段不受此保护
+**Issue:** `connect()` 函数在执行 HTTP CONNECT 隧道握手时没有任何超时保护。具体风险包括：
 
-当前仅 `synthesize_once` 中有 `WS_RECEIVE_TIMEOUT`（120秒，第 11 行），此超时仅作用于 **已建立的 WebSocket** 的消息接收，而不作用于 **CONNECT 握手阶段**。
+1. **CONNECT 响应读取循环（第 257-313 行）：** `tcp.read()` 在代理不回复或回复不完整时可能永久阻塞。当前仅 `synthesize_once` 中有 `WS_RECEIVE_TIMEOUT`（120 秒，第 11 行），但此超时只覆盖 WebSocket 建立后的消息接收阶段，不覆盖 CONNECT 握手阶段。
+2. **TLS 握手（第 316-331 行）：** `native_tls::TlsConnector` 的握手操作也没有超时保护。如果代理通过 CONNECT 建立了隧道但对端 TLS 服务器无响应，`client_async_tls_with_config` 会无限阻塞。
 
-**Fix:** 在 `connect()` 函数外层添加超时：
+虽然 `TcpStream::connect` 本身有操作系统级的 TCP 超时（通常 20-120 秒），但 CONNECT 阶段的 HTTP 响应读取和 TLS 握手不受此保护。
 
+**Fix:** 在 `connect()` 整体或关键阶段添加超时：
 ```rust
-use tokio::time::timeout;
-
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn connect(&self) -> Result<..., TTSError> {
-    timeout(CONNECT_TIMEOUT, async {
+    tokio::time::timeout(CONNECT_TIMEOUT, async {
         // ... 现有 connect 逻辑 ...
-    }).await
+    })
+    .await
     .map_err(|_| TTSError::ConnectionFailed("代理 CONNECT 超时 (30s)".to_string()))?
 }
 ```
@@ -117,29 +113,32 @@ async fn connect(&self) -> Result<..., TTSError> {
 ### IN-01: `notify` 依赖为 RC 版本
 
 **File:** `Cargo.toml:14`
-**Issue:** `notify = "9.0.0-rc.3"` 为发布候选版本，正式版 9.0.0 可能引入 API 破坏性变更。`Cargo.toml` 中已有注释说明此风险，但建议在 9.0.0 正式版发布后升级并进行集成验证。
+
+**Issue:** `notify = "9.0.0-rc.3"` 为发布候选版本。`Cargo.lock` 将固定此 RC 版本，但正式版 9.0.0 发布后可能引入 API 破坏性变更。`Cargo.toml` 中已有注释说明此风险，建议在正式版发布后升级并验证兼容性。
 
 ### IN-02: `connect()` 函数复杂度过高
 
-**File:** `src/tts/edge_tts.rs:119-342`
-**Issue:** `connect()` 函数约 220 行，包含 IPv6 代理地址解析、HTTP CONNECT 隧道构建、1xx/2xx 响应合并处理等复杂逻辑。建议将以下子逻辑提取为独立的辅助函数以提升可维护性：
+**File:** `src/tts/edge_tts.rs:119-342`（约 220 行）
 
-- 代理 URL 解析（主机、端口、凭据提取）
-- 目标 WSS URL 解析（主机、端口）
-- HTTP CONNECT 请求构建
-- CONNECT 响应读取与解析
+**Issue:** `connect()` 函数包含以下可提取为独立函数的子逻辑：
+- 代理 URL 解析（方案、主机、端口、凭据提取）—— 第 153-199 行
+- 目标 WSS URL 解析（主机、端口）—— 第 201-210 行
+- HTTP CONNECT 请求构建 —— 第 214-225 行
+- CONNECT 响应读取与解析 —— 第 257-313 行
 
-当前代码虽然逻辑正确，但函数长度和嵌套深度（涉及 `loop` 套 `loop` 加 `continue`）增加了未来维护的理解成本。
+当前函数嵌套两层 `loop`（第 257、259 行），包含多处 `continue` 和条件分支，可维护性较低。提取为命名辅助函数后有利于单元测试和审查。
 
 ### IN-03: 签名测试使用 Unix 路径
 
 **File:** `tests/tts_test.rs:113`
-**Issue:** 编译期签名测试使用 `Path::new("/tmp/_narratoai_sig_check.mp3")`。该路径 `let _` 丢弃未来而不 poll，因此当前无实际文件操作。但如果未来有人在该测试上添加 `.await` 或将其改为集成测试，路径在 Windows 上会失败。安全注释已说明此约束。
+
+**Issue:** 编译期签名测试使用 `Path::new("/tmp/_narratoai_sig_check.mp3")`。当前代码通过 `let _` 丢弃返回的 Future 而不 poll，因此无实际文件操作。但如果未来有人在该测试上添加 `.await` 或将其改为集成测试，`/tmp/` 路径在 Windows 环境会失败。测试已有注释说明此约束，但路径本身仍然是平台假设。
 
 ### IN-04: 未处理的二进制消息路径被静默忽略
 
-**File:** `src/tts/edge_tts.rs:464-495`
-**Issue:** 在 `synthesize_once` 的二进制消息分发链中，`SentenceBoundary` 等非核心路径类型会无任何日志地通过整个 if-else 链。如果 Edge TTS 服务未来新增消息类型或改变行为，静默忽略会掩盖问题。建议在 if-else 链末尾添加兜底日志：
+**File:** `src/tts/edge_tts.rs:432-496`
+
+**Issue:** 在 `synthesize_once` 的二进制消息分发链中，`if-else if` 链覆盖了 `audio`、`turn.start`、`wordboundary`、`turn.end` 四个路径。Edge TTS 服务可能发送 `SentenceBoundary` 等其他路径类型（Python edge-tts 库的 `SubMaker` 会消费 `SentenceBoundary` 事件），当前代码让这些路径无声地通过整个 `if-else` 链。建议在链末尾添加兜底日志以捕获新增或未知路径：
 
 ```rust
 } else {
@@ -150,39 +149,63 @@ async fn connect(&self) -> Result<..., TTSError> {
 ### IN-05: 词边界时间单位测试为同义反复
 
 **File:** `tests/tts_test.rs:80-91`
-**Issue:** `test_word_boundary_time_unit_semantics` 测试声明常量 `50_000_000u64` 并验证其自减等于自身。此测试仅验证 Rust 编译器的 u64 算数运算正确性（编译器保证），作为文档有价值但无实际验证作用。
+
+**Issue:** `test_word_boundary_time_unit_semantics` 测试声明常量 `50_000_000u64` 并验证其自减等于自身。此测试仅验证 Rust 编译器的 u64 算术运算正确性（编译器保证），有文档价值但无实际验证作用。可考虑替换为更有意义的测试（如时间单位转换的边界值验证）。
 
 ### IN-06: `voice_name_to_lang` 对缺少第二连字符的音色名返回空串
 
 **File:** `src/tts/edge_tts.rs:61-71`
-**Issue:** 当 `voice_name` 不符合 `xx-XX-VoiceName` 格式（少于两个连字符）时，`voice_name_to_lang` 返回空字符串。此空串被直接填入 SSML 的 `xml:lang=""` 属性。虽然 `synthesize` 已在第 593 行校验 `voice_name` 非空，但格式不合规的音色名（如 `"XiaoyiNeural"`、`"CustomVoice"`）仍会通过校验并生成含 `xml:lang=""` 的 SSML。降低为 INFO 级别，因为标准 Edge TTS 音色名均符合此格式，该问题仅影响自定义/非标准音色名。
+
+**Issue:** 当 `voice_name` 不符合 `xx-XX-VoiceName` 格式（少于两个连字符）时，`voice_name_to_lang` 返回空字符串。此空串被直接填入 SSML 的 `xml:lang=""` 属性。虽然 `synthesize` 已在第 593 行校验 `voice_name` 非空，但格式不合规的音色名（如 `"XiaoyiNeural"`）仍会通过校验并生成含 `xml:lang=""` 的 SSML。
+
+标准 Edge TTS 音色名均遵循 `locale-SpeakerName` 格式（如 `zh-CN-XiaoyiNeural`），因此实际影响有限。降低为 INFO 级。
+
+### IN-07: 重试耗尽后无条件删除输出文件
+
+**File:** `src/tts/edge_tts.rs:381`
+
+**Issue:** 在所有重试尝试失败后，`synthesize_with_retry` 无条件执行 `tokio::fs::remove_file(output_path)` 以清理可能的损坏输出文件：
+
+```rust
+let _ = tokio::fs::remove_file(output_path).await;
+```
+
+该操作未区分以下两种情况：
+- 文件是由 TTS 合成的部分输出创建的（应清理）
+- 文件在 TTS 调用之前就已存在（不应删除）
+
+如果调用者传入一个已存在的重要文件路径作为 `output_path`，TTS 失败后该文件会被删除。虽然典型用法中调用者会传入新文件路径，且成功路径上 `tokio::fs::write` 也会覆盖该文件，但当前行为存在数据丢失风险。建议在移除前检查文件是否在本次调用中实际被创建，或由调用者负责清理。
+
+### IN-08: rate 校验错误消息表述不精确
+
+**File:** `src/tts/edge_tts.rs:597-598`
+
+**Issue:** 参数校验中的错误消息为 `"rate 必须为有限正数: {}"`，但 `rate=0.0` 是允许值（通过 `rate < 0.0` 检查且 `is_finite()` 为真）。数学上 0 不是正数，消息应改为 `"rate 必须为有限非负数"` 以与校验逻辑一致。此问题不影响功能正确性。
 
 ---
 
-**此前审查迭代已修复的问题（不再列为当前问题）：**
+**此前审查迭代（Iteration 2, 2026-04-29T16:30:00Z）报告的问题状态：**
 
-此前 03-REVIEW.md（Iteration 2）报告的 13 个问题中，12 个已有明确的修复提交：
+以下问题在本次审查中确认仍未修复：
 
-| 状态 | ID | 修复提交 |
-|------|-----|---------|
-| 已修复 | WR-06 (旧) CONNECT 1xx+2xx 数据丢失 | `44d4b95` |
-| 已修复 | WR-07 (旧) Path 头大小写敏感 | `1c5e5b1` |
-| 已修复 | WR-08 (旧) voice_name 空值未校验 | `345719a` |
-| 已修复 | IN-09 (旧) expect() 潜在 panic | `02070c1` |
-| 已修复 | IN-10 (旧) 空路径签名测试 | `7396104` |
-| 已修复 | WR-01 (旧) IPv6 代理 | `44d4b95` |
-| 已修复 | WR-02 (旧) 代理凭据丢失 | `44d4b95` |
-| 已修复 | WR-03 (旧) from_utf8_lossy | `44d4b95` |
-| 已修复 | IN-03 (旧) 重复错误分类函数 | `237894b` |
-| 已修复 | IN-04 (旧) 未使用 wiremock | 已移除 |
-| 已修复 | IN-05 (旧) 边界值测试缺失 | `97fc2ea` |
-| 已修复 | IN-06 (旧) SOCKS5 处理 | `ce32853` |
-| 已修复 | IN-08 (旧) parse_edge_tts_binary 无单元测试 | `b1fdfbe` |
-| 未修复 | WR-04 (旧) turn.end 解析失败静默设 duration=0 | 仍在代码中（见第 486/491 行），但不影响正确性 |
+| ID | 标题 | 当前状态 |
+|-----|-------|---------|
+| CR-01 | `Message::Text` 类型不匹配 | 未修复（编译失败） |
+| WR-01 | 重试逻辑未排除不可重试错误 | 未修复 |
+| WR-02 | `connect()` 缺少超时 | 未修复 |
+| IN-01 | `notify` RC 版本 | 未修复 |
+| IN-02 | `connect()` 复杂度过高 | 未修复 |
+| IN-03 | 签名测试 Unix 路径 | 未修复 |
+| IN-04 | 未处理二进制消息路径 | 未修复 |
+| IN-05 | 时间单位测试同义反复 | 未修复 |
+| IN-06 | `voice_name_to_lang` 返回空串 | 未修复 |
+| IN-07 | 重试耗尽后无条件删除文件 | 新增 |
+| IN-08 | rate 校验错误消息不精确 | 新增 |
+
+`src/error.rs` 中的 `From<OpenAIError>` 启发式分类已通过提交 `83d9027` 修复（`lower.contains("key")` 和 `lower.contains("auth")` 已替换为 `"authentication"`、`"unauthorized"`、`"invalid api key"` 等更精确的匹配），不再列为问题。
 
 ---
 
-_审查时间: 2026-04-29T16:30:00Z_
+_审查时间: 2026-04-29T16:45:00Z_
 _审查者: Claude (gsd-code-reviewer)_
 _深度: standard_
-_基准: 当前代码状态（git HEAD: 58227cd）_
