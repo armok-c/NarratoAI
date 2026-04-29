@@ -368,6 +368,9 @@ impl EdgeTtsEngine {
             match self.synthesize_once(ssml, output_path).await {
                 Ok(output) => return Ok(output),
                 Err(e) => {
+                    if matches!(&e, TTSError::AuthenticationFailed(_)) {
+                        return Err(e);
+                    }
                     tracing::warn!("Edge-TTS 合成尝试 {} 失败: {}", attempt, e);
                     last_error = Some(e);
                     if attempt < max_attempts {
