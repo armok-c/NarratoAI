@@ -273,55 +273,6 @@ pub struct TrackJson {
     pub type_field: String,
 }
 
-// ---------------------------------------------------------------------------
-// DraftContentJson（per RESEARCH Code Examples: draft_content.json 顶层）
-// ---------------------------------------------------------------------------
-
-/// 素材集合——materials 字段
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MaterialsJson {
-    pub audios: Vec<Value>,
-    pub speeds: Vec<Value>,
-    pub videos: Vec<Value>,
-    pub audio_effects: Vec<Value>,
-    pub audio_fades: Vec<Value>,
-    pub canvases: Vec<Value>,
-    pub effects: Vec<Value>,
-    pub masks: Vec<Value>,
-    pub material_animations: Vec<Value>,
-    pub transitions: Vec<Value>,
-    pub video_effects: Vec<Value>,
-}
-
-/// 画布配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanvasConfig {
-    pub height: u32,
-    pub ratio: String,
-    pub width: u32,
-}
-
-/// 项目配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectConfig {
-    pub maintrack_adsorb: bool,
-    pub video_mute: bool,
-}
-
-/// draft_content.json 顶层结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DraftContentJson {
-    pub canvas_config: CanvasConfig,
-    pub color_space: u32,
-    pub config: ProjectConfig,
-    pub duration: i64,
-    pub fps: f64,
-    pub id: String,
-    pub materials: MaterialsJson,
-    pub tracks: Vec<Value>,
-    pub version: u32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
