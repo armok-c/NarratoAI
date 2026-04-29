@@ -425,18 +425,16 @@ impl EdgeTtsEngine {
             return Err(TTSError::SynthesisFailed("未收到音频数据".to_string()));
         }
 
+        if !received_turn_end {
+            return Err(TTSError::SynthesisFailed(
+                "WebSocket 连接在收到 turn.end 前关闭，音频数据不完整".to_string(),
+            ));
+        }
         if duration == 0.0 {
-            if received_turn_end {
-                tracing::warn!(
-                    "Edge-TTS turn.end received but audio_duration missing/unparseable, audio data size: {} bytes",
-                    audio_data.len()
-                );
-            } else {
-                tracing::warn!(
-                    "Edge-TTS connection closed before turn.end; duration is 0.0, audio data size: {} bytes",
-                    audio_data.len()
-                );
-            }
+            tracing::warn!(
+                "Edge-TTS turn.end received but audio_duration missing/unparseable, audio data size: {} bytes",
+                audio_data.len()
+            );
         }
 
         tokio::fs::write(output_path, &audio_data)
