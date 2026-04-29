@@ -299,7 +299,7 @@ impl EdgeTtsEngine {
                 .await
                 .map_err(|e| {
                     let err_msg = format!("WebSocket 代理连接失败: {}", e);
-                    Self::classify_connection_error(err_msg)
+                    Self::classify_error(err_msg, TTSError::ConnectionFailed)
                 })?;
             Ok(ws_stream)
         } else {
@@ -307,29 +307,19 @@ impl EdgeTtsEngine {
                 .await
                 .map_err(|e| {
                     let err_msg = format!("WebSocket 连接失败: {}", e);
-                    Self::classify_connection_error(err_msg)
+                    Self::classify_error(err_msg, TTSError::ConnectionFailed)
                 })?;
             Ok(ws_stream)
         }
     }
 
-    /// 根据错误消息启发式判断是否是认证错误（映射到 ConnectionFailed）
-    fn classify_connection_error(err_msg: String) -> TTSError {
+    /// 根据错误消息启发式判断是否是认证错误
+    fn classify_error(err_msg: String, fallback: fn(String) -> TTSError) -> TTSError {
         let lower = err_msg.to_lowercase();
         if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
             TTSError::AuthenticationFailed(err_msg)
         } else {
-            TTSError::ConnectionFailed(err_msg)
-        }
-    }
-
-    /// 消息接收错误的分类（映射到 SynthesisFailed 而非 ConnectionFailed）
-    fn classify_receive_error(err_msg: String) -> TTSError {
-        let lower = err_msg.to_lowercase();
-        if err_msg.contains("401") || lower.contains("authentication") || lower.contains("unauthorized") {
-            TTSError::AuthenticationFailed(err_msg)
-        } else {
-            TTSError::SynthesisFailed(err_msg)
+            fallback(err_msg)
         }
     }
 
@@ -404,7 +394,7 @@ impl EdgeTtsEngine {
             let msg =
                 msg_result.map_err(|e| {
                     let err_msg = format!("接收消息失败: {}", e);
-                    Self::classify_receive_error(err_msg)
+                    Self::classify_error(err_msg, TTSError::SynthesisFailed)
                 })?;
 
             match msg {
