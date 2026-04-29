@@ -142,10 +142,14 @@ pub fn load_script(path: &Path) -> Result<Script, ScriptError> {
 /// - 非 ASCII 字符原样输出（不转义）
 /// - Option::None 字段不输出（由 serde skip_serializing_if 保证）
 pub fn save_script(script: &Script, path: &Path) -> Result<(), ScriptError> {
+    validate(script)?;
     let json = serde_json::to_string_pretty(script).map_err(ScriptError::JsonParse)?;
     let temp_path = path.with_extension("json.tmp");
     std::fs::write(&temp_path, json.as_bytes()).map_err(ScriptError::Io)?;
-    std::fs::rename(&temp_path, path).map_err(ScriptError::Io)?;
+    if let Err(e) = std::fs::rename(&temp_path, path) {
+        let _ = std::fs::remove_file(&temp_path); // best-effort cleanup
+        return Err(ScriptError::Io(e));
+    }
     Ok(())
 }
 
@@ -566,5 +570,39 @@ mod tests {
             !validate_timestamp("00:00:10-00:00:05"),
             "Python 管道格式但结束早于起始应失败"
         );
+    }
+
+    /// Test 13: save_script 对无效脚本返回校验错误
+    #[test]
+    fn test_save_script_validates() {
+        let dir = TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("invalid.json");
+
+        let invalid_script = vec![ScriptClip {
+            _id: 1,
+            timestamp: "00:00:00,600-00:00:07,559".to_string(),
+            picture: "  ".to_string(), // 空白 picture
+            narration: "解说".to_string(),
+            ost: OstType::NarrationOnly,
+            duration: None,
+            source_time_range: None,
+            edited_time_range: None,
+            audio: None,
+            video: None,
+            subtitle: None,
+        }];
+
+        let result = save_script(&invalid_script, &path);
+        assert!(result.is_err(), "无效脚本应保存失败");
+        match result {
+            Err(ScriptError::Validation(errors)) => {
+                assert!(
+                    errors.iter().any(|e| e.field == "picture"),
+                    "应包含 picture 校验错误"
+                );
+            }
+            Err(e) => panic!("应为 Validation 错误，得到: {}", e),
+            Ok(_) => panic!("应失败"),
+        }
     }
 }
