@@ -1,196 +1,261 @@
 ---
 phase: 03-tts-core-edge-tts
-reviewed: 2026-04-29T10:00:00Z
+reviewed: 2026-04-29T11:42:00Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
   - src/tts/mod.rs
   - src/tts/edge_tts.rs
+  - tests/tts_test.rs
   - src/error.rs
   - src/lib.rs
   - Cargo.toml
-  - tests/tts_test.rs
 findings:
   critical: 2
-  warning: 2
+  warning: 3
   info: 3
-  total: 7
+  total: 8
 status: issues_found
 ---
 
-# Phase 03: TTS Core + Edge-TTS Engine — Code Review Report
+# Phase 03: TTS Core + Edge-TTS Engine -- Code Review Report
 
-**Reviewed:** 2026-04-29T10:00:00Z
+**Reviewed:** 2026-04-29T11:42:00Z
 **Depth:** standard
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the TTS core abstractions (`src/tts/mod.rs`), Edge-TTS WebSocket engine (`src/tts/edge_tts.rs`), error types (`src/error.rs`), module registrations (`src/lib.rs`), Cargo dependencies (`Cargo.toml`), and integration tests (`tests/tts_test.rs`).
+Reviewed the TTS core abstractions (`src/tts/mod.rs`), Edge-TTS WebSocket engine (`src/tts/edge_tts.rs`), error types (`src/error.rs`), module registrations (`src/lib.rs`), dependency declarations (`Cargo.toml`), and integration tests (`tests/tts_test.rs`).
 
-The architecture is well-structured: `TtsProvider` trait with clean async boundaries, a string-dispatched router in `mod.rs`, and a focused WebSocket implementation in `edge_tts.rs`. Error types use `thiserror` idiomatically.
+The previous iteration's 7 findings have been fixed (verified by cross-referencing against `03-REVIEW-FIX.md`). The `BufReader::into_inner()` data-loss issue (former CR-02) was restructured to use a fixed-size raw buffer -- a sound pattern that eliminates the root cause.
 
-**However, two blocker issues exist.** The Cargo.toml references `tokio-tungstenite` feature `rustls-tls` which does not exist in v0.29.0, and the proxy code path requires the `native-tls` feature which is not enabled -- confirmed by `cargo metadata` failing resolution. Additionally, the HTTP CONNECT proxy tunnel has a `BufReader` read-ahead data loss risk, and the proxy URL parser breaks on IPv6 addresses. Three info-level findings cover a tautological test, a redundant import, and a documentation error.
+**However, the restructuring introduced a new compile error in the proxy tunnel, and two pre-existing UB-class bugs remain unaddressed.** Two critical issues are present: an undefined variable in the proxy code path (blocking compilation of the proxy feature), and undefined behavior on NaN/infinite floating-point inputs in the rate/pitch conversion functions. Three warning-level findings cover missing input validation, silent protocol error swallowing, and fragile proxy URL parsing. Three info items cover unused variables and minor dependency concerns.
 
 ## Critical Issues
 
-### CR-01: tokio-tungstenite feature `rustls-tls` does not exist in v0.29.0; proxy code path requires `native-tls`
+### CR-01: Undefined variable `connect_req` in HTTP CONNECT proxy tunnel -- compile error
 
-**File:** `Cargo.toml:17`
-**File:** `src/tts/edge_tts.rs:254`
-**Issue:** Two interdependent compilation errors confirmed by `cargo metadata`:
+**File:** `src/tts/edge_tts.rs:194`
+**Issue:** The variable `connect_req` is referenced on line 194 (`tcp.write_all(connect_req.as_bytes()).await`) but is never defined anywhere in the function. The previous CR-02 fix (BufReader restructure, commit d569dc2) replaced the I/O buffering pattern but omitted the construction of the HTTP CONNECT request string. Additionally, `target_host` (line 178) and `target_port` (line 182) are parsed and computed but never consumed, confirming that the intended CONNECT request construction was never completed.
 
-1. **Feature name mismatch.** The `Cargo.toml` specifies `features = ["rustls-tls"]` for `tokio-tungstenite = "0.29.0"`, but v0.29.0 exposes `rustls-tls-native-roots` and `rustls-tls-webpki-roots` (not bare `rustls-tls`). The dependency resolver output confirms this:
-   ```
-   package `narratoai-core` depends on `tokio-tungstenite` with feature `rustls-tls`
-   but `tokio-tungstenite` does not have that feature.
-   package `tokio-tungstenite` does have feature `__rustls-tls`
-   ```
+This blocks compilation of the entire proxy code path. Confirmed by `cargo check`:
 
-2. **Missing `native-tls` feature.** The HTTP CONNECT proxy tunnel (edge_tts.rs:254) uses `tokio_tungstenite::Connector::NativeTls(tls_connector)`, which is gated behind `#[cfg(feature = "native-tls")]` in tokio-tungstenite v0.29.0. Since `native-tls` is not enabled for tokio-tungstenite in `Cargo.toml`, the `Connector::NativeTls` variant is unavailable. The library cannot compile.
-
-**Fix:**
-```toml
-# Replace Cargo.toml line 17 with:
-tokio-tungstenite = { version = "0.29.0", features = ["native-tls", "rustls-tls-native-roots"] }
+```
+error[E0425]: cannot find value `connect_req` in this scope
+   --> src\tts\edge_tts.rs:194:27
+    |
+194 |             tcp.write_all(connect_req.as_bytes()).await
+    |                           ^^^^^^^^^^^ not found in this scope
 ```
 
-This enables both TLS backends: `native-tls` (for the CONNECT tunnel's explicit `Connector::NativeTls` usage) and `rustls-tls-native-roots` (for direct connections via `connect_async`). They coexist without conflict because `MaybeTlsStream` is a sum enum supporting both variants.
-
-### CR-02: HTTP CONNECT proxy tunnel -- `BufReader::into_inner()` discards read-ahead buffer, risk of TLS data corruption
-
-**File:** `src/tts/edge_tts.rs:252`
-**Issue:** The proxy tunnel wraps the `TcpStream` in `tokio::io::BufReader` (default 8 KB buffer) to read the CONNECT response line-by-line. After consuming the complete response (status line + headers + terminating `\r\n`), the code calls `buf_reader.into_inner()` to extract the raw `TcpStream` for TLS upgrade. However, `into_inner()` discards the internal buffer. If the `BufReader` read ahead and consumed bytes from the TCP stream beyond the CONNECT response -- specifically, bytes from the server's subsequent TLS handshake response -- those bytes are permanently lost.
-
-This is a **correctness bug that causes intermittent, hard-to-reproduce TLS handshake failures**. It depends on network timing: if the proxy sends the CONNECT 200 response and the TLS ServerHello coalesce into the same TCP segment (or arrive close enough that a single `read` syscall pulls in both), the `BufReader` will buffer both, and the TLS library will receive a truncated stream.
-
-**Fix:** Avoid `BufReader` for the CONNECT response. Use a small fixed-size buffer with manual parsing, preserving the raw `TcpStream`:
+**Fix:** Construct the CONNECT request string before sending it. The request must include the target host and port extracted above, and follow HTTP/1.1 CONNECT format:
 
 ```rust
-use tokio::io::AsyncReadExt;
-
-let mut tcp = tcp_stream;
-let mut response_buf = vec![0u8; 4096]; // 4 KB is sufficient for proxy responses
-let mut total_read = 0usize;
-
-loop {
-    let n = tcp.read(&mut response_buf[total_read..]).await
-        .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
-    if n == 0 {
-        return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
-    }
-    total_read += n;
-    // Look for end-of-headers marker
-    if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
-        break;
-    }
-    if total_read >= response_buf.len() {
-        return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
-    }
-}
-
-// Parse response from response_buf[..total_read]
-// Pass raw `tcp` (unconsumed by any buffer) to TLS+WebSocket upgrade
+// After line 184 (let target_port ...)
+let connect_req = format!(
+    "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
+    target_host, target_port, target_host, target_port
+);
 ```
 
-If `BufReader` must be kept, verify the buffer is empty before `into_inner()`:
+### CR-02: Undefined behavior on NaN / infinity rate or pitch in conversion functions
+
+**File:** `src/tts/edge_tts.rs:28,42`
+**Issue:** Both `convert_rate_to_percent` and `convert_pitch_to_hz` cast a computed `f64` value to `i32` without checking for NaN or infinity:
+
 ```rust
-let remaining = buf_reader.buffer().len();
-if remaining > 0 {
-    tracing::warn!("BufReader has {} unconsumed bytes; potential data loss on into_inner()", remaining);
+// Line 28
+let diff = ((rate - 1.0) * 100.0).round() as i32;  // UB if rate is NaN or infinity
+
+// Line 42
+let p = pitch.round() as i32;  // UB if pitch is NaN or infinity
+```
+
+In Rust, casting `f64::NAN` or `f64::INFINITY` to an integer type is **undefined behavior**. The Rust Reference explicitly states that "casting a NaN or infinity value to an integer type results in undefined behavior." Since `synthesize()` is a public async function accepting `f64` without validation, any caller (including unit tests, integration tests, or future Python bindings via PyO3) can trigger UB.
+
+These functions are called from `build_ssml()` (line 69-70), which is called from the public `synthesize()` (line 519). No input validation gate protects the conversion.
+
+**Fix:** Add a finite check at the top of both functions. Alternatively, validate rate/pitch at the `synthesize()` entry point and return `Err(TTSError::SynthesisFailed(...))` for invalid values.
+
+Option A -- validate at the conversion functions (defense-in-depth):
+
+```rust
+fn convert_rate_to_percent(rate: f64) -> String {
+    if !rate.is_finite() || rate < 0.0 {
+        return "+0%".to_string();  // fallback safe value
+    }
+    if rate == 1.0 {
+        return "+0%".to_string();
+    }
+    let diff = ((rate - 1.0) * 100.0).round() as i32;
+    // ... rest unchanged
 }
-// Note: this still loses data, but at least surfaces the condition.
+
+fn convert_pitch_to_hz(pitch: f64) -> String {
+    if !pitch.is_finite() {
+        return "+0Hz".to_string();  // fallback safe value
+    }
+    if pitch == 0.0 {
+        return "+0Hz".to_string();
+    }
+    let p = pitch.round() as i32;
+    // ... rest unchanged
+}
+```
+
+Option B -- validate at the synthesize entry point (fail-fast):
+
+```rust
+// In TtsProvider::synthesize for EdgeTtsEngine or the router function:
+if !rate.is_finite() || !pitch.is_finite() {
+    return Err(TTSError::SynthesisFailed(
+        "rate/pitch must be finite numbers".to_string(),
+    ));
+}
 ```
 
 ## Warnings
 
-### WR-01: Proxy URL parser breaks on IPv6 addresses
+### WR-01: No input validation before establishing WebSocket connection
 
-**File:** `src/tts/edge_tts.rs:139-162`
-**Issue:** The proxy host/port parser uses `host_port.split_once(':')` to split the address. For an IPv6 proxy address like `http://[::1]:7890`, after scheme stripping the string becomes `[::1]:7890`. Then `split_once(':')` finds the first colon after `[`, returning `("[" , ":1]:7890")`. The port parser tries to parse `:1]:7890` as `u16`, which fails. The error message ("代理端口格式错误，代理 URL 不支持认证凭据") is misleading.
+**File:** `src/tts/edge_tts.rs:519`
+**Issue:** The public `synthesize()` method (both the trait impl in edge_tts.rs and the router in mod.rs) accepts arbitrary `text`, `rate`, and `pitch` values without validation. Empty `text` results in an SSML request with an empty `<speak>...</speak>` body, which the Edge TTS server may reject or handle unpredictably. NaN/infinite `rate`/`pitch` are forwarded to `build_ssml` which invokes UB (see CR-02). Negative `rate` (e.g., -1.0) produces nonsensical percentage strings like "-200%". Exceeding reasonable bounds on `rate` (e.g., 100.0, producing "+9900%") wastes a WebSocket connection that will almost certainly be rejected.
 
-IPv6 proxy addresses are a real use case (e.g., local proxy on `[::1]:7890` for testing, or IPv6-only network environments).
+While most callers within this codebase pass reasonable values, the API surface has no contracts enforcing this, making it fragile when reused.
 
-**Fix:** Detect IPv6 bracket notation before splitting:
+**Fix:** Add validation at the top of `EdgeTtsEngine::synthesize()` (or the router `synthesize()`) before building SSML or connecting:
+
 ```rust
-let (proxy_host, proxy_port) = if host_port.starts_with('[') {
-    host_port.rsplit_once("]:")
-        .map(|(addr_inner, port_str)| {
-            let port: u16 = port_str.parse()
-                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
-            Ok::<_, TTSError>((&addr_inner[1..], port))
-        })
-        .unwrap_or(Err(TTSError::ConnectionFailed("代理 IPv6 地址格式错误".to_string())))?
-} else {
-    match host_port.split_once(':') {
-        Some((host, port_str)) => {
-            let port: u16 = port_str.parse()
-                .map_err(|_| TTSError::ConnectionFailed("代理端口格式错误".to_string()))?;
-            (host, port)
-        }
-        None => (host_port, default_proxy_port),
+async fn synthesize(
+    &self,
+    text: &str,
+    voice_name: &str,
+    rate: f64,
+    pitch: f64,
+    output_path: &Path,
+) -> Result<TtsOutput, TTSError> {
+    if text.is_empty() {
+        return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
     }
-};
+    if !rate.is_finite() || rate < 0.0 {
+        return Err(TTSError::SynthesisFailed(
+            format!("rate 必须为有限正数: {}", rate),
+        ));
+    }
+    if !pitch.is_finite() {
+        return Err(TTSError::SynthesisFailed(
+            format!("pitch 必须为有限数值: {}", pitch),
+        ));
+    }
+    let ssml = build_ssml(text, voice_name, rate, pitch);
+    self.synthesize_with_retry(&ssml, output_path).await
+}
 ```
 
-### WR-02: EdgeTtsEngine struct missing `Debug` derive, impairs diagnostics
+### WR-02: Binary message parse failure silently discarded -- no diagnostic
 
-**File:** `src/tts/edge_tts.rs:86-90`
-**Issue:** The `EdgeTtsEngine` struct does not derive `Debug`. All its fields (`bool`, `String`, `String`) implement `Debug`, so adding the derive costs nothing. Without it, the engine cannot be used in `tracing::debug!("{:?}", engine)` calls, test failure messages, or error reports -- all of which are valuable for a network-connected component with configurable proxy parameters.
+**File:** `src/tts/edge_tts.rs:387`
+**Issue:** In the receive loop of `synthesize_once`, the result of `parse_edge_tts_binary(&data)` is consumed with `if let Some(content) = ...`. When parsing fails (returns `None`), the binary message is silently skipped with zero diagnostic output:
 
-**Fix:**
 ```rust
-#[derive(Debug)]
-pub(super) struct EdgeTtsEngine {
-    pub(super) proxy_enabled: bool,
-    pub(super) proxy_http: String,
-    pub(super) proxy_https: String,
+if let Some(content) = parse_edge_tts_binary(&data) {
+    if content.path == "audio" { ... }
+    else if content.path == "wordboundary" { ... }
+    // etc.
 }
+// No `else` branch -- parse failure is invisible
+```
+
+During development or against future server protocol changes, unrecognized binary messages will be dropped without trace, making debugging extremely difficult. The same problem applies at the inner field-parsing level (line 394-413): when word boundary JSON parsing fails, a `tracing::warn!` is emitted, but the raw payload that failed to parse is not included in the log, making diagnosis harder.
+
+**Fix:** Add a `tracing::warn!` for parse failures, including the raw bytes truncated to a reasonable limit:
+
+```rust
+if let Some(content) = parse_edge_tts_binary(&data) {
+    // ... existing processing ...
+} else {
+    // Log truncated raw data for diagnostics
+    let preview = if data.len() > 256 {
+        format!("{} bytes (first 256 shown: {:?})", data.len(), &data[..256])
+    } else {
+        format!("{:?}", data)
+    };
+    tracing::warn!("无法解析 Edge-TTS 二进制消息: {}", preview);
+}
+```
+
+### WR-03: Fragile proxy URL parsing -- uppercase scheme, missing scheme, unknown scheme
+
+**File:** `src/tts/edge_tts.rs:140-146`
+**Issue:** The proxy URL parsing uses `trim_start_matches` which is case-sensitive. A proxy URL with uppercase scheme (`HTTP://proxy:8080`) or mixed case (`Http://proxy:8080`) will not be stripped correctly:
+
+```rust
+let default_proxy_port = if proxy_url.starts_with("https://") { 443 } else { 80 };
+let proxy_addr = proxy_url
+    .trim_start_matches("http://")     // won't match "HTTP://..."
+    .trim_start_matches("https://");   // won't match "HTTPS://..."
+```
+
+For example, `HTTP://proxy:8080` becomes `HTTP://proxy:8080` (no stripping), and `host_port.split_once(':')` splits on the first colon, yielding `("HTTP", "//proxy:8080")` which parses as host=`HTTP` and port=`//proxy:8080` -- the port parse fails.
+
+Additionally, unsupported scheme prefixes like `socks5://` are not stripped, and the `default_proxy_port` logic only recognizes `https://`, defaulting to port 80 for all other schemes (including `socks5://`).
+
+**Fix:** Use case-insensitive matching or lower-case the scheme portion before checking. Also handle explicit port defaults by scheme:
+
+```rust
+let (proxy_scheme, proxy_rest) = proxy_url.split_once("://")
+    .unwrap_or(("", proxy_url));  // no scheme → assume http
+let proxy_addr = proxy_rest;
+let default_proxy_port = match proxy_scheme.to_lowercase().as_str() {
+    "https" | "wss" => 443u16,
+    "socks5" => 1080u16,
+    _ => 80u16,
+};
 ```
 
 ## Info
 
-### IN-01: Version test is a tautology
+### IN-01: Unused variables `target_host` and `target_port` -- dead code from incomplete CONNECT request
 
-**File:** `src/lib.rs:18`
-**Issue:** The test `test_version_matches_cargo_toml` asserts:
+**File:** `src/tts/edge_tts.rs:178,182`
+**Issue:** The variables `target_host` (line 178) and `target_port` (line 182) are computed to support the HTTP CONNECT request construction, but since `connect_req` was never defined (CR-01), these variables are dead code. They will produce Rust compiler warnings (`unused_variables`). While removing them would hide the CR-01 bug, they should be kept once CR-01 is fixed since the CONNECT request needs them.
+
+**Fix:** Resolve CR-01 first. These variables become active code once `connect_req` is defined and used. Until then, prefix with underscore to suppress warnings:
+
 ```rust
-assert_eq!(version(), env!("CARGO_PKG_VERSION"));
+let (target_host, target_port_str) = target_addr...  // or use let (_target_host, ...) 
 ```
-But `version()` returns `env!("CARGO_PKG_VERSION")` (line 9). Both sides of the assertion expand to the exact same compile-time constant. The test passes by construction and cannot fail for any meaningful reason. It tests nothing.
 
-**Fix:** Either remove the test or make it assert something non-trivial (e.g., `assert!(!version().is_empty())` or `assert!(version().contains('.'))`).
+### IN-02: Pre-release dependency `notify = "9.0.0-rc.3"`
 
-### IN-02: Redundant `use async_trait::async_trait` in test module
+**File:** `Cargo.toml:14`
+**Issue:** The `notify` crate is pinned to a release candidate version (`9.0.0-rc.3`). Release candidates are not guaranteed API-stable -- a semver-incompatible change in the final 9.0.0 release could break the `From<notify::Error>` impl in `src/error.rs`. The project should either migrate to a stable version or acknowledge the dependency risk.
 
-**File:** `src/tts/mod.rs:99`
-**Issue:** Inside `#[cfg(test)] mod tests`, line 98 imports `use super::*;` which brings all parent-module items into scope -- including the parent's `use async_trait::async_trait;` on line 3. Line 99's explicit `use async_trait::async_trait;` is therefore redundant. Clippy flags this under `clippy::redundant_import`.
+**Fix:** Pin to the latest stable `notify` release if available (e.g., `notify = "8.0.0"` or wait for `9.0.0` stable), or add a comment documenting why the RC is required.
 
-**Fix:** Remove line 99.
+### IN-03: Signature test uses opaque empty-string parameters
 
-### IN-03: Test comment mislabels microseconds vs nanoseconds
+**File:** `tests/tts_test.rs:105`
+**Issue:** The compile-time signature test `test_synthesize_function_signature` calls `tts::synthesize("", "", "", 1.0, 0.0, Path::new(""), None)` with all string parameters passed as `""`. This makes the parameter order opaque -- a reader cannot tell which `""` maps to `engine`, `text`, or `voice_name`. A future refactor that reorders parameters would still compile but behave incorrectly, and this test would not catch it because it discards the future.
 
-**File:** `tests/tts_test.rs:78`
-**Issue:** The comment reads:
+**Fix:** Use descriptive variable bindings:
+
 ```rust
-/// 5 秒 = 5_000_000_000 微秒 = 50_000_000 单位（100ns 单位）
+#[test]
+fn test_synthesize_function_signature() {
+    let engine = "edge_tts";
+    let text = "";
+    let voice_name = "";
+    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new(""), None);
+}
 ```
-5 seconds = 5,000,000 microseconds, not 5,000,000,000. The value `5_000_000_000` is the count of **nanoseconds**, not microseconds. The computed value of 50,000,000 hundred-nanosecond units is correct. The intermediate unit label is wrong.
 
-**Fix:** Change `微秒` to `纳秒` in the comment.
+This also makes it clearer that passing an empty `engine` to the signature test is acceptable (the future is never polled, so `UnknownEngine` is never returned).
 
 ---
 
-## Additional Observations
-
-- **`Cargo.toml:28`** -- `wiremock` is listed in `[dev-dependencies]` but is not used in any of the reviewed test files. If unused project-wide, it should be removed.
-- **`src/tts/mod.rs:83-86`** -- The `synthesize` router unconditionally destructures the `proxy` parameter before the match dispatch. For the `_ => TTSError::UnknownEngine` path, this destructuring is wasted work. Consider deferring it inside the `"edge_tts"` arm.
-- **`src/tts/edge_tts.rs:11`** -- The WebSocket receive timeout (`WS_RECEIVE_TIMEOUT` = 120 s) applies per-message, not per-synthesis. For very long texts, the Edge TTS server may take longer than 120 s to produce word-boundary messages between audio chunks. Consider documenting that this is a per-message timeout.
-- **`src/tts/edge_tts.rs:196-243`** -- The proxy response reader has no line-length limit. A misconfigured or malicious proxy could send an extremely long header line, causing unbounded memory allocation. Consider adding a maximum line length check.
-
----
-
-_Reviewed: 2026-04-29T10:00:00Z_
+_Reviewed: 2026-04-29T11:42:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
