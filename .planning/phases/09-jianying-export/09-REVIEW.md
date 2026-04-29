@@ -1,6 +1,6 @@
 ---
 phase: 09-jianying-export
-reviewed: 2026-04-29T16:30:00Z
+reviewed: 2026-04-29T18:00:00Z
 depth: standard
 files_reviewed: 13
 files_reviewed_list:
@@ -18,68 +18,87 @@ files_reviewed_list:
   - src/lib.rs
   - tests/jianying_export.rs
 findings:
-  critical: 0
+  critical: 1
   warning: 4
-  info: 0
-  total: 4
+  info: 3
+  total: 8
 status: issues_found
 ---
 
-# Phase 9: Code Review Report (Re-review after fixes)
+# Phase 09: Code Review Report
 
-**Reviewed:** 2026-04-29T16:30:00Z
+**Reviewed:** 2026-04-29T18:00:00Z
 **Depth:** standard
 **Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-Re-reviewed all 13 source files after the code review fix round (commits `66d4015..dc1129f`). The previous 2 critical issues (CR-01: silent segment loss; CR-02: parse_timestamp_start mishandling) have been properly fixed and verified. Of the 7 warnings, 5 were fixed (WR-04, WR-05, WR-06, WR-07, and WR-02/WR-03/IN-01 combined). Two previously reported warnings remain partially unfixed (WR-01) or not addressed at the source level.
+Re-reviewed all 13 source files after two prior review fix rounds. Previous critical issues (CR-01 silent segment loss, CR-02 timestamp parser) have been properly resolved. The codebase now has proper error propagation, validation for negative durations, and numeric ffprobe duration handling. However, one new critical issue and several warnings were identified in this iteration. The code is well-structured with comprehensive test coverage (unit + integration), clear builder patterns, and good error types.
 
-The remaining issues are all at the warning level -- no critical bugs or security vulnerabilities were found in the current codebase. The code is well-structured with comprehensive unit and integration tests.
+## Critical Issues
 
-### Previous Findings Status
+### CR-01: `trange_from_secs` allows negative `start` without validation
 
-| ID | Description | Status |
-|----|-------------|--------|
-| CR-01 | Silent segment loss when track name does not match | **FIXED** -- `add_video_segment`/`add_audio_segment` now return `Result` with rollback |
-| CR-02 | `parse_timestamp_start` mishandles comma-delimited ms | **FIXED** -- uses `rsplit_once('-')` and validates ranges |
-| WR-01 | No validation for negative duration in Timerange | **PARTIALLY FIXED** -- `trange()` rejects negative, but `trange_from_secs()` still accepts |
-| WR-02 | `parse_seconds` silently returns 0 | **FIXED** -- returns `Option<i64>` |
-| WR-03 | Unnecessary `clone()` on freshly constructed String | **FIXED** -- `id` moved directly |
-| WR-04 | `#[serde(flatten)]` collision risk | **FIXED** -- design note added |
-| WR-05 | `Track::to_json()` uses `expect()` | **FIXED** -- returns `Result<TrackJson, JianYingError>` |
-| WR-06 | `ScriptFile::save()` uses `expect()` | **FIXED** -- uses `?` propagation |
-| WR-07 | Integration tests use `unwrap()` | **FIXED** -- replaced with `expect()` |
-| IN-01 | Unused `id` local variable | **FIXED** -- removed along with unnecessary clone |
-| IN-02 | `DraftContentJson` unused | **FIXED** -- removed |
-| IN-03 | `probe_video_async` unused | **FIXED** -- removed |
+**File:** `src/jianying/time.rs:32-39`
+**Issue:** `trange_from_secs` validates that `duration_us >= 0` (added in a prior fix round), but does **not** validate that `start_us >= 0`. A negative start time in microseconds would produce an invalid JianYing draft where segments reference positions before the timeline origin. While the current call chain in `export_draft` accumulates `current_time_secs` from zero and always passes non-negative values, the function is `pub` and can be called with arbitrary `start_secs` from other modules.
 
-## Warnings
-
-### WR-01: `trange_from_secs` accepts negative duration without validation
-
-**File:** `src/jianying/time.rs:30-35`
-**Issue:** The `trange()` function was fixed to reject negative duration (returns `None`), but `trange_from_secs()` -- the primary function used in the export pipeline (`builder.rs:273,282,299`) -- accepts any `f64` including negative values. If `clip.duration` is `Some(-5.0)`, `trange_from_secs` will produce a `Timerange { start: ..., duration: -5000000 }`, creating a corrupted JianYing draft with negative-duration segments. This is a data integrity risk for the exported draft.
+More critically, `start_secs` is an `f64` and the cast `(start_secs * SEC as f64).round() as i64` can overflow silently. For `start_secs = f64::MAX`, the multiplication produces `+Inf` and `.round()` returns `+Inf`, then `as i64` converts to an implementation-defined value (saturating to `i64::MAX` or `i64::MIN` depending on platform/LLVM behavior). This is UB-adjacent and could produce corrupted timerange data.
 
 **Fix:**
 ```rust
 pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange> {
+    if !start_secs.is_finite() || start_secs < 0.0 || !duration_secs.is_finite() || duration_secs < 0.0 {
+        return None;
+    }
     let start_us = (start_secs * SEC as f64).round() as i64;
     let duration_us = (duration_secs * SEC as f64).round() as i64;
-    if duration_us < 0 {
+    if start_us < 0 || duration_us < 0 {
         return None;
     }
     Some(Timerange { start: start_us, duration: duration_us })
 }
 ```
-Callers (e.g., `export_draft`) would need to handle the `Option` with `.ok_or_else(...)`.
 
-### WR-02: `probe_video` only accepts string-typed duration from ffprobe JSON
+## Warnings
 
-**File:** `src/ffmpeg/probe.rs:58-63`
-**Issue:** The duration extraction uses `.as_str()` which only works when ffprobe outputs the duration as a JSON string (e.g., `"duration": "120.5"`). If ffprobe outputs it as a JSON number (e.g., `"duration": 120.5`), `.as_str()` returns `None` and the function fails with a parse error. While most ffprobe versions output duration as a string, some versions or configurations may return a number.
+### WR-01: `calculate_total_duration` silently defaults to 60 seconds for empty timelines
 
+**File:** `src/jianying/builder.rs:241`
+**Issue:** When all tracks are empty (no segments added), `max_end` is `None` and the function returns `Ok(60_000_000)` (60 seconds). While `export_draft` validates that the script is non-empty before reaching this code, the silent default of 60 seconds is a magic number that could mask bugs if the validation is ever bypassed or if segments fail to appear in tracks for any reason. A duration of 0 would be more correct and less likely to hide issues.
+**Fix:** Replace the magic number with a named constant, or return 0 for empty timelines:
+```rust
+const DEFAULT_EMPTY_TIMELINE_DURATION_US: i64 = 60_000_000;
+// ...
+Ok(max_end.unwrap_or(DEFAULT_EMPTY_TIMELINE_DURATION_US))
+```
+Or better:
+```rust
+Ok(max_end.unwrap_or(0))
+```
+
+### WR-02: `probe_audio` does not validate parsed duration is positive and finite
+
+**File:** `src/ffmpeg/probe.rs:142-146`
+**Issue:** The function parses ffprobe stdout as `f64` but does not check whether the result is positive, finite, or non-NaN. A corrupted media file or unusual ffprobe output could produce a negative duration, `NaN`, or `Infinity`. When `audio_duration` is `NaN`, `duration.min(f64::NAN)` returns `duration` in Rust (IEEE 754 `min` semantics), masking the error. When `audio_duration` is negative, `min` returns the negative value, which would then fail at `trange_from_secs` with a confusing error message rather than a clear diagnostic.
+**Fix:**
+```rust
+let duration: f64 = stdout
+    .trim()
+    .parse()
+    .map_err(|e| FFmpegError::OutputParseError(format!("音频时长解析失败: {}", e)))?;
+if !duration.is_finite() || duration <= 0.0 {
+    return Err(FFmpegError::OutputParseError(
+        format!("Invalid audio duration from ffprobe: {}", duration)
+    ));
+}
+Ok(duration)
+```
+
+### WR-03: `probe_video` does not validate `duration_secs` is positive and finite
+
+**File:** `src/ffmpeg/probe.rs:58-64`
+**Issue:** Same pattern as WR-02. The parsed `duration_secs` could be negative, NaN, or Infinity for malformed media files. The prior fix round added fallback to `.as_f64()` for numeric ffprobe output, but neither path validates the value is sensible. While `probe_video` is not currently called from the JianYing export path, it is a `pub` function intended for use by other modules.
 **Fix:**
 ```rust
 let duration_secs = json["format"]["duration"]
@@ -89,55 +108,83 @@ let duration_secs = json["format"]["duration"]
     .ok_or_else(|| FFmpegError::OutputParseError(
         "Missing or invalid duration in ffprobe output".into()
     ))?;
-```
-
-### WR-03: `export_draft` does not validate `duration` is positive
-
-**File:** `src/jianying/builder.rs:268-273`
-**Issue:** The `export_draft` function checks that `clip.duration` is `Some` but does not validate that the value is positive. A `duration` of `0.0` or a negative value would pass through and create invalid segments. Zero-duration segments in a JianYing draft could cause the editor to behave unexpectedly or crash. This is the caller-side complement to WR-01.
-
-**Fix:**
-```rust
-let duration = clip.duration.ok_or_else(|| JianYingError::MissingField {
-    field: "duration".to_string(),
-    clip_index: i,
-})?;
-if duration <= 0.0 {
-    return Err(JianYingError::Validation {
-        details: format!("第 {} 段时长必须为正数，实际: {}", i + 1, duration),
-    });
+if !duration_secs.is_finite() || duration_secs <= 0.0 {
+    return Err(FFmpegError::OutputParseError(
+        format!("Invalid video duration: {}", duration_secs)
+    ));
 }
 ```
 
-### WR-04: `calculate_total_duration` silently swallows serialization errors
+### WR-04: `export_draft` does not validate `video_origin_path` is non-empty
 
-**File:** `src/jianying/builder.rs:228-229`
-**Issue:** The method uses `.ok()?` in a `filter_map` to convert `Result<TrackJson, JianYingError>` into `Option<TrackJson>`. If `track.to_json()` fails for any track, the error is silently discarded and that track's segments are excluded from the total duration calculation. This could produce an incorrect `duration` field in the exported draft. Since `save()` also calls `to_json()` for each track and would fail at that point, the practical impact is low, but the silent error swallowing makes debugging harder.
-
+**File:** `src/jianying/builder.rs:329-346`
+**Issue:** `validate_export_request` checks that `draft_path` is non-empty and resolution is non-zero, but does not check that `video_origin_path` is non-empty. When `clip.video` is `None`, the code falls back to `req.video_origin_path` for the video segment (line 291). If `video_origin_path` is empty, `VideoMaterial::new` receives an empty path, `canonicalize()` fails (empty path), falls back to the empty `PathBuf`, and produces a draft with an empty material path that JianYing cannot open. The error would only surface when a user tries to open the draft in JianYing, not during export.
 **Fix:**
 ```rust
-fn calculate_total_duration(&self) -> Result<i64, JianYingError> {
-    let max_end = self
-        .tracks
-        .iter()
-        .map(|track| track.to_json())  // Propagate errors via ?
-        .collect::<Result<Vec<_>, _>>()?
-        .iter()
-        .filter_map(|json| {
-            json.segments.iter().filter_map(|seg| {
-                let target = seg.get("target_timerange")?;
-                let start = target.get("start")?.as_i64()?;
-                let duration = target.get("duration")?.as_i64()?;
-                Some(start + duration)
-            }).max()
-        })
-        .max();
-    Ok(max_end.unwrap_or(60_000_000))
+fn validate_export_request(req: &ExportRequest) -> Result<(), JianYingError> {
+    if req.script.is_empty() {
+        return Err(JianYingError::Validation {
+            details: "脚本不能为空".to_string(),
+        });
+    }
+    if req.draft_path.as_os_str().is_empty() {
+        return Err(JianYingError::Validation {
+            details: "草稿保存路径不能为空".to_string(),
+        });
+    }
+    if req.video_origin_path.as_os_str().is_empty() {
+        return Err(JianYingError::Validation {
+            details: "原始视频路径不能为空".to_string(),
+        });
+    }
+    if req.width == 0 || req.height == 0 {
+        return Err(JianYingError::Validation {
+            details: "分辨率宽高必须大于 0".to_string(),
+        });
+    }
+    Ok(())
 }
 ```
+
+## Info
+
+### IN-01: `DraftFolder::create_draft` takes `&PathBuf` instead of `&Path`
+
+**File:** `src/jianying/builder.rs:69`
+**Issue:** The idiomatic Rust convention is to accept `&Path` for function parameters rather than `&PathBuf`. `PathBuf` auto-derefs to `Path`, so callers with `PathBuf` can still pass it, but `&Path` also accepts other path-like types. This is a minor API style issue.
+**Fix:** Change the parameter type:
+```rust
+pub fn create_draft(
+    draft_path: &Path,
+    draft_name: &str,
+    width: u32,
+    height: u32,
+) -> Result<(Self, ScriptFile), JianYingError> {
+```
+
+### IN-02: `parse_timestamp_start` uses `f64` for integer-valued hour/minute/second fields
+
+**File:** `src/jianying/builder.rs:375-377`
+**Issue:** Hours, minutes, and seconds are parsed as `f64` even though they are always integer values in the `"HH:MM:SS"` format. Using `f64` means inputs like `"1.5"` for the minutes field would be silently accepted (e.g., `"00:01.5:00"`). Parsing as `u32` would be more precise and reject fractional inputs naturally.
+**Fix:**
+```rust
+let h: u32 = time_parts[0].parse().ok()?;
+let m: u32 = time_parts[1].parse().ok()?;
+let s: u32 = time_parts[2].parse().ok()?;
+// Then the range check simplifies since u32 is always non-negative
+if m >= 60 || s >= 60 {
+    return None;
+}
+```
+
+### IN-03: `calculate_total_duration` re-serializes track data to JSON just to read timeranges
+
+**File:** `src/jianying/builder.rs:224-242`
+**Issue:** `calculate_total_duration` calls `track.to_json()` (which serializes segments to `serde_json::Value`), then walks the resulting JSON tree to extract `target_timerange` values. The `Timerange` data is already available in the Rust `SegmentOutput` structs before serialization. This unnecessary serialization round-trip adds CPU cost and makes the code harder to follow. The `Track` struct could expose a method to compute the max end time directly.
+**Fix:** Add a method to `Track` that returns the max end time from its stored segments without JSON serialization. This would require `SegmentOutput` to expose its `target_timerange`, or `Track` to store timeranges separately.
 
 ---
 
-_Reviewed: 2026-04-29T16:30:00Z_
+_Reviewed: 2026-04-29T18:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
