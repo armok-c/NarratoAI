@@ -14,7 +14,7 @@
 - [ ] **Phase 2: LLM Service Layer** - OpenAI 兼容协议客户端、Provider/Registry 模式、Vision+Text 支持
 - [ ] **Phase 3: TTS Core + Edge-TTS** - TtsProvider trait、路由器、Edge-TTS WebSocket 实现
 - [ ] **Phase 4: Prompt System + Visual Analyzer** - Prompt 注册表/模板渲染、视频帧提取+批量视觉分析
-- [ ] **Phase 5: Script Management** - JSON 脚本加载/保存/编辑/校验
+- [x] **Phase 5: Script Management** - JSON 脚本加载/保存/编辑/校验 *(completed 2026-04-29)*
 - [ ] **Phase 6: Documentary Pipeline** - 纪录片完整 6 步流水线（旗舰模式）
 - [ ] **Phase 7: SDE Pipeline** - 短剧解说流水线（字幕解析、LLM 分析、OST 脚本）
 - [ ] **Phase 8: SDP Pipeline** - 短剧混剪流水线（多片段混剪）
@@ -177,11 +177,11 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planning complete | - |
+| 1. Foundation | 0/3 | Complete | 2026-04-29 |
 | 2. LLM Service Layer | 0/? | Not started | - |
 | 3. TTS Core + Edge-TTS | 0/? | Not started | - |
 | 4. Prompt System + Visual Analyzer | 0/? | Not started | - |
-| 5. Script Management | 0/2 | Planning complete | - |
+| 5. Script Management | 2/2 | Complete | 2026-04-29 |
 | 6. Documentary Pipeline | 0/? | Not started | - |
 | 7. SDE Pipeline | 0/? | Not started | - |
 | 8. SDP Pipeline | 0/? | Not started | - |
