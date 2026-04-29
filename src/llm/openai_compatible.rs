@@ -396,7 +396,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     .choices
                     .first()
                     .and_then(|c| c.message.content.as_deref())
-                    .unwrap_or("")
+                    .ok_or_else(|| {
+                        // 检查是否为内容过滤导致的空响应
+                        if let Some(finish_reason) = response.choices.first().and_then(|c| c.finish_reason.as_ref()) {
+                            if *finish_reason == async_openai::types::chat::FinishReason::ContentFilter {
+                                return LLMError::ContentFilter("内容被安全过滤器阻止".to_string());
+                            }
+                        }
+                        LLMError::APICall("响应中没有有效文本内容".to_string())
+                    })?
                     .to_string();
 
                 Ok::<_, LLMError>((batch_idx, text))
