@@ -1,298 +1,352 @@
 ---
 phase: 02-llm-service-layer
-reviewed: 2026-04-29T13:00:00Z
+reviewed: 2026-04-29T10:00:00Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 12
 files_reviewed_list:
-  - Cargo.lock
   - Cargo.toml
-  - src/llm/mod.rs
+  - src/error.rs
+  - src/lib.rs
   - src/llm/image_utils.rs
+  - src/llm/mod.rs
   - src/llm/openai_compatible.rs
+  - src/llm/provider.rs
   - src/llm/register.rs
   - src/llm/registry.rs
   - src/llm/test_utils.rs
+  - src/llm/types.rs
   - tests/llm_test.rs
 findings:
-  critical: 1
-  warning: 3
-  info: 5
+  critical: 0
+  warning: 5
+  info: 4
   total: 9
 status: issues_found
 ---
 
-# Phase 02: LLM Service Layer -- Code Review Report
+# Phase 2: LLM 服务层代码审查报告
 
-**Reviewed:** 2026-04-29T13:00:00Z
-**Depth:** standard
-**Files Reviewed:** 9
-**Status:** issues_found
+**审查时间:** 2026-04-29T10:00:00Z
+**审查深度:** standard
+**审查文件数:** 12
+**状态:** issues_found
 
-## Summary
+## 摘要
 
-Reviewed 9 files implementing the Rust LLM service layer: module declarations, OpenAI-compatible provider implementation, provider registration factory, registry, image preprocessing utilities, test utilities, and integration tests. The architecture follows a clean provider/registry pattern with trait-based abstraction. Previous round findings (CR-01, CR-02, WR-02, WR-03, IN-02, IN-03) appear to have been addressed.
+本轮审查覆盖 Phase 2 (llm-service-layer) 的全部 12 个源文件（含 `src/llm/` 模块和 `tests/llm_test.rs`）。上一轮发现的 9 个问题已在后续提交中全部修复。
 
-One critical issue remains: the `test_analyze_images_result_ordering` integration test uses wiremock mocks with `.expect(1)` but without `.up_to_n_times(1)`. Since all three mocks have identical matchers (same method, same path), the matching loop always selects the earliest-registered mock (mock 0) and never reaches mocks 1 or 2. The `.expect(1)` API only sets verification expectations, not match limits; without `max_n_matches`, the mock remains eligible indefinitely. The test will deterministically fail at MockServer teardown when all three verification assertions are violated (mock 0 expected 1 got 3, mocks 1 and 2 expected 1 got 0).
+**已确认修复（9/9）：**
+| 原 ID | 修复情况 | 验证 |
+|-------|---------|------|
+| CR-01 | `test_analyze_images_result_ordering` 已添加 `.up_to_n_times(1)` | 已确认 `tests/llm_test.rs:370` |
+| WR-01 | 零尺寸除零保护已添加 (`if w == 0 \|\| h == 0` + `.max(1)`) | 已确认 `image_utils.rs:39-48` |
+| WR-02 | `analyze_images` 已添加 `system_prompt` 参数 | 已确认 `provider.rs:47`, `openai_compatible.rs:298` |
+| WR-03 | 文件大小 50MB 限制已添加 | 已确认 `image_utils.rs:18-24` |
+| IN-02 | `Registry::list_providers` 已排序保证稳定性 | 已确认 `registry.rs:39-40` |
+| IN-03 | `ProviderConfig` 结构体已引入替代 7 个位置参数 | 已确认 `openai_compatible.rs:31-47` |
+| IN-04 | JPEG 直通避免解码-重编码损失已实现 | 已确认 `image_utils.rs:30-33` |
+| IN-05 | 单轮限制已文档化 | 已确认 `openai_compatible.rs:142-144` |
+| IN-01 | `#[must_use]` 已添加至 Registry::get | 已确认 `registry.rs:29` |
 
-Three warnings address: (1) a potential division-by-zero panic in image dimension arithmetic when both width and height are zero from a corrupt image, (2) the inability to pass system prompts to vision analysis calls (trait design limitation that prevents callers from providing system-level context), and (3) the absence of file size validation in image preprocessing, which could lead to memory exhaustion.
-
----
-
-## Critical Issues
-
-### CR-01: `test_analyze_images_result_ordering` deterministically fails due to wiremock mock registration collision
-
-**File:** `tests/llm_test.rs:350-371`
-
-**Issue:** The test registers three wiremock mocks within a `for i in 0..3` loop, each with identical matchers (`method("POST")` and `path("/v1/chat/completions)`), each using only `.expect(1)` without `.up_to_n_times(1)`.  This is critical because:
-
-1. **`expect(1)` only sets verification expectations** -- it does not limit how many times the mock can match.  In wiremock 0.6, the `Mock::expect()` method only sets `expectation_range: Times(TimesEnum::Exact(1))`, which is checked during post-test verification.  The matching gate is controlled by `max_n_matches`, which defaults to `None` (unlimited) unless `up_to_n_times()` is called.
-
-2. **All three requests hit mock 0** -- `MountedMockSet::handle_request()` sorts mocks by priority (all default to 5, stable sort preserves insertion order [0, 1, 2]), then iterates in that order.  Mock 0's matchers match every request.  Since `max_n_matches` is `None`, line 44 of `mounted_mock.rs` (`Some(self.n_matched_requests) == self.specification.max_n_matches`) evaluates to `Some(0) == None` which is `false`, so the mock never stops matching.  Mocks 1 and 2 are never reached.
-
-3. **Verification fails deterministically** -- at MockServer teardown:
-   - Mock 0: expected 1 match, received 3 --> FAIL
-   - Mock 1: expected 1 match, received 0 --> FAIL
-   - Mock 2: expected 1 match, received 0 --> FAIL
-
-   The test will always panic during cleanup, regardless of request ordering or concurrency.
-
-**Fix:** Add `.up_to_n_times(1)` to each mock builder chain to enforce match limits:
-
-```rust
-for i in 0..3 {
-    Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({
-                "id": format!("resp-{}", i),
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": "test-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "content": format!("batch-{}", i),
-                        "role": "assistant"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }),
-        ))
-        .up_to_n_times(1)   // <-- required: limits matching to exactly 1 request per mock
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-}
-```
-
-With `up_to_n_times(1)`, the matching behavior becomes: request 1 matches mock 2 (most recently inserted with capacity), request 2 matches mock 1, request 3 matches mock 0.  Each mock receives exactly 1 request, verification passes.
+**新发现问题（9 个）：** 0 个 CRITICAL、5 个 WARNING、4 个 INFO。修复过程引入的新问题主要集中在三个方面：(1) `ProviderConfig` 的 Debug 泄露 API key（WR-02），(2) JPEG 直通优化导致非 JPEG 文件的双重读取（WR-03），(3) `analyze_images` 与 `generate_text` 对空响应的处理不一致（WR-01）。
 
 ---
 
 ## Warnings
 
-### WR-01: Integer division by zero panic in `image_to_base64_data_url` when image dimensions are 0
+### WR-01: `analyze_images` 对空响应静默返回空字符串，与 `generate_text` 不一致
 
-**File:** `src/llm/image_utils.rs:19-22`
-
-**Issue:** When both `w` and `h` are 0 (possible from a corrupt or malformed image file), the else-branch computes `(1024 * w / h).max(1)` which evaluates to `(1024 * 0 / 0).max(1)` -- a division by zero that causes a Rust panic at runtime.  While the `image` crate usually rejects completely empty images, it is possible for certain corrupt or specially crafted files to produce an image with 0x0 dimensions (e.g., a valid header with no pixel data).  This would crash the thread running the API call.
-
-**Fix:** Guard against zero dimensions before the resize computation:
+**File:** `src/llm/openai_compatible.rs:391-396`
+**Issue:** `analyze_images` 方法提取响应内容时使用 `.unwrap_or("")`，当 API 返回无内容的响应（例如 `finish_reason: "content_filter"` 且 `content: null`，或 `choices` 数组为空）时静默返回空字符串。而 `generate_text` 方法通过 `extract_text` 对相同情况返回 `LLMError::APICall` 错误。这种不一致会隐藏上游错误——调用方无法区分"API 返回空"和"API 正常返回空内容"。对于内容过滤（content_filter）场景，正确的行为应是返回 `LLMError::ContentFilter`。
 
 ```rust
-let (w, h) = img.dimensions();
-if w == 0 || h == 0 {
-    return Err(LLMError::General("图片尺寸为零，无法处理".to_string()));
+// openai_compatible.rs:391-396 — analyze_images 中静默处理
+let text = response
+    .choices
+    .first()
+    .and_then(|c| c.message.content.as_deref())
+    .unwrap_or("")       // 静默吞掉错误
+    .to_string();
+
+// openai_compatible.rs:122-129 — generate_text 中返回错误
+fn extract_text(&self, response: &CreateChatCompletionResponse) -> Result<String, LLMError> {
+    response.choices.first()
+        .and_then(|c| c.message.content.as_deref())
+        .map(|s| s.to_string())
+        .ok_or_else(|| LLMError::APICall("响应中没有有效文本内容".to_string()))
 }
-let thumb = if w > h {
-    img.resize(1024, (1024 * h / w).max(1), Lanczos3)
-} else {
-    img.resize((1024 * w / h).max(1), 1024, Lanczos3)
-};
 ```
 
-### WR-02: `analyze_images` cannot receive system-level instructions
-
-**File:** `src/llm/provider.rs:43-49` (trait signature), `src/llm/openai_compatible.rs:286-401` (implementation)
-
-**Issue:** The `analyze_images` method on `LlmProvider` accepts `prompt: &str` and `images: &[PathBuf]`, but has no `system_prompt` parameter.  The implementation sends only a single user message containing the prompt text and image parts.  This means callers cannot provide system-level context (e.g., "You are an expert film analyst.  Describe each frame in detail.") for vision analysis requests.  This is a design limitation that reduces the quality and specificity of vision analysis responses, particularly for production use cases requiring domain-specific context.
-
-The stream method `generate_text_stream` has the same limitation -- it accepts `system_prompt: Option<&str>` but not `response_format: Option<LlmResponseFormat>`, making JSON-mode streaming impossible.
-
-**Fix:** Add `system_prompt: Option<&str>` to `analyze_images` in the trait and include it in the vision request message construction:
+**Fix:** 将 `analyze_images` 中的 `unwrap_or("")` 替换为与 `extract_text` 一致的错误返回逻辑。同时可考虑检查 `finish_reason` 字段以识别内容过滤场景。
 
 ```rust
-// In provider.rs:
-async fn analyze_images(
-    &self,
-    images: &[PathBuf],
-    prompt: &str,
-    system_prompt: Option<&str>,    // <-- new parameter
-    batch_size: Option<usize>,
-    max_concurrency: Option<usize>,
-) -> Result<Vec<String>, LLMError>;
-
-// In openai_compatible.rs constructor of the vision messages:
-let mut messages = Vec::new();
-if let Some(sp) = system_prompt {
-    messages.push(ChatCompletionRequestMessage::System(
-        ChatCompletionRequestSystemMessage {
-            content: ChatCompletionRequestSystemMessageContent::Text(sp.to_string()),
-            name: None,
-        },
-    ));
-}
-messages.push(ChatCompletionRequestMessage::User(
-    ChatCompletionRequestUserMessage {
-        content: ChatCompletionRequestUserMessageContent::Array(content_parts),
-        name: None,
-    },
-));
-// Then pass `messages` to the request builder.
+let text = response
+    .choices
+    .first()
+    .and_then(|c| c.message.content.as_deref())
+    .ok_or_else(|| {
+        // 检查是否为内容过滤导致的空响应
+        if let Some(finish_reason) = response.choices.first().and_then(|c| c.finish_reason.as_ref()) {
+            if finish_reason == "content_filter" {
+                return LLMError::ContentFilter("内容被安全过滤器阻止".to_string());
+            }
+        }
+        LLMError::APICall("响应中没有有效文本内容".to_string())
+    })?
+    .to_string();
 ```
 
-### WR-03: No file size validation in image preprocessing (potential OOM)
+### WR-02: `ProviderConfig` 的 Debug 实现泄露 API key
 
-**File:** `src/llm/image_utils.rs:14`
+**File:** `src/llm/openai_compatible.rs:31-47` (第 34 行 `api_key` 字段)
+**Issue:** `ProviderConfig` 通过 `#[derive(Debug)]` 生成默认 Debug 实现，其中 `pub api_key: String` 字段在 Debug 输出时将完整显示 API key 明文。虽然当前代码未直接记录 `ProviderConfig` 实例，但 `#[derive(Debug)]` 的存在使得任何使用 `tracing::debug!(?config)`、`format!("{:?}", config)`、panic 栈展开或调试器都可能意外泄露 API key。`ProviderConfig` 同时被标记为 `pub`，外部代码也可以访问其 Debug 输出。
 
-**Issue:** `image_to_base64_data_url` opens and decodes an image file at an arbitrary path with no limit on file size.  A malicious or inadvertently large file (e.g., a 200 MB high-resolution TIFF) would be fully loaded into memory and decoded, then resized and re-encoded as JPEG.  The peak memory usage is roughly (input file size) + (decoded RGBA buffer, potentially ~2-4 GB for a large image) + (JPEG output buffer).  An attacker who can control the file path (e.g., via a user-uploaded image) could trigger memory exhaustion in the process.
+**风险分析：** 这是 IN-03（引入 ProviderConfig）修复时的伴随问题——原始代码使用 7 个位置参数不会意外泄露 key，重构为结构体后 `derive(Debug)` 使所有字段可输出。需手动实现 Debug 以脱敏。
 
-In the context of NarratoAI, the input paths come from the application's video processing pipeline (extracted frames from FFmpeg), which are JPEG files of bounded size.  However, there is no defense-in-depth check, and future callers might pass user-controlled paths.
-
-**Fix:** Add a file size check before decoding:
+**Fix:** 手动实现 Debug trait，对 `api_key` 字段做脱敏处理：
 
 ```rust
-pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
+use std::fmt;
 
-    const MAX_IMAGE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB limit
-    if metadata.len() > MAX_IMAGE_SIZE {
-        return Err(LLMError::General(format!(
-            "图片文件过大: {} bytes (最大允许 {} bytes)",
-            metadata.len(),
-            MAX_IMAGE_SIZE
-        )));
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("api_key", &"***REDACTED***")
+            .field("model_name", &self.model_name)
+            .field("base_url", &self.base_url)
+            .field("max_retries", &self.max_retries)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("proxy_http", &self.proxy_http)
+            .field("proxy_https", &self.proxy_https)
+            .finish()
     }
-
-    let img = image::open(path)
-        .map_err(|e| LLMError::General(format!("图片加载失败: {}", e)))?;
-    // ...
 }
+```
+
+### WR-03: JPEG 直通优化对非 JPEG 文件造成双重内存占用
+
+**File:** `src/llm/image_utils.rs:28-36`
+**Issue:** JPEG 直通优化（IN-04 修复）先通过 `std::fs::read(path)` 将整个文件读入 `raw_bytes`（可能接近 50MB），仅为了检查前 3 个魔术字节。对非 JPEG 文件：
+1. `raw_bytes`（Vec\<u8\>，可达 50MB）在函数作用域内持续存活
+2. `image::open(path)` 再次从磁盘读取同一文件并解码
+3. 解码后的 `DynamicImage`（对于大 PNG/WebP 文件，RGBA 缓冲区可达数百 MB）与 `raw_bytes` 共存
+
+此时内存中同时存在原始文件数据和解码后的像素数据，峰值内存占用 = 原始文件大小（~50MB）+ 解码缓冲区（可变）+ JPEG 输出缓冲区。对于接近 50MB 的非 JPEG 文件，解码后的 RGBA 数据可能远超 50MB（例如 5000x5000 PNG 约 ~95MB RGBA + 50MB raw = ~145MB 峰值）。
+
+原方案只读取前 4 字节即可完成魔术字节检测，无需读取完整文件。
+
+**Fix:** 只读取文件头部少量字节用于 JPEG 检测，避免不必要的全文件读取：
+
+```rust
+use std::io::Read;
+
+// 仅读取前 4 字节检测 JPEG 魔术字节
+let mut file = std::fs::File::open(path)
+    .map_err(|e| LLMError::General(format!("文件打开失败: {}", e)))?;
+let mut magic = [0u8; 4];
+file.read_exact(&mut magic)
+    .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+drop(file); // 尽早释放文件句柄
+
+if magic.starts_with(&[0xFF, 0xD8, 0xFF]) {
+    // JPEG 直通：重新读取完整文件
+    let raw_bytes = std::fs::read(path)
+        .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
+    return Ok(format!("data:image/jpeg;base64,{}", b64));
+}
+```
+
+### WR-04: `test_analyze_images_result_ordering` 使用 3 个相同匹配器的 wiremock 存在竞态风险
+
+**File:** `tests/llm_test.rs:346-397`
+**Issue:** 测试使用 3 个具有完全相同匹配器（`POST /v1/chat/completions`）的 wiremock，每个设置 `.up_to_n_times(1)` 和 `.expect(1)`。`analyze_images` 以 `batch_size=1`、`max_concurrency=2` 并发发送 3 个请求。wiremock 按注册顺序优先匹配 mock——但由于 2 个请求几乎同时到达，且 `up_to_n_times(1)` 的计数检查存在极短的竞态窗口（两个请求同时通过计数检查后，其中一个才会使计数溢出），在负载较高或 CPU 调度不确定的环境中存在失败风险。
+
+虽然 `up_to_n_times(1)` 已正确添加（修复了上一轮的 CR-01），但 wiremock 0.6 的计数检查是非原子的 read-then-increment 模式（`n_matched_requests < max_n_matches`），多个 tokio 任务在同一 mock 上可能同时通过检查。
+
+此外，测试断言 `results[0] == "batch-0"` 依赖于批次索引与 mock 返回顺序的匹配关系，但并发请求的完成顺序是不确定的——排序逻辑保证按 `batch_idx` 排序，但实际各批次的处理速度受 tokio 调度影响，测试对"哪个批次先完成"不做假设，因此断言的正确性依赖 mocks 正确地分配到不同的批次。
+
+**建议方案 A（简化）：** 使用单一 mock 处理所有 3 个请求，通过 `AtomicUsize` 轮询返回不同内容：
+
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+let counter = Arc::new(AtomicUsize::new(0));
+let counter_clone = counter.clone();
+
+Mock::given(method("POST"))
+    .and(path("/v1/chat/completions"))
+    .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "id": "resp",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "content": format!("batch-{}", counter_clone.fetch_add(1, Ordering::SeqCst)),
+                "role": "assistant"
+            },
+            "finish_reason": "stop"
+        }]
+    })))
+    .expect(3)  // 期望正好 3 次调用
+    .mount(&mock_server)
+    .await;
+```
+
+**建议方案 B（精确控制）：** 使用 wiremock 的 `respond_with` 闭包控制更复杂的响应逻辑，或按 mock server 的 `register` 接口手动注册。
+
+### WR-05: 硬编码的 Provider 名称不反映配置中的模型类型
+
+**File:** `src/llm/register.rs:50,71`
+
+**Issue:** `register_all_providers` 始终将 provider 注册为 `"openai_vision"` 和 `"openai_text"`，完全不读取 `config.toml` 中 `vision_llm_provider` 和 `text_llm_provider` 字段的值。这意味着即使配置为 `vision_llm_provider = "gemini/gemini-2.0-flash-lite"`，provider 的名称仍然是 `"openai_vision"`。如果将来 `UnifiedLLMService`（或类似门面）调用 `registry.get("gemini/gemini-2.0-flash-lite")` 来获取 provider，将始终收到 `LLMError::ProviderNotFound`。
+
+参考 Python 版 `app/services/llm/manager.py` 中使用配置中的模型名作为 provider 标识的设计，当前 Rust 实现丢失了配置的可扩展性。虽然目前只有 `OpenAiCompatibleProvider` 一种实现，但 provider 名称应与配置值对应，以支持未来可能的多实现共存。
+
+**Fix:** 使用配置中的 `vision_llm_provider` / `text_llm_provider` 作为 provider 注册名：
+
+```rust
+// 以 vision 为例
+let vision_name = if config.app.vision_llm_provider.is_empty() {
+    "openai_vision"  // 兼容默认注册名
+} else {
+    &config.app.vision_llm_provider
+};
+registry.register(vision_name, Arc::new(provider));
 ```
 
 ---
 
 ## Info
 
-### IN-01: `Registry::list_providers` returns keys in arbitrary order
+### IN-01: `analyze_images` trait 缺少 `response_format` 参数
 
-**File:** `src/llm/registry.rs:37-39`
+**File:** `src/llm/provider.rs:43-50`, `src/llm/openai_compatible.rs:294`
+**Issue:** `generate_text` 接受 `response_format: Option<LlmResponseFormat>` 参数以支持 JSON 模式（并触发 D-19 回退逻辑），但 `analyze_images` 无此参数。这意味着视觉分析请求无法指定 JSON 响应格式。如果此限制是设计上的有意取舍（部分视觉模型不支持 response_format），应在 trait 文档中显式说明，否则应考虑在下一阶段添加。
 
-**Issue:** `list_providers` collects keys from a `HashMap`, which has non-deterministic iteration order.  If callers depend on a stable ordering (e.g., displaying in a UI, deterministic test assertions), they will get inconsistent results.  The existing tests in `register.rs` use `.contains()` which is order-independent, but `tests/llm_test.rs` compares exact length and membership, which is also order-independent.  No test currently breaks from this, but future callers could be surprised.
+**Fix:** 在 `analyze_images` 方法签名中添加 `response_format: Option<LlmResponseFormat>` 参数，或在文档注释中说明不支持的原因。
 
-**Suggestion:** Return a `BTreeSet<String>` or sort the Vec before returning:
+### IN-02: Provider 注册名称 "openai_vision"/"openai_text" 未定义为公开常量
+
+**File:** `src/llm/register.rs:50,71`
+**Issue:** Provider 名称 `"openai_vision"` 和 `"openai_text"` 在 `register_all_providers` 方法中以字符串字面量硬编码。如果 `UnifiedLLMService` 或其他模块需要引用这些名称，将被迫复制相同的字面量，增加维护成本和拼写错误风险。
+
+**Fix:** 在 `register.rs` 或 `types.rs` 中定义为公开常量：
 
 ```rust
-pub fn list_providers(&self) -> Vec<String> {
-    let mut names: Vec<String> = self.providers.keys().cloned().collect();
-    names.sort();
-    names
-}
+/// Vision provider 在注册中心中的默认名称
+pub const VISION_PROVIDER_NAME: &str = "openai_vision";
+/// Text provider 在注册中心中的默认名称
+pub const TEXT_PROVIDER_NAME: &str = "openai_text";
 ```
 
-### IN-02: Missing `#[must_use]` on `Registry::get`
+### IN-03: JPEG 直通过程未验证图片完整性
 
-**File:** `src/llm/registry.rs:29`
+**File:** `src/llm/image_utils.rs:30-33`
+**Issue:** JPEG 直通优化仅检查文件头部魔术字节 `0xFF, 0xD8, 0xFF` 就判定为有效 JPEG 并直接 base64 编码。如果文件头部字节正确但内容已截断或损坏（文件大小校验通过，但图片数据不完整），损坏的数据将被 base64 编码后发送到 LLM API。API 端收到损坏的图片数据后返回难以调试的通用错误。虽然这在正常使用中极少发生，但缺乏防御性验证。
 
-**Issue:** `Registry::get` returns `Result<Arc<dyn LlmProvider>, LLMError>` but lacks `#[must_use]`.  A caller who discards the `Result` (e.g., `registry.get("vision");`) would silently lose the error, and the `Arc` would be dropped.  Adding `#[must_use]` causes the compiler to warn on any discarded result, catching this class of bug at compile time.
-
-**Suggestion:**
-
-```rust
-#[must_use]
-pub fn get(&self, name: &str) -> Result<Arc<dyn LlmProvider>, LLMError> {
-```
-
-### IN-03: `OpenAiCompatibleProvider::new` has 7 constructor parameters
-
-**File:** `src/llm/openai_compatible.rs:49-57`
-
-**Issue:** The constructor takes `api_key`, `model_name`, `base_url`, `max_retries`, `timeout_secs`, `proxy_http` (Option), and `proxy_https` (Option) as positional parameters.  This is a high parameter count that makes call sites error-prone (the caller in `register.rs` must pass 7 arguments in the correct order).  A builder pattern or a config struct would improve readability and reduce the chance of transposition errors.
-
-**Suggestion:** Introduce a config struct:
+**Fix:** 在直通路径中添加轻量完整性验证：
 
 ```rust
-pub struct ProviderConfig {
-    pub api_key: String,
-    pub model_name: String,
-    pub base_url: String,
-    pub max_retries: u32,
-    pub timeout_secs: u64,
-    pub proxy_http: Option<String>,
-    pub proxy_https: Option<String>,
-}
-
-impl OpenAiCompatibleProvider {
-    pub fn new(config: ProviderConfig) -> Result<Self, LLMError> { ... }
-}
-```
-
-### IN-04: `image_to_base64_data_url` always re-encodes as JPEG regardless of input format
-
-**File:** `src/llm/image_utils.rs:26-33`
-
-**Issue:** The function always encodes as JPEG with quality 85, even if the input was lossless (PNG, WebP lossless) or already in JPEG format.  For already-JPEG inputs, a decode-re-encode cycle introduces generation loss (re-compression artifacts).  The comment documents this as intentional, so it is not a bug, but callers should be aware that repeated processing of the same image will gradually degrade quality.
-
-**Suggestion:** If the input is already JPEG, consider passing the original bytes directly to base64 encoding without re-encoding, to avoid generation loss.  This could be done by reading the raw file bytes first and checking the magic bytes:
-
-```rust
-let raw_bytes = std::fs::read(path)?;
 if raw_bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-    // Input is JPEG, encode original bytes directly
+    // 轻量验证 JPEG 完整性：尝试解码头部
+    if let Err(e) = image::load_from_memory(&raw_bytes) {
+        return Err(LLMError::General(format!("JPEG 图片损坏: {}", e)));
+    }
     let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
     return Ok(format!("data:image/jpeg;base64,{}", b64));
 }
-// Otherwise decode and re-encode
 ```
 
-### IN-05: `generate_text_with_json_fallback` rebuilds messages from scratch
+注意：这会部分抵消直通的性能优势（多一次 `load_from_memory` 解码），但增加了防御性。如果性能是首要考虑，也可仅在各批次的最后一步验证，或添加 `#[cfg(debug_assertions)]` 条件编译。
 
-**File:** `src/llm/openai_compatible.rs:160-168`
+### IN-04: `register_all_providers` 的返回类型 `Result<(), Vec<LLMError>>` 不符合 Error trait
 
-**Issue:** When the JSON response_format fallback fires, it calls `build_text_messages(&json_prompt, system_prompt)` to create a new message list.  This is consistent with how `generate_text()` builds the original request (same helper), so it is not a bug.  However, if future code adds support for multi-turn conversations or additional message roles (assistant, tool, function), `build_text_messages` only produces system+user pairs.  The fallback would silently drop any non-standard messages from the retry request.
+**File:** `src/llm/register.rs:23`
+**Issue:** 函数签名 `Result<(), Vec<LLMError>>` 使用 `Vec<LLMError>` 作为错误类型。`Vec<T>` 没有实现 `std::error::Error` trait，调用者无法通过 `?` 操作符在标准 `Result<_, Box<dyn Error>>` 或 `Result<_, impl Error>` 链中传播此错误。如果需要将 `register_all_providers` 嵌入统一错误处理流程，需要额外的包装逻辑。
 
-**Suggestion:** Document this coupling explicitly: add a comment noting that `generate_text_with_json_fallback` only supports single-turn system+user requests, and that extending message types requires updating both `build_text_messages` and the fallback path.
+**Fix:** 定义包装类型 `RegistrationErrors(Vec<LLMError>)` 并实现 `std::error::Error` 和 `Display`：
 
----
+```rust
+#[derive(Debug)]
+pub struct RegistrationErrors(pub Vec<LLMError>);
 
-## Cross-file Observations
+impl std::fmt::Display for RegistrationErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "provider 注册失败 ({} 个错误)", self.0.len())
+    }
+}
 
-1. **`test_utils.rs` integration**: The `test_utils` module in `src/llm/test_utils.rs` is correctly declared with `#[cfg(test)] pub mod test_utils` in `mod.rs`, and is properly imported by `tests/llm_test.rs` as `use narratoai_core::llm::test_utils::{create_test_jpeg_path, write_test_jpeg}`.  This eliminates the test helper duplication that existed in a previous iteration.
-
-2. **Error type mapping**: The `From<OpenAIError>` implementation in `src/error.rs` correctly handles the three error variants (ApiError, Reqwest, and catch-all).  The `code` field matching and the heuristic message-based fallback provide reasonable error classification, including the timeout heuristic fix from a previous iteration.
-
-3. **Provider/client lifecycle**: `OpenAiCompatibleProvider` stores the `Client<OpenAIConfig>` by value (not behind Arc), which means cloning the provider (its `Arc` from registry) shares the same HTTP client and connection pool -- this is correct and efficient.
-
----
-
-## Summary of Findings by Severity
-
-| ID | Severity | File | Line(s) | Description |
-|----|----------|------|---------|-------------|
-| CR-01 | Critical | `tests/llm_test.rs` | 350-371 | `test_analyze_images_result_ordering` deterministically fails -- wiremock mocks need `up_to_n_times(1)` |
-| WR-01 | Warning | `src/llm/image_utils.rs` | 19-22 | Division by zero panic when image dimensions are 0x0 |
-| WR-02 | Warning | `src/llm/provider.rs` / `src/llm/openai_compatible.rs` | 43-49 / 286-401 | `analyze_images` cannot receive system prompt -- trait limitation |
-| WR-03 | Warning | `src/llm/image_utils.rs` | 14 | No file size validation before decoding -- potential OOM |
-| IN-01 | Info | `src/llm/registry.rs` | 37-39 | `list_providers` returns keys in non-deterministic HashMap order |
-| IN-02 | Info | `src/llm/registry.rs` | 29 | Missing `#[must_use]` on `Registry::get` |
-| IN-03 | Info | `src/llm/openai_compatible.rs` | 49-57 | 7 positional constructor parameters -- error-prone |
-| IN-04 | Info | `src/llm/image_utils.rs` | 26-33 | Always re-encodes as JPEG, causing generation loss for already-JPEG inputs |
-| IN-05 | Info | `src/llm/openai_compatible.rs` | 160-168 | `generate_text_with_json_fallback` assumes single-turn system+user only |
+impl std::error::Error for RegistrationErrors {}
+```
 
 ---
 
-_Reviewed: 2026-04-29T13:00:00Z_
-_Reviewer: Claude (gsd-code-reviewer)_
-_Depth: standard_
+## 修复验证详情
+
+### 上一轮 CR-01: Wiremock `test_analyze_images_result_ordering`
+
+**当前代码 `tests/llm_test.rs:370`:** `.up_to_n_times(1)` 已添加。验证通过。但请注意 WR-04 中新发现的并发竞态风险。
+
+### 上一轮 WR-01: 零尺寸除零保护
+
+**当前代码 `image_utils.rs:39-41`:**
+```rust
+let (w, h) = img.dimensions();
+if w == 0 || h == 0 {
+    return Err(LLMError::General("图片尺寸为零，无法处理".to_string()));
+}
+```
+已正确修复。零尺寸检测后再执行缩放逻辑。同时第 45/47 行的 `.max(1)` 提供第二层保护。
+
+### 上一轮 WR-02: `analyze_images` 缺少 `system_prompt`
+
+**当前代码 `provider.rs:47`:** `system_prompt: Option<&str>` 已添加至 trait。
+**当前代码 `openai_compatible.rs:298`:** 实现已接收该参数。
+**当前代码 `openai_compatible.rs:362-368`:** `system_prompt_owned` 在 `tokio::spawn` 内部被正确转换为 `System` 消息并入 `messages` 向量。
+**当前代码 `tests/llm_test.rs:110`:** 调用处已传递 `None` 作为 system_prompt。
+
+修复完整正确。路径从 trait 到实现到 spawn 内部消息构造已全部贯通。
+
+### 上一轮 WR-03: 缺少文件大小验证
+
+**当前代码 `image_utils.rs:15-25`:**
+```rust
+let metadata = std::fs::metadata(path)
+    .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
+const MAX_IMAGE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+if metadata.len() > MAX_IMAGE_SIZE {
+    return Err(LLMError::General(format!(...)));
+}
+```
+已正确修复。50MB 限制在 `image::open()` 之前执行。
+
+### 上一轮 IN-03: ProviderConfig 结构体
+
+**当前代码 `openai_compatible.rs:31-47`:**
+```rust
+#[derive(Debug, Clone)]
+pub struct ProviderConfig { ... }
+```
+已正确实现。`register.rs` 和 `tests/llm_test.rs` 均已迁移到结构体用法。但 `#[derive(Debug)]` 引入 WR-02（API key 泄露），需手动重写 Debug。
+
+### 上一轮 IN-04: JPEG 直通
+
+**当前代码 `image_utils.rs:28-33`:**
+```rust
+let raw_bytes = std::fs::read(path)
+    .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
+if raw_bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
+    return Ok(format!("data:image/jpeg;base64,{}", b64));
+}
+```
+已实现 JPEG 直通。但有三个伴生问题：(1) 非 JPEG 文件双重读取（WR-03），(2) 无完整性验证（IN-03），(3) 魔术字节检测导致全文件读取（WR-03 的根本原因）。
+
+---
+
+_审查时间: 2026-04-29T10:00:00Z_
+_审查人: Claude (gsd-code-reviewer)_
+_审查深度: standard_
