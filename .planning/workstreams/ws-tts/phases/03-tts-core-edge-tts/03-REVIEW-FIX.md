@@ -1,91 +1,79 @@
 ---
 phase: 03-tts-core-edge-tts
-fixed_at: 2026-04-28T15:23:21Z
+fixed_at: 2026-04-29T09:55:00Z
 review_path: .planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md
 iteration: 1
-findings_in_scope: 8
-fixed: 8
+findings_in_scope: 7
+fixed: 7
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 03: TTS Core + Edge-TTS -- Code Review Fix Report (Iteration 1)
+# Phase 03: TTS Core + Edge-TTS Engine -- Code Review Fix Report
 
-**Fixed at:** 2026-04-28T15:23:21Z
+**Fixed at:** 2026-04-29T09:55:00Z
 **Source review:** `.planning/workstreams/ws-tts/phases/03-tts-core-edge-tts/03-REVIEW.md`
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 8 (all Warnings)
-- Fixed: 8
+- Findings in scope: 7 (1 Critical + 6 Warnings)
+- Fixed: 7
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: Proxy CONNECT handler does not support interim 1xx responses
+### CR-01: voice_name_to_lang 使用字符索引代替字节索引，在多字节字符语音名称上导致 panic
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `55cb0cd`
+**Commit:** bbaaba9
+**Applied fix:** Replaced `voice_name.chars().enumerate()` (char index) with `voice_name.char_indices()` (byte index). The `enumerate()` call returned the nth Unicode scalar value position, but `voice_name[..idx]` requires byte offsets. `char_indices()` yields `(byte_index, char)` tuples directly, ensuring slice indices land on valid UTF-8 boundaries. This was a latent bug for non-ASCII voice names (e.g., accented Latin or CJK characters).
 
-**Applied fix:** Replaced the single `read_line` + `contains("200")` check with a loop that properly parses HTTP status codes. 2xx responses are accepted as success, interim 1xx responses and their trailing headers are skipped, and all other status codes (or empty responses) are treated as permanent failure. This complies with RFC 7231 Section 4.3.6.
-
-### WR-02: Retry semantics do not match documentation
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `eab8ae2`
-
-**Applied fix:** Changed `max_retries` from 3 to 4 with loop `1..=max_retries`, yielding 4 total attempts = 1 initial + 3 retries (matching D-03 requirement). Error message uses `max_retries - 1` to correctly display "3 retries".
-
-### WR-03: `convert_pitch_to_percent` function name is misleading
+### WR-01: TTSError::AuthenticationFailed 在 Edge-TTS 引擎中从未被使用
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `9498e22`
+**Commit:** 6413cac
+**Applied fix:** Added authentication error detection in three WebSocket error mappings: the two connect paths (direct and proxy) in `connect()`, and the message receive path in `synthesize_once()`. When a tungstenite error string contains "401", "authentication", or "Unauthorized", the error is mapped to `TTSError::AuthenticationFailed(err_str)` instead of the generic `ConnectionFailed` or `SynthesisFailed`.
 
-**Applied fix:** Renamed function to `convert_pitch_to_hz` to match its actual output format (`+XHz` / `-XHz`), consistent with `convert_rate_to_percent` which correctly outputs percent format. All references (call site in `build_ssml` and 3 test functions) updated via `replace_all`.
-
-### WR-04: Warning log misleading when turn.end received with missing audio_duration
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `4f9e359`
-
-**Applied fix:** Added `received_turn_end` boolean flag, set to `true` in the `turn.end` handler. The post-loop `duration == 0.0` warning now distinguishes between "turn.end received but audio_duration missing/unparseable" and "connection closed before turn.end", providing accurate diagnostic context.
-
-### WR-05: No timeout on WebSocket message receive
+### WR-02: WebSocket 在 turn.end 前关闭导致 duration=0.0 被当作成功返回
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `a11af01`
+**Commit:** ac579db
+**Applied fix:** Changed the post-loop error handling to return `Err(TTSError::SynthesisFailed(...))` when `received_turn_end` is false (connection closed before receiving turn.end), instead of falling through to `Ok(TtsOutput { duration: 0.0, ... })`. The `duration == 0.0` / `received_turn_end` branching was replaced with: check `!received_turn_end` first (return error), then check `duration == 0.0` for the case where turn.end was received but audio_duration was missing/unparseable (keeps the warning log).
 
-**Applied fix:** Added `use tokio::time::timeout` import and `WS_RECEIVE_TIMEOUT` constant (120 seconds). Wrapped `ws_stream.next().await` with `timeout()`, returning `TTSError::SynthesisFailed` with a descriptive message if the server does not respond within the timeout window.
-
-### WR-06: Proxy URL with authentication credentials is not supported
-
-**Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `6ffbe27`
-
-**Applied fix:** Replaced simple `split_once(':')` on the raw proxy address with a two-step parse: (1) strip `user:pass@` prefix using `rsplit('@')`, then (2) parse `host:port` from the remaining string. Default port handling also updated to use `u16` directly. Error message hints at unsupported credentials format.
-
-### WR-07: `xml:lang="zh-CN"` hardcoded in SSML template
+### WR-03: max_retries 变量命名与实际语义不符（误导维护者）
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `021de1b`
+**Commit:** 479062a
+**Applied fix:** Renamed `max_retries` to `max_attempts` throughout `synthesize_with_retry()`. The variable holds the total attempt count (1 initial + 3 retries = 4). The previous name `max_retries` misleadingly suggested "maximum retry count" when the actual value included the initial attempt. The error message correctly uses `max_attempts - 1` to report "重试 3 次后仍失败".
 
-**Applied fix:** Added `voice_name_to_lang()` helper that extracts the language tag from the voice name (e.g., `"en-US-JennyNeural"` yields `"en-US"`) by locating the second hyphen. The SSML template now uses `{}` format for `xml:lang` with this derived value. Falls back to `"zh-CN"` if extraction fails.
+### WR-04: 库测试与集成测试存在重复测试用例（翻倍维护成本）
 
-### WR-08: Word boundary offset addition can overflow `u64`
+**Files modified:** `tests/tts_test.rs`
+**Commit:** fa67b5c
+**Applied fix:** Removed the two duplicate test functions `test_synthesize_unknown_engine_error` and `test_synthesize_unknown_engine_message_contains_name` from `tests/tts_test.rs`. The equivalent tests in `src/tts/mod.rs` (`test_synthesize_unknown_engine` and `test_synthesize_unknown_engine_message`) provide identical coverage of the `synthesize()` router's unknown engine error path.
+
+### WR-05: test_synthesize_function_signature 丢弃未 poll 的 async future（编译器警告）
+
+**Files modified:** `tests/tts_test.rs`
+**Commit:** 473e402
+**Applied fix:** Added `#[allow(clippy::let_underscore_future)]` before the `#[test]` attribute on `test_synthesize_function_signature` to suppress the clippy warning about discarding an unpolled async future. The test intentionally creates and drops the future to verify the function signature at compile time.
+
+### WR-06: EdgeTtsEngine 和 new() 的 pub 可见度过于宽松
 
 **Files modified:** `src/tts/edge_tts.rs`
-**Commit:** `2811a55`
-
-**Applied fix:** Changed `offset + duration_100ns` to `offset.saturating_add(duration_100ns)` to prevent debug panics and release wraparound on u64 overflow from untrusted server response data.
+**Commit:** 8db599b
+**Applied fix:** Changed the visibility of `EdgeTtsEngine` struct, all its fields (`proxy_enabled`, `proxy_http`, `proxy_https`), and the `new()` constructor from `pub` to `pub(super)`. This restricts direct instantiation to the `tts` module, ensuring all engine creation goes through the `tts::synthesize()` router and its proxy configuration logic.
 
 ---
 
 ## Skipped Issues
 
-*None -- all 8 findings in scope were successfully fixed.*
+*None -- all 7 findings in scope (1 Critical + 6 Warnings) were successfully fixed.*
+
+Info-level findings (IN-01 through IN-06) were excluded per `fix_scope: critical_warning`.
 
 ---
 
-_Fixed: 2026-04-28T15:23:21Z_
+_Fixed: 2026-04-29T09:55:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
