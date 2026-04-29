@@ -359,6 +359,9 @@ impl EdgeTtsEngine {
             }
         }
 
+        // 清理重试失败后可能残留的损坏输出文件
+        let _ = tokio::fs::remove_file(output_path).await;
+
         Err(TTSError::RetryExhausted(format!(
             "Edge-TTS 重试 {} 次后仍失败: {}",
             max_attempts - 1,
