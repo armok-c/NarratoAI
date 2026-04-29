@@ -26,7 +26,6 @@ impl Registry {
     }
 
     /// 按名称查询 provider。未找到时返回 LLMError::ProviderNotFound（D-14）
-    #[must_use]
     pub fn get(&self, name: &str) -> Result<Arc<dyn LlmProvider>, LLMError> {
         self.providers
             .get(&name.to_lowercase())
