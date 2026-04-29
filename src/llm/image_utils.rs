@@ -39,11 +39,9 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
         let mut raw_bytes = Vec::new();
         file.read_to_end(&mut raw_bytes)
             .map_err(|e| LLMError::General(format!("文件读取失败: {}", e)))?;
-        // 验证 JPEG 完整性（通过完整解码）。避免重新编码导致的画质损失，
-        // 但解码后内存占用可能较大（50 MB JPEG 解码约 200 MB）。
-        if let Err(e) = image::load_from_memory(&raw_bytes) {
-            return Err(LLMError::General(format!("JPEG 图片损坏: {}", e)));
-        }
+        // 跳过完整 decode 完整性检查：50 MB JPEG 解码可能分配约 200 MB，
+        // 在并发预处理（futures::future::join_all）下有 OOM 风险。
+        // 下游 API 会以明确的错误拒绝损坏图像。
         let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
         return Ok(format!("data:image/jpeg;base64,{}", b64));
     }
