@@ -21,7 +21,7 @@
 - [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
 - [ ] **Phase 10: Tauri Command Layer** - Tauri 2.0 命令注册、进度推送、文件对话框
 - [ ] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量
-- [ ] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎
+- [x] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎 (completed 2026-04-30)
 
 ## Phase Details
 
@@ -182,7 +182,15 @@ Plans:
   2. 通过 yt-dlp 子进程下载 YouTube 视频到本地
   3. 通过 Pexels API 搜索素材并下载到本地
   4. 根据内容类型（解说/原声/BGM）应用预设音量参数
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- **Wave 1** *(no blockers — can execute immediately)*
+  - [ ] 11-01-PLAN.md — 基础设施 + 模块存根（Cargo.toml 依赖、配置类型扩展、lib.rs 导出、所有模块目录和存根文件）
+- **Wave 2** *(blocked on Wave 1 completion)*
+  - [ ] 11-02-PLAN.md — 音频模块：音频标准化（AudioError + LoudnormData + 5 函数，两遍 loudnorm + symphonia RMS 回退）+ 智能音量（VolumeConfig + 4 函数，Profile 硬编码）
+  - [ ] 11-03-PLAN.md — YouTube 模块：视频下载（YoutubeError + download_video，格式查询/分辨率匹配/异步 CLI 子进程）
+  - [ ] 11-04-PLAN.md — 素材模块：Pexels/Pixabay 搜索下载（MaterialError + 搜索/key 轮询/MD5 缓存/ffprobe 验证/时长限制）
 
 ### Phase 12: Additional TTS Engines
 **Goal**: 除 Edge-TTS 外的 6 个 TTS 引擎全部实现，达到与 Python 版一致的 TTS 功能覆盖
@@ -200,7 +208,7 @@ Plans:
 Plans:
 - [x] 12-01-PLAN.md — 共享模块 common.rs + SoulVoice + Doubao 引擎（Wave 1）
 - [x] 12-02-PLAN.md — Qwen + IndexTTS2 引擎（Wave 2）
-- [ ] 12-03-PLAN.md — Azure Speech + Tencent TTS 引擎（Wave 3，含 TC3 签名）
+- [x] 12-03-PLAN.md — Azure Speech + Tencent TTS 引擎（Wave 3，含 TC3 签名）
 
 ## Progress
 
@@ -220,5 +228,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. SDP Pipeline | 0/? | Not started | - |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
-| 11. Extended Features | 0/? | Not started | - |
-| 12. Additional TTS Engines | 2/3 | In Progress|  |
+| 11. Extended Features | 0/4 | Planning complete | - |
+| 12. Additional TTS Engines | 3/3 | Complete   | 2026-04-30 |
