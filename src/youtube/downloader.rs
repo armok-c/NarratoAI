@@ -163,7 +163,7 @@ async fn _get_video_formats(
 /// # 安全
 /// - URL 前缀校验（per T-11-01, T-11-02）
 /// - 所有 CLI 参数通过 args 数组传递
-/// - 禁止 shell(true)
+/// - 禁止使用 shell 模式执行命令
 ///
 /// # 注意
 /// - 无下载进度回调（per D-10，与 Python 版行为一致）
