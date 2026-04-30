@@ -262,10 +262,13 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
     // 2. 构建时间线并在失败时清理草稿目录
     let result = build_timeline(req, &mut script_file);
     match result {
-        Ok(()) => {
-            let draft_path = script_file.save(&folder)?;
-            Ok(draft_path)
-        }
+        Ok(()) => match script_file.save(&folder) {
+            Ok(draft_path) => Ok(draft_path),
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(folder.draft_dir());
+                Err(e)
+            }
+        },
         Err(e) => {
             let _ = std::fs::remove_dir_all(folder.draft_dir());
             Err(e)

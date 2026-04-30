@@ -1,8 +1,8 @@
 ---
 phase: 09-jianying-export
-reviewed: 2026-04-30T02:39:20Z
+reviewed: 2026-04-30T03:15:00Z
 depth: standard
-iteration: 8
+iteration: 9
 files_reviewed: 13
 files_reviewed_list:
   - Cargo.toml
@@ -20,30 +20,31 @@ files_reviewed_list:
   - tests/jianying_export.rs
 findings:
   critical: 0
-  warning: 1
+  warning: 0
   info: 3
-  total: 4
+  total: 3
 status: issues_found
 ---
 
-# Phase 09: Code Review Report (Iteration 8)
+# Phase 09: Code Review Report (Iteration 9)
 
-**Reviewed:** 2026-04-30T02:39:20Z
+**Reviewed:** 2026-04-30T03:15:00Z
 **Depth:** standard
 **Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-Iteration 8 代码审查。本次验证了第 7 轮修复（WR-01 至 WR-05）全部仍然生效，未发现回归。深入审查后发现 1 个新的 WARNING 级别问题（`save` 失败时草稿目录残留）以及 3 个延续的 INFO 级别问题。所有 72 个库测试和 10 个集成测试通过（2 个需要 ffmpeg 的测试被 ignore）。
+Iteration 9 代码审查。本次验证了第 8 轮修复（WR-01 save 失败清理）已作为未提交更改存在于 `builder.rs` 中，且所有前序修复（WR-01 至 WR-05）均无回归。未发现新的 BLOCKER 或 WARNING 级别问题。3 个延续的 INFO 级别问题仍然有效。所有 72 个库测试和 10 个集成测试通过（2 个需要 ffmpeg 的测试被 ignore）。
 
-### 之前的修复验证（WR-01 至 WR-05 全部仍然生效）
+### 之前的修复验证（全部仍然生效）
 
 - **WR-01**（Track segment type matching）：`track.rs:52-63` 和 `track.rs:66-77` 中的 `add_video_segment` / `add_audio_segment` 均在添加前检查 `track_type`。已确认。
 - **WR-02**（Path validation）：`material.rs:59-63` 和 `material.rs:123-127` 中 `VideoMaterial::new` 和 `AudioMaterial::new` 均在 `canonicalize` 后验证绝对路径。已确认。
-- **WR-03**（Draft directory cleanup on failure）：`builder.rs:269-271` 中 `export_draft` 在 `build_timeline` 失败时调用 `remove_dir_all` 清理草稿目录。已确认。
+- **WR-03**（Draft directory cleanup on build_timeline failure）：`builder.rs:272-275` 中 `export_draft` 在 `build_timeline` 失败时调用 `remove_dir_all` 清理草稿目录。已确认。
 - **WR-04**（Zero duration rejection）：`time.rs:20` 和 `time.rs:33-34` 中 `trange` 和 `trange_from_secs` 均拒绝 `duration <= 0`。已确认。
 - **WR-05**（Shared build_base_segment helper）：`segment.rs:25-56` 中提取了共享的 `build_base_segment` 函数，`VideoSegment::to_json` 和 `AudioSegment::to_json` 均调用它。已确认。
+- **WR-06**（save 失败时清理草稿目录）：`builder.rs:265-270` 中 `export_draft` 在 `script_file.save` 失败时调用 `remove_dir_all` 清理草稿目录。已确认为未提交更改，与第 8 轮 WR-01 修复一致。
 
 ## Critical Issues
 
@@ -51,30 +52,7 @@ None.
 
 ## Warnings
 
-### WR-01: save 失败时草稿目录残留不完整文件
-
-**File:** `src/jianying/builder.rs:265-267`
-**Issue:** `export_draft` 在 `build_timeline` 失败时正确清理草稿目录（前一轮 WR-03 修复），但 `script_file.save(&folder)` 失败时（例如磁盘空间不足、权限不足）不会清理。此时 `draft_meta_info.json` 已写入，但 `draft_content.json` 可能缺失或截断，留下一个不完整的剪映草稿目录。用户下次打开剪映时可能导入失败或看到损坏的草稿。
-**Fix:**
-
-```rust
-// builder.rs export_draft 函数，替换当前 match 块
-match result {
-    Ok(()) => {
-        match script_file.save(&folder) {
-            Ok(draft_path) => Ok(draft_path),
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(folder.draft_dir());
-                Err(e)
-            }
-        }
-    }
-    Err(e) => {
-        let _ = std::fs::remove_dir_all(folder.draft_dir());
-        Err(e)
-    }
-}
-```
+None.
 
 ## Info
 
@@ -108,7 +86,7 @@ format!("ffprobe 返回无效的音频时长: {}", duration)
 
 ---
 
-_Reviewed: 2026-04-30T02:39:20Z_
+_Reviewed: 2026-04-30T03:15:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 8_
+_Iteration: 9_
