@@ -39,6 +39,11 @@ pub async fn extract_frames(
     cancel: Option<CancellationToken>,
 ) -> Result<usize, VisualError> {
     let quality_val = quality.unwrap_or(5);
+    if quality_val < 2 || quality_val > 31 {
+        return Err(VisualError::FrameExtraction(
+            format!("JPEG quality 值 ({}) 超出有效范围 2-31", quality_val)
+        ));
+    }
 
     if interval_seconds.is_nan() || interval_seconds <= 0.0 {
         return Err(VisualError::FrameExtraction("帧提取间隔必须 > 0".into()));
