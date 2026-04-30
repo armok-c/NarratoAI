@@ -5,7 +5,14 @@ use crate::tts::common;
 use async_trait::async_trait;
 use regex::Regex;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
+
+/// 编译一次的重用 Azure 音色正则表达式
+fn azure_voice_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$").expect("Azure voice regex is valid"))
+}
 
 /// 判断 voice_name 是否应使用 Azure Speech Services REST API (V2)
 ///
@@ -24,10 +31,8 @@ pub fn should_use_azure_services(voice_name: &str) -> bool {
     }
     // 正则匹配 Azure Neural 格式: [language]-[REGION]-[Name]Neural
     // 如 zh-CN-YunzeNeural, en-US-AvaMultilingualNeural
-    // 使用 regex crate (已在 Cargo.toml 中)
-    Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$")
-        .map(|re| re.is_match(name))
-        .unwrap_or(false)
+    // 使用 OnceLock 缓存避免每次调用重新编译
+    azure_voice_regex().is_match(name)
 }
 
 /// 返回硬编码的 Azure Neural 音色列表（供 UI/调试用）
