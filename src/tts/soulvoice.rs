@@ -118,7 +118,6 @@ mod tests {
     fn test_soulvoice_engine_new() {
         let config = SoulVoiceSection {
             api_key: "test-key".to_string(),
-            voice_uri: String::new(),
             api_url: String::new(),
             model: String::new(),
         };
@@ -142,7 +141,6 @@ mod tests {
 
         let config = SoulVoiceSection {
             api_key: "test-key".to_string(),
-            voice_uri: String::new(),
             api_url: mock_server.uri() + "/tts",
             model: "test-model".to_string(),
         };
@@ -163,7 +161,6 @@ mod tests {
     async fn test_soulvoice_empty_text() {
         let config = SoulVoiceSection {
             api_key: "test-key".to_string(),
-            voice_uri: String::new(),
             api_url: String::new(),
             model: String::new(),
         };
@@ -192,7 +189,6 @@ mod tests {
 
         let config = SoulVoiceSection {
             api_key: "bad-key".to_string(),
-            voice_uri: String::new(),
             api_url: mock_server.uri() + "/tts",
             model: String::new(),
         };

@@ -121,8 +121,6 @@ pub struct SoulVoiceSection {
     #[serde(default)]
     pub api_key: String,
     #[serde(default)]
-    pub voice_uri: String,
-    #[serde(default)]
     pub api_url: String,
     #[serde(default)]
     pub model: String,
@@ -287,7 +285,6 @@ region = "ap-beijing"
 
 [soulvoice]
 api_key = "sv-key"
-voice_uri = "speech:test"
 api_url = "https://tts.scsmtech.cn/tts"
 model = "FunAudioLLM/CosyVoice2-0.5B"
 
