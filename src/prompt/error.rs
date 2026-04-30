@@ -21,9 +21,6 @@ pub enum PromptError {
 
     #[error("模板校验失败: {0}")]
     Validation(String),
-
-    #[error("版本错误: {0}")]
-    Version(String),
 }
 
 #[cfg(test)]
@@ -49,6 +46,13 @@ mod tests {
     }
 
     #[test]
+    fn test_lock_failure_error_message_chinese() {
+        let err = PromptError::LockFailure("读写锁中毒".into());
+        let msg = err.to_string();
+        assert!(msg.contains("注册中心锁失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
     fn test_registration_error_message_chinese() {
         let err = PromptError::Registration("version exists".into());
         let msg = err.to_string();
@@ -60,12 +64,5 @@ mod tests {
         let err = PromptError::Validation("invalid template".into());
         let msg = err.to_string();
         assert!(msg.contains("模板校验失败"), "消息应包含中文: {}", msg);
-    }
-
-    #[test]
-    fn test_version_error_message_chinese() {
-        let err = PromptError::Version("bad version".into());
-        let msg = err.to_string();
-        assert!(msg.contains("版本错误"), "消息应包含中文: {}", msg);
     }
 }
