@@ -27,7 +27,7 @@ impl DoubaoTtsEngine {
     }
 
     /// 单次合成（无重试）
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64, pitch: f64) -> Result<TtsOutput, TTSError> {
         // Doubao 不使用 voice_name 前缀解析，voice_name 直接作为 voice_type
         // 配置检查
         if self.config.appid.is_empty() || self.config.token.is_empty() {
@@ -52,7 +52,7 @@ impl DoubaoTtsEngine {
                 "rate": 24000,
                 "speed_ratio": speed_ratio,
                 "volume_ratio": self.config.volume,
-                "pitch_ratio": self.config.pitch,
+                "pitch_ratio": pitch,
             },
             "request": {
                 "reqid": uuid::Uuid::new_v4().to_string(),
@@ -121,13 +121,13 @@ impl TtsProvider for DoubaoTtsEngine {
         text: &str,
         voice_name: &str,
         rate: f64,
-        _pitch: f64,
+        pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
+        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate, pitch)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
