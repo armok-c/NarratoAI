@@ -327,7 +327,7 @@ impl TtsProvider for AzureSpeechEngine {
         pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
         if voice_name.trim().is_empty() {
