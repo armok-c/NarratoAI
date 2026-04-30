@@ -48,14 +48,32 @@ impl Track {
         }
     }
 
-    /// 添加视频片段
-    pub fn add_video_segment(&mut self, seg: VideoSegment) {
+    /// 添加视频片段——仅允许添加到 Video 类型轨道
+    pub fn add_video_segment(&mut self, seg: VideoSegment) -> Result<(), JianYingError> {
+        if self.track_type != TrackType::Video {
+            return Err(JianYingError::Validation {
+                details: format!(
+                    "无法将视频片段添加到 {:?} 轨道 '{}'",
+                    self.track_type, self.name
+                ),
+            });
+        }
         self.segments.push(SegmentOutput::Video(seg.to_json()));
+        Ok(())
     }
 
-    /// 添加音频片段
-    pub fn add_audio_segment(&mut self, seg: AudioSegment) {
+    /// 添加音频片段——仅允许添加到 Audio 类型轨道
+    pub fn add_audio_segment(&mut self, seg: AudioSegment) -> Result<(), JianYingError> {
+        if self.track_type != TrackType::Audio {
+            return Err(JianYingError::Validation {
+                details: format!(
+                    "无法将音频片段添加到 {:?} 轨道 '{}'",
+                    self.track_type, self.name
+                ),
+            });
+        }
         self.segments.push(SegmentOutput::Audio(seg.to_json()));
+        Ok(())
     }
 
     /// 导出为 TrackJson
@@ -131,12 +149,12 @@ mod tests {
         let path1 = PathBuf::from("video1.mp4");
         let seg1 = VideoSegment::new(&path1, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
-        track.add_video_segment(seg1);
+        track.add_video_segment(seg1).expect("应成功添加视频片段");
 
         let path2 = PathBuf::from("video2.mp4");
         let seg2 = VideoSegment::new(&path2, super::super::time::trange("5s", "3s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
-        track.add_video_segment(seg2);
+        track.add_video_segment(seg2).expect("应成功添加视频片段");
 
         let json = track.to_json().expect("Track 应序列化成功");
         assert_eq!(json.segments.len(), 2, "应有 2 个 segment");
@@ -150,5 +168,27 @@ mod tests {
 
         let audio_track = Track::new(TrackType::Audio, "音频轨道");
         assert_eq!(audio_track.to_json().expect("应序列化成功").type_field, "audio");
+    }
+
+    /// Test 12: add_video_segment 拒绝 Audio 类型轨道
+    #[test]
+    fn test_track_rejects_video_segment_on_audio_track() {
+        let mut track = Track::new(TrackType::Audio, "音频轨道");
+        let path = PathBuf::from("video.mp4");
+        let seg = VideoSegment::new(&path, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
+            .expect("应成功创建");
+        let result = track.add_video_segment(seg);
+        assert!(result.is_err(), "向音频轨道添加视频片段应返回错误");
+    }
+
+    /// Test 13: add_audio_segment 拒绝 Video 类型轨道
+    #[test]
+    fn test_track_rejects_audio_segment_on_video_track() {
+        let mut track = Track::new(TrackType::Video, "视频轨道");
+        let path = PathBuf::from("audio.mp3");
+        let seg = AudioSegment::new(&path, super::super::time::trange("0s", "3s").expect("应解析时间范围"))
+            .expect("应成功创建");
+        let result = track.add_audio_segment(seg);
+        assert!(result.is_err(), "向视频轨道添加音频片段应返回错误");
     }
 }

@@ -163,7 +163,7 @@ impl ScriptFile {
 
         // 添加到轨道
         if let Some(track) = self.tracks.iter_mut().find(|t| t.name() == track_name) {
-            track.add_video_segment(seg);
+            track.add_video_segment(seg)?;
             Ok(())
         } else {
             // 回滚素材——segment 未被添加，对应的素材也应移除
@@ -185,7 +185,7 @@ impl ScriptFile {
 
         // 添加到轨道
         if let Some(track) = self.tracks.iter_mut().find(|t| t.name() == track_name) {
-            track.add_audio_segment(seg);
+            track.add_audio_segment(seg)?;
             Ok(())
         } else {
             // 回滚素材——segment 未被添加，对应的素材也应移除
