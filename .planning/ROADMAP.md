@@ -84,7 +84,13 @@ Plans:
   3. 从视频中按时间间隔通过 FFmpeg 提取关键帧图片
   4. 批量帧图片发送给视觉 LLM 后，返回 JSON 格式的结构化帧分析报告
   5. 视觉分析批量请求受信号量限制，不超出并发控制阈值
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Prompt 系统核心：类型/错误/注册表/模板渲染（PRMP-01, PRMP-02）
+- [ ] 04-02-PLAN.md — 视觉分析器核心：帧提取快路径 + 4 级回退（VISL-01）
+- [ ] 04-03-PLAN.md — Prompt 系统完成：Manager/验证器/注册函数/模板文件（PRMP-03, PRMP-04）
+- [ ] 04-04-PLAN.md — 视觉分析器完成 + 模块集成（VISL-02, VISL-03）
 
 ### Phase 5: Script Management
 **Goal**: 系统能加载、编辑、校验、保存 JSON 格式的视频脚本，且与 Python 版格式兼容
@@ -190,7 +196,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Foundation | 3/3 | Complete | 2026-04-28 |
 | 2. LLM Service Layer | 0/3 | Planning complete | - |
 | 3. TTS Core + Edge-TTS | 3/3 | Complete | 2026-04-28 |
-| 4. Prompt System + Visual Analyzer | 0/? | Not started | - |
+| 4. Prompt System + Visual Analyzer | 0/4 | Planning complete | - |
 | 5. Script Management | 0/2 | Planning complete | - |
 | 6. Documentary Pipeline | 0/? | Not started | - |
 | 7. SDE Pipeline | 0/? | Not started | - |
