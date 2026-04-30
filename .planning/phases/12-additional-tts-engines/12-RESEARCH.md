@@ -759,26 +759,26 @@ Ok(TtsOutput {
 | A3 | IndexTTS2 multipart 中 `prompt_audio` 字段名正确 | Code Examples | 字段名不对会导致后端无法识别上传的音频文件。需对照实际 IndexTTS2 源码确认 |
 | A4 | reqwest `multipart::Part::mime_str()` 方法名正确 | Code Examples | 方法名在 reqwest 0.13 中可能为 `mime()` 或 `mime_str()`，需检查 API |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Qwen TTS REST API 端点确认**
+1. **Qwen TTS REST API 端点确认** — RESOLVED: 实现时使用 `https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization` 作为主端点，集成测试验证。Python 版 `dashscope.MultiModalConversation.call()` 底层对应此 REST 端点
    - What we know: Python 版使用 `dashscope.MultiModalConversation.call()`，底层可能是 `https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation` 或 `https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization`
-   - What's unclear: 精确的 HTTP 端点和请求体格式
+   - What's unclear: 精确的 HTTP 端点和请求体格式 — RESOLVED: 使用 `/audio/tts/customization` 端点, `input.text` + `input.voice` 请求体格式
    - Recommendation: 实现时先使用现有公开参考端点，用集成测试验证
 
-2. **reqwest Client 复用策略**
+2. **reqwest Client 复用策略** — RESOLVED: 引擎 struct 中持有 `reqwest::Client`（`build_client()` 创建），每个引擎在 `new()` 中创建一次，实例化时复用
    - What we know: `reqwest::Client` 内部维护连接池，最优做法是全局复用
-   - What's unclear: 复用方式（`Arc<Client>` 全局 static 还是传入引擎）
+   - What's unclear: 复用方式（`Arc<Client>` 全局 static 还是传入引擎） — RESOLVED: 每个引擎在 `new()` 中通过 `build_client()` 创建，不跨引擎共享 `Arc<Client>`
    - Recommendation: 在 `synthesize()` 路由器中创建一次 `Arc<Client>`，传入每个引擎
 
-3. **IndexTTS2 的字段名确认为 multipart**
+3. **IndexTTS2 的字段名确认为 multipart** — RESOLVED: 字段名已确认——`prompt_audio`（文件），`text`（合成文本），`infer_mode`（推理模式），`temperature`/`top_p`/`top_k`/`do_sample`/`num_beams`/`repetition_penalty`（高级参数）
    - What we know: Python 版使用 `files={'prompt_audio': open(path, 'rb')}`
-   - What's unclear: 其他字段名（text, infer_mode 等）是否准确
+   - What's unclear: 其他字段名（text, infer_mode 等）是否准确 — RESOLVED: 从 Python 版 indextts2_tts() 确认所有字段名
    - Recommendation: 直接参考 Python 版 indextts2_tts() 中的字段名
 
-4. **Azure Speech REST API 返回格式确认**
+4. **Azure Speech REST API 返回格式确认** — RESOLVED: Azure Speech REST API 直接返回二进制音频数据，非 JSON 封装。响应 Content-Type 为 `audio/mpeg`，可调用 `response.bytes()` 获取
    - What we know: REST API 返回 `application/ssml+xml` 响应，Response 是原始音频字节
-   - What's unclear: 是直接返回音频数据还是包装在 JSON 中
+   - What's unclear: 是直接返回音频数据还是包装在 JSON 中 — RESOLVED: 直接返回二进制音频数据（`audio/mpeg`），非 JSON 包装
    - Recommendation: 从官方文档确认：REST API 直接返回二进制音频数据
 
 ## Environment Availability
@@ -798,14 +798,14 @@ Ok(TtsOutput {
 ### Phase Requirements -> Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| TTS-04 | Azure engine returns TtsOutput on success | unit (mock) | `cargo test --lib tts::azure_speech::tests` | ❌ Wave 0 |
-| TTS-05 | Tencent engine returns TtsOutput on success | unit (mock via wiremock) | `cargo test --lib tts::tencent_tts::tests` | ❌ Wave 0 |
-| TTS-06 | SoulVoice engine returns TtsOutput on success | unit (mock) | `cargo test --lib tts::soulvoice::tests` | ❌ Wave 0 |
-| TTS-07 | Qwen engine returns TtsOutput on success | unit (mock) | `cargo test --lib tts::qwen_tts::tests` | ❌ Wave 0 |
-| TTS-08 | IndexTTS2 returns TtsOutput on success | unit (mock) | `cargo test --lib tts::indextts2::tests` | ❌ Wave 0 |
-| TTS-09 | Doubao returns TtsOutput on success | unit (mock) | `cargo test --lib tts::doubaotts::tests` | ❌ Wave 0 |
-| all | Unknown engine returns TTSError | integration | `cargo test --lib tts::mod::tests` | ✅ Phase 3 |
-| all | Empty text returns SynthesisFailed | unit | per engine module | ❌ Wave 0 |
+| TTS-04 | Azure engine returns TtsOutput on success | unit (mock) | `cargo test --lib tts::azure_speech::tests` | :x: Wave 0 |
+| TTS-05 | Tencent engine returns TtsOutput on success | unit (mock via wiremock) | `cargo test --lib tts::tencent_tts::tests` | :x: Wave 0 |
+| TTS-06 | SoulVoice engine returns TtsOutput on success | unit (mock) | `cargo test --lib tts::soulvoice::tests` | :x: Wave 0 |
+| TTS-07 | Qwen engine returns TtsOutput on success | unit (mock) | `cargo test --lib tts::qwen_tts::tests` | :x: Wave 0 |
+| TTS-08 | IndexTTS2 returns TtsOutput on success | unit (mock) | `cargo test --lib tts::indextts2::tests` | :x: Wave 0 |
+| TTS-09 | Doubao returns TtsOutput on success | unit (mock) | `cargo test --lib tts::doubaotts::tests` | :x: Wave 0 |
+| all | Unknown engine returns TTSError | integration | `cargo test --lib tts::mod::tests` | :white_check_mark: Phase 3 |
+| all | Empty text returns SynthesisFailed | unit | per engine module | :x: Wave 0 |
 
 ### Sampling Rate
 - **Per task commit:** `cargo test --lib tts -- --nocapture`
