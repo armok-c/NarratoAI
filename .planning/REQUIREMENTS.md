@@ -41,12 +41,12 @@ Requirements for Rust rewrite milestone. Each maps to roadmap phases. Code-level
 - [ ] **TTS-01**: TtsProvider trait——统一 TTS 引擎接口（输入文本，输出音频文件）
 - [ ] **TTS-02**: TTS 路由器——按引擎名字符串分发到具体实现
 - [ ] **TTS-03**: Edge-TTS 引擎实现（WebSocket 协议，SSML 生成，音频接收）
-- [ ] **TTS-04**: Azure Speech TTS 引擎实现（REST API）
-- [ ] **TTS-05**: Tencent TTS 引擎实现
-- [ ] **TTS-06**: SoulVoice TTS 引擎实现
-- [ ] **TTS-07**: Qwen TTS 引擎实现
-- [ ] **TTS-08**: IndexTTS2 语音克隆引擎实现
-- [ ] **TTS-09**: Doubao TTS 引擎实现
+- [x] **TTS-04**: Azure Speech TTS 引擎实现（REST API）
+- [x] **TTS-05**: Tencent TTS 引擎实现
+- [x] **TTS-06**: SoulVoice TTS 引擎实现
+- [x] **TTS-07**: Qwen TTS 引擎实现
+- [x] **TTS-08**: IndexTTS2 语音克隆引擎实现
+- [x] **TTS-09**: Doubao TTS 引擎实现
 
 ### Prompt System
 
@@ -187,12 +187,12 @@ Which phases cover which requirements.
 | EXTD-02 | Phase 11: Extended Features | Pending |
 | EXTD-03 | Phase 11: Extended Features | Pending |
 | EXTD-04 | Phase 11: Extended Features | Pending |
-| TTS-04 | Phase 12: Additional TTS Engines | Pending |
-| TTS-05 | Phase 12: Additional TTS Engines | Pending |
-| TTS-06 | Phase 12: Additional TTS Engines | Pending |
-| TTS-07 | Phase 12: Additional TTS Engines | Pending |
-| TTS-08 | Phase 12: Additional TTS Engines | Pending |
-| TTS-09 | Phase 12: Additional TTS Engines | Pending |
+| TTS-04 | Phase 12: Additional TTS Engines | Complete |
+| TTS-05 | Phase 12: Additional TTS Engines | Complete |
+| TTS-06 | Phase 12: Additional TTS Engines | Complete |
+| TTS-07 | Phase 12: Additional TTS Engines | Complete |
+| TTS-08 | Phase 12: Additional TTS Engines | Complete |
+| TTS-09 | Phase 12: Additional TTS Engines | Complete |
 
 **Coverage:**
 - v1 requirements: 56 total

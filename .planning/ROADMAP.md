@@ -229,4 +229,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
 | 11. Extended Features | 0/4 | Planning complete | - |
-| 12. Additional TTS Engines | 3/3 | Complete   | 2026-04-30 |
+| 12. Additional TTS Engines | 3/3 | Complete    | 2026-04-30 |
