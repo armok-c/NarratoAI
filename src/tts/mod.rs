@@ -1,6 +1,7 @@
 mod common;
 mod doubaotts;
 mod edge_tts;
+mod indextts2;
 mod qwen_tts;
 mod soulvoice;
 
@@ -108,6 +109,12 @@ pub async fn synthesize(
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = qwen_tts::QwenTtsEngine::new(cfg.tts_qwen.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
+        "indextts2" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = indextts2::IndexTts2Engine::new(cfg.indextts2.clone(), &proxy_config);
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
