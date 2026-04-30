@@ -182,7 +182,7 @@ pub async fn analyze_video_frames(
     Ok(BatchAnalysisResult {
         observations,
         overall_activity_summary: last_summary,
-        total_frames: frame_count as usize,
+        total_frames: frame_paths.len(),
         analyzed_batches: raw_results.len(),
         errors,
     })
