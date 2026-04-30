@@ -13,6 +13,9 @@ pub enum PromptError {
         version: Option<String>,
     },
 
+    #[error("注册中心锁失败: {0}")]
+    LockFailure(String),
+
     #[error("模板注册失败: {0}")]
     Registration(String),
 
