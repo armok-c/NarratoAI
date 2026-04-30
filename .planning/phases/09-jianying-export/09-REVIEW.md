@@ -1,7 +1,8 @@
 ---
 phase: 09-jianying-export
-reviewed: 2026-04-30T01:51:30Z
+reviewed: 2026-04-30T02:39:20Z
 depth: standard
+iteration: 8
 files_reviewed: 13
 files_reviewed_list:
   - Cargo.toml
@@ -19,32 +20,30 @@ files_reviewed_list:
   - tests/jianying_export.rs
 findings:
   critical: 0
-  warning: 5
+  warning: 1
   info: 3
-  total: 8
+  total: 4
 status: issues_found
 ---
 
-# Phase 09: Code Review Report (Iteration 7)
+# Phase 09: Code Review Report (Iteration 8)
 
-**Reviewed:** 2026-04-30T01:51:30Z
+**Reviewed:** 2026-04-30T02:39:20Z
 **Depth:** standard
 **Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-Full standard-depth review of the JianYing (CapCut) draft export module -- 13 files across `src/jianying/`, `src/ffmpeg/probe.rs`, `src/lib.rs`, `Cargo.toml`, and `tests/jianying_export.rs`. This is iteration 7.
+Iteration 8 代码审查。本次验证了第 7 轮修复（WR-01 至 WR-05）全部仍然生效，未发现回归。深入审查后发现 1 个新的 WARNING 级别问题（`save` 失败时草稿目录残留）以及 3 个延续的 INFO 级别问题。所有 72 个库测试和 10 个集成测试通过（2 个需要 ffmpeg 的测试被 ignore）。
 
-### Previous Findings Verification
+### 之前的修复验证（WR-01 至 WR-05 全部仍然生效）
 
-**WR-01 (iteration 6): Non-atomic file write for draft_content.json.** VERIFIED FIXED. `builder.rs` lines 244-249 now use the atomic write-rename pattern (`write to .json.tmp` then `rename`), matching the convention in `src/script/mod.rs`. The same pattern is applied to `draft_meta_info.json` at lines 103-108. Both include best-effort cleanup on rename failure. No regression.
-
-**IN-01 (iterations 4-6, carried): Inconsistent error message language in probe.rs.** STILL PRESENT. Error messages in `probe_video` (lines 62-63, 67, 97-98) and `probe_audio` (lines 153-154) still mix Chinese and English. See IN-01 below.
-
-### Fresh Review Assessment
-
-The module is well-structured with comprehensive test coverage (69 unit tests passing, 10 integration tests passing, 2 ignored). No critical issues found in this iteration. Five warnings identified covering API safety gaps, path handling robustness, state cleanup, and code duplication. Three info-level items noted.
+- **WR-01**（Track segment type matching）：`track.rs:52-63` 和 `track.rs:66-77` 中的 `add_video_segment` / `add_audio_segment` 均在添加前检查 `track_type`。已确认。
+- **WR-02**（Path validation）：`material.rs:59-63` 和 `material.rs:123-127` 中 `VideoMaterial::new` 和 `AudioMaterial::new` 均在 `canonicalize` 后验证绝对路径。已确认。
+- **WR-03**（Draft directory cleanup on failure）：`builder.rs:269-271` 中 `export_draft` 在 `build_timeline` 失败时调用 `remove_dir_all` 清理草稿目录。已确认。
+- **WR-04**（Zero duration rejection）：`time.rs:20` 和 `time.rs:33-34` 中 `trange` 和 `trange_from_secs` 均拒绝 `duration <= 0`。已确认。
+- **WR-05**（Shared build_base_segment helper）：`segment.rs:25-56` 中提取了共享的 `build_base_segment` 函数，`VideoSegment::to_json` 和 `AudioSegment::to_json` 均调用它。已确认。
 
 ## Critical Issues
 
@@ -52,173 +51,64 @@ None.
 
 ## Warnings
 
-### WR-01: Track does not enforce segment type matching track_type -- silent data corruption possible
+### WR-01: save 失败时草稿目录残留不完整文件
 
-**File:** `src/jianying/track.rs:52-58`
-**Issue:** `Track::add_video_segment` and `Track::add_audio_segment` accept any segment regardless of `self.track_type`. Adding a `VideoSegment` to a `TrackType::Audio` track produces a `TrackJson` with `type: "audio"` but containing video segment JSON. JianYing would reject or misinterpret this draft. The current builder only calls these methods with matching types, so this is not a live bug, but the API is unsound -- any future caller can introduce silent data corruption.
-
-**Fix:** Add a runtime check or use the type system:
-
-```rust
-pub fn add_video_segment(&mut self, seg: VideoSegment) -> Result<(), JianYingError> {
-    if self.track_type != TrackType::Video {
-        return Err(JianYingError::Validation {
-            details: format!(
-                "Cannot add video segment to {:?} track '{}'",
-                self.track_type, self.name
-            ),
-        });
-    }
-    self.segments.push(SegmentOutput::Video(seg.to_json()));
-    Ok(())
-}
-```
-
-Alternatively, use separate `VideoTrack` and `AudioTrack` types to enforce this at compile time.
-
-### WR-02: VideoMaterial::new and AudioMaterial::new silently accept invalid (non-existent, relative) paths
-
-**File:** `src/jianying/material.rs:59` and `src/jianying/material.rs:118`
-**Issue:** `path.canonicalize().unwrap_or_else(|_| path.to_path_buf())` silently falls back to the original path when the file does not exist. This means:
-1. Relative paths (e.g., `"video.mp4"`) remain relative, producing an invalid absolute path in the exported JSON that JianYing cannot resolve.
-2. Non-existent file paths are silently accepted without any error indication.
-
-The function returns `Result<Self, JianYingError>` but never actually returns an error for bad paths. Callers cannot distinguish between valid and invalid paths.
-
-**Fix:** At minimum, check that the canonicalized path is absolute:
+**File:** `src/jianying/builder.rs:265-267`
+**Issue:** `export_draft` 在 `build_timeline` 失败时正确清理草稿目录（前一轮 WR-03 修复），但 `script_file.save(&folder)` 失败时（例如磁盘空间不足、权限不足）不会清理。此时 `draft_meta_info.json` 已写入，但 `draft_content.json` 可能缺失或截断，留下一个不完整的剪映草稿目录。用户下次打开剪映时可能导入失败或看到损坏的草稿。
+**Fix:**
 
 ```rust
-let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-if !abs_path.is_absolute() {
-    return Err(JianYingError::Validation {
-        details: format!("路径必须为绝对路径或已存在的文件: {}", abs_path.display()),
-    });
-}
-```
-
-### WR-03: export_draft leaks draft directory on partial failure
-
-**File:** `src/jianying/builder.rs:265-345`
-**Issue:** When `export_draft` fails after `DraftFolder::create_draft` succeeds (e.g., a clip has missing `source_time_range` at index 5 out of 10), the created directory and `draft_meta_info.json` remain on disk as orphaned state. Subsequent retry attempts with the same `draft_name` will hit the existing directory (which is fine on overwrite) but may confuse users who see a stale `draft_meta_info.json` referencing data that was never completed.
-
-**Fix:** Clean up the draft directory on error:
-
-```rust
-pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
-    validate_export_request(req)?;
-    let draft_name = req.draft_name_or_default();
-    let (folder, mut script_file) =
-        DraftFolder::create_draft(&req.draft_path, &draft_name, req.width, req.height)?;
-
-    // ... add tracks, process clips ...
-    // If an error occurs during clip processing, clean up:
-    match build_timeline(req, &mut script_file) {
-        Ok(()) => script_file.save(&folder),
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(folder.draft_dir());
-            Err(e)
+// builder.rs export_draft 函数，替换当前 match 块
+match result {
+    Ok(()) => {
+        match script_file.save(&folder) {
+            Ok(draft_path) => Ok(draft_path),
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(folder.draft_dir());
+                Err(e)
+            }
         }
     }
-}
-```
-
-### WR-04: trange_from_secs accepts zero duration, producing degenerate Timerange
-
-**File:** `src/jianying/time.rs:32-41`
-**Issue:** `trange_from_secs(0.0, 0.0)` returns `Some(Timerange { start: 0, duration: 0 })`. A zero-duration timerange in a JianYing draft represents a segment with no playback, which is semantically invalid. The caller `export_draft` validates `duration > 0.0` before calling this, but `trange_from_secs` is a public function -- other callers may not have this guard. Similarly, `trange("0s", "0s")` also returns `Some` with zero duration.
-
-**Fix:** Reject zero duration explicitly:
-
-```rust
-pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange> {
-    if !start_secs.is_finite() || start_secs < 0.0
-        || !duration_secs.is_finite() || duration_secs <= 0.0
-    //                                    ^^^ changed from < to <=
-    {
-        return None;
-    }
-    // ...
-}
-```
-
-Note: This would change the existing test `test_trange_zero_seconds` which expects `trange("0s", "0s")` to succeed. That test should be updated to expect `None`.
-
-### WR-05: build_base_segment duplicated between VideoSegment and AudioSegment
-
-**File:** `src/jianying/segment.rs:68-93` and `src/jianying/segment.rs:156-181`
-**Issue:** `VideoSegment::build_base_segment` and `AudioSegment::build_base_segment` are nearly identical (25 lines each, differing only in `source_timerange` handling). Any future change to base segment fields must be made in both places, risking divergence.
-
-**Fix:** Extract a shared helper:
-
-```rust
-fn build_base_segment(
-    segment_id: &str,
-    material_id: &str,
-    target_timerange: Timerange,
-    source_timerange: Option<Timerange>,
-    speed_id: &str,
-) -> SegmentJson {
-    SegmentJson {
-        enable_adjust: true,
-        enable_color_correct_adjust: false,
-        enable_color_curves: true,
-        enable_color_match_adjust: false,
-        enable_color_wheels: true,
-        enable_lut: true,
-        enable_smart_color_adjust: false,
-        last_nonzero_volume: 1.0,
-        reverse: false,
-        track_attribute: 0,
-        track_render_index: 0,
-        visible: true,
-        id: segment_id.to_string(),
-        material_id: material_id.to_string(),
-        target_timerange,
-        common_keyframes: vec![],
-        keyframe_refs: vec![],
-        source_timerange,
-        speed: 1.0,
-        volume: 1.0,
-        extra_material_refs: vec![speed_id.to_string()],
-        is_tone_modify: false,
+    Err(e) => {
+        let _ = std::fs::remove_dir_all(folder.draft_dir());
+        Err(e)
     }
 }
 ```
 
 ## Info
 
-### IN-01: Inconsistent error message language in probe.rs (carried from iteration 4)
+### IN-01: probe.rs 错误消息语言不一致（延续自 iteration 4）
 
-**File:** `src/ffmpeg/probe.rs:62-63, 67, 97-98, 153-154`
-**Issue:** Within `probe_video` and `probe_audio`, error messages mix Chinese (line 151: `"音频时长解析失败"`) and English (lines 62-63: `"Missing or invalid duration in ffprobe output"`, line 67: `"Invalid video duration"`, line 97: `"No video stream found in ffprobe output"`, lines 153-154: `"Invalid audio duration from ffprobe"`). The project convention (established in `src/error.rs` and `src/jianying/error.rs`) is to use Chinese for all error messages.
-
-**Fix:** Standardize all error messages in `probe.rs` to Chinese:
+**File:** `src/ffmpeg/probe.rs:63,67,97,151,154`
+**Issue:** `probe_video` 和 `probe_audio` 中的错误消息混用英文和中文。例如第 63 行 `"Missing or invalid duration in ffprobe output"`（英文）vs 第 151 行 `"音频时长解析失败"`（中文）。项目其余 jianying 模块统一使用中文错误消息。
+**Fix:** 将 `probe.rs` 中所有用户可见的错误消息统一为中文：
 ```rust
-// Line 62-63:
+// 第 63 行:
 "ffprobe 输出中缺少 duration 字段或格式无效".into()
-// Line 67:
+// 第 67 行:
 format!("无效的视频时长: {}", duration_secs)
-// Line 97-98:
+// 第 97 行:
 "ffprobe 输出中未找到视频流".into()
-// Line 153-154:
+// 第 154 行:
 format!("ffprobe 返回无效的音频时长: {}", duration)
 ```
 
-### IN-02: Integration test timestamp format overflow risk
+### IN-02: 集成测试 make_clip 时间戳格式溢出风险（延续自 iteration 4）
 
-**File:** `tests/jianying_export.rs:32-36`
-**Issue:** The `make_clip` helper uses `format!("00:00:{:02},000-00:00:{:02},000", id * 5, id * 5 + 5)`. When `id >= 12`, `id * 5 >= 60`, producing invalid timestamps like `"00:00:60,000"`. Current test values (1-3) are safe, but this is fragile -- anyone adding a test with a larger ID will get silently wrong timestamps.
-**Fix:** Use a proper timestamp formatter or clamp/wrap values.
+**File:** `tests/jianying_export.rs:46-49`
+**Issue:** `make_clip` 中的时间戳格式 `"00:00:{:02},000-00:00:{:02},000"` 使用 `id * 5` 和 `id * 5 + 5` 填充秒位。当 `id >= 12` 时秒值超过 59，产生无效时间戳如 `"00:00:65,000"`。当前测试中 `id` 范围为 1-3，不会触发此问题，但如果未来添加新测试用例并复用 `make_clip` 且使用较大的 `id`，可能产生难以调试的测试失败。
+**Fix:** 修改时间戳格式以支持大于 59 秒的情况（使用分钟位或小时位），或在 `make_clip` 中添加 `assert!(id < 12)` 上限断言。
 
-### IN-03: serde_json::to_string used for draft_meta_info.json instead of to_string_pretty
+### IN-03: draft_meta_info.json 使用紧凑格式而 draft_content.json 使用美化格式（延续自 iteration 4）
 
-**File:** `src/jianying/builder.rs:101`
-**Issue:** `draft_meta_info.json` is written with `serde_json::to_string(&meta)` (compact, single-line), while `draft_content.json` is written with `serde_json::to_string_pretty(&content)` (formatted, multi-line). The inconsistency makes `draft_meta_info.json` harder to debug by visual inspection. JianYing likely does not care about formatting, but it is inconsistent within the codebase.
-**Fix:** Use `serde_json::to_string_pretty` for both files, or document why the difference is intentional.
+**File:** `src/jianying/builder.rs:101,237`
+**Issue:** `DraftFolder::create_draft` 使用 `serde_json::to_string`（紧凑格式）写入 `draft_meta_info.json`，而 `ScriptFile::save` 使用 `serde_json::to_string_pretty`（美化格式）写入 `draft_content.json`。两者都是给剪映软件读取的文件，格式不一致影响可读性和版本控制一致性。
+**Fix:** 将第 101 行 `serde_json::to_string(&meta)` 改为 `serde_json::to_string_pretty(&meta)`。
 
 ---
 
-_Reviewed: 2026-04-30T01:51:30Z_
+_Reviewed: 2026-04-30T02:39:20Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 7_
+_Iteration: 8_
