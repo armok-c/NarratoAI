@@ -40,7 +40,6 @@ fn register_documentary_prompts(registry: &mut PromptRegistry, errors: &mut Vec<
             parameters: vec![
                 ParameterDef { name: "video_description".into(), required: true, default: None, description: "视频内容摘要".into() },
                 ParameterDef { name: "language".into(), required: false, default: Some("zh-CN".into()), description: "输出语言".into() },
-                ParameterDef { name: "frame_data".into(), required: true, default: None, description: "帧数据（Base64 编码）".into() },
             ],
         },
         content: include_str!("templates/documentary/frame_analysis_v1.0.md").into(),
