@@ -188,9 +188,9 @@ Plans:
 - **Wave 1** *(no blockers — can execute immediately)*
   - [x] 11-01-PLAN.md — 基础设施 + 模块存根（Cargo.toml 依赖、配置类型扩展、lib.rs 导出、所有模块目录和存根文件）
 - **Wave 2** *(blocked on Wave 1 completion)*
-  - [ ] 11-02-PLAN.md — 音频模块：音频标准化（AudioError + LoudnormData + 5 函数，两遍 loudnorm + symphonia RMS 回退）+ 智能音量（VolumeConfig + 4 函数，Profile 硬编码）
-  - [ ] 11-03-PLAN.md — YouTube 模块：视频下载（YoutubeError + download_video，格式查询/分辨率匹配/异步 CLI 子进程）
-  - [ ] 11-04-PLAN.md — 素材模块：Pexels/Pixabay 搜索下载（MaterialError + 搜索/key 轮询/MD5 缓存/ffprobe 验证/时长限制）
+  - [x] 11-02-PLAN.md — 音频模块：音频标准化（AudioError + LoudnormData + 5 函数，两遍 loudnorm + symphonia RMS 回退）+ 智能音量（VolumeConfig + 4 函数，Profile 硬编码）
+  - [x] 11-03-PLAN.md — YouTube 模块：视频下载（YoutubeError + download_video，格式查询/分辨率匹配/异步 CLI 子进程）
+  - [x] 11-04-PLAN.md — 素材模块：Pexels/Pixabay 搜索下载（MaterialError + 搜索/key 轮询/MD5 缓存/ffprobe 验证/时长限制）
 - **Wave 3** *(blocked on Wave 2 completion)*
   - [ ] 11-05-PLAN.md — 集成测试存根：audio_integration / youtube_integration / material_integration
 
@@ -230,5 +230,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. SDP Pipeline | 0/? | Not started | - |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
-| 11. Extended Features | 1/5 | In Progress|  |
+| 11. Extended Features | 4/5 | In Progress|  |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |
