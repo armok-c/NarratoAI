@@ -55,7 +55,7 @@ pub fn build_client(proxy_config: &ProxyConfig) -> reqwest::Client {
     let builder = proxy_config.apply_to_client(builder);
     builder.build().unwrap_or_else(|e| {
         tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
-        reqwest::Client::new()
+        reqwest::Client::new().expect("Failed to create default HTTP client")
     })
 }
 
