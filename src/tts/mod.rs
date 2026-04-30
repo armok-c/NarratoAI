@@ -1,5 +1,6 @@
 mod common;
 mod edge_tts;
+mod soulvoice;
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -88,6 +89,12 @@ pub async fn synthesize(
             };
             let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
             edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
+        "soulvoice" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
             engine: engine.to_string(),
