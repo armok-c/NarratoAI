@@ -35,8 +35,6 @@ impl Default for UiSection {
             azure_volume: 80,
             azure_rate: 1.0,
             azure_pitch: 0,
-            doubaotts_voice_type: "BV700_V2_streaming".to_string(),
-            doubaotts_rate: 1.0,
         }
     }
 }

@@ -86,10 +86,6 @@ pub struct UiSection {
     pub azure_rate: f64,
     #[serde(default)]
     pub azure_pitch: i32,
-    #[serde(default)]
-    pub doubaotts_voice_type: String,
-    #[serde(default)]
-    pub doubaotts_rate: f64,
 }
 
 /// [azure] 配置段
@@ -267,8 +263,6 @@ azure_voice_name = "zh-CN-XiaoyiNeural-Female"
 azure_volume = 80
 azure_rate = 1.0
 azure_pitch = 0
-doubaotts_voice_type = "BV700_V2_streaming"
-doubaotts_rate = 1.0
 
 [azure]
 speech_key = "az-key"
