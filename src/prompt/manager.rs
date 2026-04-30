@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 use crate::prompt::error::PromptError;
 use crate::prompt::registry::SharedPromptRegistry;
@@ -70,12 +69,11 @@ impl PromptManager {
     }
 
     /// 搜索匹配的 Prompt（D-02）
-    pub fn search_prompts(&self, query: &str) -> Vec<Prompt> {
-        let registry = self
-            .registry
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        registry.search(query).into_iter().cloned().collect()
+    pub fn search_prompts(&self, query: &str) -> Result<Vec<Prompt>, PromptError> {
+        let registry = self.registry.read().map_err(|e| {
+            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+        })?;
+        Ok(registry.search(query).into_iter().cloned().collect())
     }
 
     /// 校验 LLM 输出格式（D-20）
@@ -90,24 +88,22 @@ impl PromptManager {
     }
 
     /// 列出所有已注册的分类
-    pub fn list_categories(&self) -> Vec<String> {
-        let registry = self
-            .registry
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        registry.list_categories()
+    pub fn list_categories(&self) -> Result<Vec<String>, PromptError> {
+        let registry = self.registry.read().map_err(|e| {
+            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+        })?;
+        Ok(registry.list_categories())
     }
 
     /// 列出指定分类下的所有 Prompt 名称
-    pub fn list_prompts(&self, category: &str) -> Vec<String> {
-        let registry = self
-            .registry
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        registry.list_prompts(category)
+    pub fn list_prompts(&self, category: &str) -> Result<Vec<String>, PromptError> {
+        let registry = self.registry.read().map_err(|e| {
+            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+        })?;
+        Ok(registry.list_prompts(category)
             .iter()
             .map(|p| p.metadata.name.clone())
-            .collect()
+            .collect())
     }
 }
 
@@ -187,7 +183,7 @@ mod tests {
         let prompt = make_test_prompt("test", "newprompt", "v1.0", "content");
         manager.register_prompt(prompt, true).unwrap();
 
-        let categories = manager.list_categories();
+        let categories = manager.list_categories().unwrap();
         assert!(categories.contains(&"test".to_string()));
     }
 
@@ -217,7 +213,7 @@ mod tests {
             )
             .unwrap();
 
-        let results = manager.search_prompts("frame");
+        let results = manager.search_prompts("frame").unwrap();
         assert_eq!(results.len(), 1);
     }
 
@@ -231,7 +227,7 @@ mod tests {
             )
             .unwrap();
 
-        let results = manager.search_prompts("nonexistent");
+        let results = manager.search_prompts("nonexistent").unwrap();
         assert!(results.is_empty());
     }
 
@@ -264,7 +260,7 @@ mod tests {
             )
             .unwrap();
 
-        let cats = manager.list_categories();
+        let cats = manager.list_categories().unwrap();
         assert_eq!(cats.len(), 2);
         assert!(cats.contains(&"cat1".to_string()));
     }
@@ -285,7 +281,7 @@ mod tests {
             )
             .unwrap();
 
-        let prompts = manager.list_prompts("doc");
+        let prompts = manager.list_prompts("doc").unwrap();
         assert_eq!(prompts.len(), 2);
     }
 }

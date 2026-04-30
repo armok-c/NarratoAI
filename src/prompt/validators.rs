@@ -90,8 +90,12 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
         )));
     }
 
-    // 检查是否包含中文字符
-    let has_chinese = trimmed.chars().any(|c| c > '\u{4E00}');
+    // 检查是否包含中文字符（覆盖 CJK Unified Ideographs、Extension A、Compatibility Ideographs）
+    let has_chinese = trimmed.chars().any(|c| {
+        (c >= '\u{4E00}' && c <= '\u{9FFF}')
+            || (c >= '\u{3400}' && c <= '\u{4DBF}')
+            || (c >= '\u{F900}' && c <= '\u{FAFF}')
+    });
     if !has_chinese {
         return Err(PromptError::Validation(
             "剧情分析应包含中文内容".into(),

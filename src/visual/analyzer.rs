@@ -18,7 +18,19 @@ use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::visual::error::VisualError;
 use crate::visual::frame_extractor::extract_frames;
-use crate::visual::types::{BatchAnalysisResult, FrameObservation};
+use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
+
+/// LLM 响应的顶层包装类型，匹配 prompt 中声明的 JSON schema
+///
+/// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
+/// 需要先反序列化为该类型再提取内部的观察列表。
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct BatchResponse {
+    #[serde(alias = "frame_observations")]
+    observations: Vec<FrameObservation>,
+    overall_activity_summary: Option<String>,
+}
 
 // ---------------------------------------------------------------------------
 // 公共 API
@@ -123,8 +135,8 @@ pub async fn analyze_video_frames(
     let mut errors: Vec<String> = Vec::new();
 
     for (idx, text) in raw_results.iter().enumerate() {
-        match parse_and_retry(text, 2) {
-            Ok(obs) => observations.push(obs),
+        match parse_and_retry(text) {
+            Ok(batch_obs) => observations.extend(batch_obs),
             Err(e) => {
                 let err_msg = format!("批次 {} 解析失败: {}", idx, e);
                 warn!("{}", err_msg);
@@ -168,49 +180,32 @@ pub async fn analyze_video_frames(
 // JSON 解析与重试
 // ---------------------------------------------------------------------------
 
-/// JSON 反序列化失败时的重试策略（对齐 AI-SPEC 4b 节）
+/// JSON 反序列化：剥离 markdown 代码块后解析为 `Vec<FrameObservation>`
 ///
-/// 每次迭代先防御性清理 markdown 代码块包裹（```json / ```），
-/// 然后尝试 `serde_json::from_str::<FrameObservation>()`。
-/// 最多重试 `max_attempts` 次，全部失败后返回 `VisualError::Analysis`。
-pub fn parse_and_retry(
-    json_text: &str,
-    max_attempts: usize,
-) -> Result<FrameObservation, VisualError> {
-    let mut last_error = None;
+/// 先尝试按 LLM schema（`BatchResponse` 包装）解析，失败后回退尝试
+/// 直接解析单个 `FrameObservation`（兼容只返回单个对象的 LLM 响应）。
+pub fn parse_and_retry(json_text: &str) -> Result<Vec<FrameObservation>, VisualError> {
+    let cleaned = types::strip_code_fence(json_text);
 
-    for attempt in 1..=max_attempts {
-        // Step 1: 防御性清理 markdown 代码块包裹
-        let cleaned = json_text
-            .trim()
-            .strip_prefix("```json")
-            .or_else(|| json_text.trim().strip_prefix("```"))
-            .map(|s| s.trim_end_matches("```").trim())
-            .unwrap_or(json_text.trim());
-
-        // Step 2: 尝试反序列化
-        match serde_json::from_str::<FrameObservation>(cleaned) {
-            Ok(obs) => return Ok(obs),
-            Err(e) => {
-                warn!(
-                    attempt,
-                    error = %e,
-                    raw_preview = &json_text[..json_text.len().min(200)],
-                    "JSON 反序列化失败",
-                );
-                last_error = Some(e);
-                if attempt >= max_attempts {
-                    break;
-                }
-            }
-        }
+    // 尝试按 BatchResponse schema 解析（匹配 prompt 中声明的结构）
+    if let Ok(resp) = serde_json::from_str::<BatchResponse>(cleaned) {
+        return Ok(resp.observations);
     }
 
-    Err(VisualError::Analysis(format!(
-        "JSON 解析失败 ({} 次尝试): {}",
-        max_attempts,
-        last_error.as_ref().unwrap()
-    )))
+    // 回退：尝试解析为单个 FrameObservation（兼容单对象响应）
+    match serde_json::from_str::<FrameObservation>(cleaned) {
+        Ok(obs) => Ok(vec![obs]),
+        Err(e) => {
+            warn!(
+                error = %e,
+                raw_preview = &json_text[..json_text.len().min(200)],
+                "JSON 反序列化失败",
+            );
+            Err(VisualError::Analysis(format!(
+                "JSON 解析失败: {}", e
+            )))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +258,7 @@ fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
 mod tests {
     use super::*;
 
-    /// Test: 有效 JSON 字符串应正确解析
+    /// Test: 有效 JSON 字符串（单个 FrameObservation）应正确解析
     #[test]
     fn test_parse_and_retry_valid_json() {
         let json = r#"{
@@ -273,46 +268,65 @@ mod tests {
             "objects": ["对象1"],
             "actions": ["动作1"]
         }"#;
-        let result = parse_and_retry(json, 2);
+        let result = parse_and_retry(json);
         assert!(result.is_ok(), "有效 JSON 应解析成功");
         let obs = result.unwrap();
-        assert_eq!(obs.frame_number, 0);
-        assert_eq!(obs.scene_description, "测试场景");
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].frame_number, 0);
+        assert_eq!(obs[0].scene_description, "测试场景");
+    }
+
+    /// Test: BatchResponse 格式（含 frame_observations 数组）应正确解析
+    #[test]
+    fn test_parse_and_retry_batch_response() {
+        let json = r#"{
+            "frame_observations": [
+                {"frame_number": 0, "timestamp": "00:00:00.000", "scene_description": "场景A", "objects": ["obj"], "actions": ["act"]},
+                {"frame_number": 1, "timestamp": "00:00:03.000", "scene_description": "场景B", "objects": ["obj2"], "actions": ["act2"]}
+            ],
+            "overall_activity_summary": "测试摘要"
+        }"#;
+        let result = parse_and_retry(json);
+        assert!(result.is_ok(), "BatchResponse 格式应解析成功");
+        let obs = result.unwrap();
+        assert_eq!(obs.len(), 2);
+        assert_eq!(obs[0].scene_description, "场景A");
+        assert_eq!(obs[1].scene_description, "场景B");
     }
 
     /// Test: ```json ... ``` 包裹的 JSON 应被剥离后解析
     #[test]
     fn test_parse_and_retry_code_block_wrapped() {
         let raw = "```json\n{\"frame_number\": 1, \"timestamp\": \"00:00:03.000\", \"scene_description\": \"室内\", \"objects\": [\"桌子\"], \"actions\": [\"摆放\"]}\n```";
-        let result = parse_and_retry(raw, 2);
+        let result = parse_and_retry(raw);
         assert!(
             result.is_ok(),
             "代码块包裹的 JSON 应被剥离后解析成功"
         );
         let obs = result.unwrap();
-        assert_eq!(obs.frame_number, 1);
-        assert_eq!(obs.scene_description, "室内");
+        assert_eq!(obs[0].frame_number, 1);
+        assert_eq!(obs[0].scene_description, "室内");
     }
 
     /// Test: ``` ... ```（无 json 标记）也应剥离
     #[test]
     fn test_parse_and_retry_backtick_wrapped() {
         let raw = "```\n{\"frame_number\": 2, \"timestamp\": \"00:00:06.000\", \"scene_description\": \"室外\", \"objects\": [\"树\"], \"actions\": [\"摇摆\"]}\n```";
-        let result = parse_and_retry(raw, 2);
+        let result = parse_and_retry(raw);
         assert!(
             result.is_ok(),
             "无 json 标记的代码块包裹也应被剥离后解析成功"
         );
         let obs = result.unwrap();
-        assert_eq!(obs.frame_number, 2);
-        assert_eq!(obs.scene_description, "室外");
+        assert_eq!(obs[0].frame_number, 2);
+        assert_eq!(obs[0].scene_description, "室外");
     }
 
     /// Test: 纯文本响应应返回 VisualError::Analysis
     #[test]
     fn test_parse_and_retry_invalid_json() {
         let raw = "这是一段纯文本响应，不是 JSON 格式";
-        let result = parse_and_retry(raw, 2);
+        let result = parse_and_retry(raw);
         assert!(
             result.is_err(),
             "纯文本响应应返回错误"
@@ -320,23 +334,17 @@ mod tests {
         match result {
             Err(VisualError::Analysis(msg)) => {
                 assert!(msg.contains("JSON 解析失败"), "错误消息应包含 JSON 解析失败");
-                assert!(msg.contains("2 次尝试"), "错误消息应包含 2 次尝试");
             }
             _ => panic!("应返回 VisualError::Analysis"),
         }
     }
 
-    /// Test: 验证重试次数不超过 max_attempts
+    /// Test: 无效 JSON 应返回错误
     #[test]
-    fn test_parse_and_retry_max_attempts() {
+    fn test_parse_and_retry_invalid_structure() {
         let raw = "{not valid json at all}";
-        let result = parse_and_retry(raw, 3);
+        let result = parse_and_retry(raw);
         assert!(result.is_err(), "无效 JSON 应返回错误");
-        if let Err(VisualError::Analysis(msg)) = result {
-            assert!(msg.contains("3 次尝试"), "错误消息应包含 3 次尝试");
-        } else {
-            panic!("应返回 VisualError::Analysis");
-        }
     }
 
     /// Test: 创建临时目录写入模拟帧文件，验证收集正确

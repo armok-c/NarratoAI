@@ -40,6 +40,10 @@ pub async fn extract_frames(
 ) -> Result<usize, VisualError> {
     let quality_val = quality.unwrap_or(5);
 
+    if interval_seconds <= 0.0 {
+        return Err(VisualError::FrameExtraction("帧提取间隔必须 > 0".into()));
+    }
+
     // Create output dir if not exists
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)

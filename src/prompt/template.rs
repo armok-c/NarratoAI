@@ -38,12 +38,14 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
     // strip——去除首尾空白
     m.insert("strip", |s: &str| s.trim().to_string());
 
-    // truncate——截断（长度 <= 100 返回原串，否则截断前 97 字符 + "..."）
+    // truncate——截断（长度 <= 100 字符返回原串，否则截断前 97 字符 + "..."）
     m.insert("truncate", |s: &str| {
-        if s.len() <= 100 {
+        let char_count = s.chars().count();
+        if char_count <= 100 {
             s.to_string()
         } else {
-            format!("{}...", &s[..97])
+            let truncated: String = s.chars().take(97).collect();
+            format!("{}...", truncated)
         }
     });
 
@@ -71,7 +73,6 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 /// # 注意
 ///
 /// - `${variable|filter}` 格式不会被第 1/2 遍的正则匹配（因为 `|` 不是 `\w`）
-/// - 支持 `\$` 转义为字面 `$`
 pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, PromptError> {
     // 编译变量正则
     let var_re = Regex::new(r"\$\{(\w+)\}|\$(\w+)").map_err(|e| {
@@ -108,8 +109,26 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     });
 
     // 第 3 遍：过滤器应用——处理 ${variable|filter_name} 格式
-    let filter_re = Regex::new(r"\$\{(\w+)\|(\w+)\}").unwrap();
+    let filter_re = Regex::new(r"\$\{(\w+)\|(\w+)\}").map_err(|e| {
+        PromptError::TemplateRender(format!("正则编译失败: {}", e))
+    })?;
     let filters = builtin_filters();
+
+    // 校验过滤器引用的变量是否全部存在
+    let mut missing_filter_vars: Vec<String> = Vec::new();
+    for caps in filter_re.captures_iter(&result) {
+        let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        if !var_name.is_empty() && !vars.contains_key(var_name) && !missing_filter_vars.contains(&var_name.to_string()) {
+            missing_filter_vars.push(var_name.to_string());
+        }
+    }
+    if !missing_filter_vars.is_empty() {
+        return Err(PromptError::TemplateRender(format!(
+            "缺少必需参数: {}",
+            missing_filter_vars.join(", ")
+        )));
+    }
+
     let result = filter_re.replace_all(&result, |caps: &regex::Captures| {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
@@ -219,9 +238,22 @@ mod tests {
         vars.insert("text", long_text.as_str());
 
         let result = render(template, &vars).expect("渲染应成功");
-        assert_eq!(result.len(), 100);
         assert!(result.ends_with("..."), "应包含省略号");
+        assert_eq!(result.chars().count(), 100);
         assert_eq!(&result[..97], &long_text[..97]);
+    }
+
+    /// 中文截断测试——验证多字节 UTF-8 字符不会 panic
+    #[test]
+    fn test_truncate_filter_chinese() {
+        let template = "${text|truncate}";
+        let long_chinese: String = "你好世界".repeat(30); // 120 个中文字符
+        let mut vars = HashMap::new();
+        vars.insert("text", long_chinese.as_str());
+
+        let result = render(template, &vars).expect("渲染应成功");
+        assert!(result.ends_with("..."), "应包含省略号");
+        assert_eq!(result.chars().count(), 100);
     }
 
     /// json 过滤器正确转义

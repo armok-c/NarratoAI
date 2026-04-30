@@ -42,7 +42,6 @@ pub struct BatchAnalysisResult {
 ///
 /// 某些 LLM 即使设置 response_format=JsonObject 仍返回 ` ```json ` 包裹，
 /// 此函数提取代码块内的纯净 JSON。
-#[allow(dead_code)]
 pub(crate) fn strip_code_fence(text: &str) -> &str {
     text.trim()
         .strip_prefix("```json")
