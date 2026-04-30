@@ -13,11 +13,11 @@ pub struct Timerange {
 /// 从秒字符串构造 Timerange（per pyJianYingDraft trange() 函数）
 /// 接受 "1.5s" 格式，也接受纯数字字符串（视为秒）
 ///
-/// 如果解析失败或 duration 为负数，返回 None。
+/// 如果解析失败或 duration 为负数或零，返回 None。
 pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
     let start_us = parse_seconds(start)?;
     let duration_us = parse_seconds(duration)?;
-    if start_us < 0 || duration_us < 0 {
+    if start_us < 0 || duration_us <= 0 {
         return None;
     }
     Some(Timerange {
@@ -28,14 +28,14 @@ pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
 
 /// 从 f64 秒数构造 Timerange（Rust API 友好版本）
 ///
-/// 如果任一参数为负数、NaN 或 Inf，返回 None。
+/// 如果任一参数为负数、零（duration）、NaN 或 Inf，返回 None。
 pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange> {
-    if !start_secs.is_finite() || start_secs < 0.0 || !duration_secs.is_finite() || duration_secs < 0.0 {
+    if !start_secs.is_finite() || start_secs < 0.0 || !duration_secs.is_finite() || duration_secs <= 0.0 {
         return None;
     }
     let start_us = (start_secs * SEC as f64).round() as i64;
     let duration_us = (duration_secs * SEC as f64).round() as i64;
-    if start_us < 0 || duration_us < 0 {
+    if start_us < 0 || duration_us <= 0 {
         return None;
     }
     Some(Timerange { start: start_us, duration: duration_us })
@@ -116,6 +116,14 @@ mod tests {
     }
 
     #[test]
+    fn test_trange_from_secs_zero_duration_returns_none() {
+        assert!(
+            trange_from_secs(0.0, 0.0).is_none(),
+            "零 duration 应返回 None"
+        );
+    }
+
+    #[test]
     fn test_trange_pure_number_string() {
         let tr = trange("2.0", "3.5").expect("应解析成功");
         assert_eq!(tr.start, 2_000_000);
@@ -124,9 +132,7 @@ mod tests {
 
     #[test]
     fn test_trange_zero_seconds() {
-        let tr = trange("0s", "0s").expect("应解析成功");
-        assert_eq!(tr.start, 0);
-        assert_eq!(tr.duration, 0);
+        assert!(trange("0s", "0s").is_none(), "零 duration 应返回 None");
     }
 
     #[test]
