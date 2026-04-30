@@ -259,11 +259,27 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
     let (folder, mut script_file) =
         DraftFolder::create_draft(&req.draft_path, &draft_name, req.width, req.height)?;
 
-    // 2. 添加双轨（per D-07）
+    // 2. 构建时间线并在失败时清理草稿目录
+    let result = build_timeline(req, &mut script_file);
+    match result {
+        Ok(()) => {
+            let draft_path = script_file.save(&folder)?;
+            Ok(draft_path)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(folder.draft_dir());
+            Err(e)
+        }
+    }
+}
+
+/// 构建时间线——遍历 ScriptClip 添加轨道和片段
+fn build_timeline(req: &ExportRequest, script_file: &mut ScriptFile) -> Result<(), JianYingError> {
+    // 添加双轨（per D-07）
     script_file.add_track(TrackType::Video, "视频轨道");
     script_file.add_track(TrackType::Audio, "音频轨道");
 
-    // 3. 遍历 ScriptClip 构建时间线（per D-08, D-09）
+    // 遍历 ScriptClip 构建时间线（per D-08, D-09）
     let mut current_time_secs: f64 = 0.0;
 
     for (i, clip) in req.script.iter().enumerate() {
@@ -328,9 +344,7 @@ pub fn export_draft(req: &ExportRequest) -> Result<PathBuf, JianYingError> {
         current_time_secs += duration;
     }
 
-    // 4. 保存草稿
-    let draft_path = script_file.save(&folder)?;
-    Ok(draft_path)
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
