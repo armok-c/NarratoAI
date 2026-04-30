@@ -54,10 +54,10 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("解说文案为空".into()));
     }
 
-    if trimmed.len() < 50 {
+    if trimmed.chars().count() < 50 {
         return Err(PromptError::Validation(format!(
             "解说文案过短: {} 字符（需要 >= 50）",
-            trimmed.len()
+            trimmed.chars().count()
         )));
     }
 
@@ -83,10 +83,10 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("剧情分析内容为空".into()));
     }
 
-    if trimmed.len() < 100 {
+    if trimmed.chars().count() < 100 {
         return Err(PromptError::Validation(format!(
             "剧情分析内容不足: {} 字符（需要 >= 100）",
-            trimmed.len()
+            trimmed.chars().count()
         )));
     }
 
