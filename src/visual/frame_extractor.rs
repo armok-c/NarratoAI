@@ -99,7 +99,7 @@ pub async fn extract_frames(
 ///
 /// 帧输出到 output_dir，命名格式 `fastframe_%06d.jpg`，提取完成后
 /// 由 `rename_fast_path_frames` 重命名为 `keyframe_{frame_number:06}_{HHMMSSmmm}.jpg`。
-pub async fn extract_frames_fast_path(
+pub(crate) async fn extract_frames_fast_path(
     video_path: &Path,
     output_dir: &Path,
     interval_seconds: f64,
