@@ -1,132 +1,57 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fix_date: 2026-04-30
+fixed_at: 2026-04-30T15:00:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-findings_in_scope: 9
-fixed: 9
+iteration: 2
+findings_in_scope: 3
+fixed: 3
 skipped: 0
-iteration: 1
 status: all_fixed
 ---
 
 # Phase 4: Code Review Fix Report
 
-**Date:** 2026-04-30
-**Scope:** critical_warning
-**Source:** [04-REVIEW.md](./04-REVIEW.md)
-**Status:** all_fixed
+**Fixed at:** 2026-04-30T15:00:00Z
+**Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
+**Iteration:** 2
 
-## Summary
+**Summary:**
+- Findings in scope: 3 (re-review warnings)
+- Fixed: 3
+- Skipped: 0
 
-All 9 findings in scope (2 Critical + 7 Warning) have been fixed. 58 related tests pass.
+## Fixed Issues
 
-## Critical Fixes
+### WR-01: `analyze_video_frames` discards `overall_activity_summary` from LLM responses
 
-### CR-01: LLM prompt schema vs parse_and_retry deserialization type mismatch — FIXED
+**Files modified:** `src/visual/analyzer.rs`, `src/prompt/validators.rs`
+**Commit:** 974c0da
+**Applied fix:** Introduced `ParsedBatch` struct as return type of `parse_and_retry`, carrying both `observations` and `overall_activity_summary`. Updated `analyze_video_frames` to accumulate the last non-empty summary across batches and pass it to `BatchAnalysisResult`. Removed `#[allow(dead_code)]` from `BatchResponse`. Updated all unit tests to access `.observations` on the new return type. Also fixed `test_narration_too_few_paragraphs` test string which was under 50 characters when counted correctly (related to WR-02 fix).
 
-**Files:** `src/visual/analyzer.rs`, `src/visual/types.rs`
+### WR-02: `validators.rs` uses byte length while error messages claim "character" count
 
-**Changes:**
-- Introduced `BatchResponse` wrapper struct matching the LLM prompt JSON schema (`frame_observations` array + `overall_activity_summary`)
-- Rewrote `parse_and_retry` to return `Vec<FrameObservation>` instead of single `FrameObservation`
-- Added fallback: tries `BatchResponse` first, then single `FrameObservation` for backward compatibility
-- `analyze_video_frames` now uses `.extend()` to flatten batch results into observations vector
-- Removed duplicated `strip_code_fence` logic, now calls `crate::visual::types::strip_code_fence`
-- Removed `#[allow(dead_code)]` from `strip_code_fence` in `types.rs` (now used)
-- Updated all tests to match new API
+**Files modified:** `src/prompt/validators.rs`
+**Commit:** 3bf4d35
+**Applied fix:** Replaced `trimmed.len()` with `trimmed.chars().count()` in both `validate_narration_script` (threshold 50) and `validate_plot_analysis` (threshold 100) so error messages accurately report character counts. For Chinese text (CJK = 3 UTF-8 bytes per char), the previous byte-based thresholds were ~3x weaker than documented.
 
-### CR-02: Truncate filter panics on multi-byte UTF-8 characters — FIXED
+### WR-03: `convert_image_to_jpeg` uses hardcoded quality 85, ignoring caller-provided quality parameter
 
-**File:** `src/prompt/template.rs`
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** fa3ee3e
+**Applied fix:** Added `ffmpeg_quality: u32` parameter to `convert_image_to_jpeg` and implemented scale mapping from FFmpeg `-q:v` (2-31, lower=better) to image crate quality (1-100, higher=better). Updated both caller sites (Level 3 PNG and Level 4 BMP fallback) to pass the quality parameter through.
 
-**Changes:**
-- Replaced byte-based `s.len()` / `&s[..97]` with char-based `s.chars().count()` / `s.chars().take(97).collect()`
-- Added `test_truncate_filter_chinese` test with 120 Chinese characters
+## Verification
 
-## Warning Fixes
+- All 273 library unit tests pass (`cargo test --lib`)
+- Zero compiler warnings after fixes
+- Integration test `test_clip_video_async` fails due to FFmpeg not processing test video (pre-existing, unrelated)
 
-### WR-01: Missing filter variable silently ignored — FIXED
+## Skipped Issues
 
-**File:** `src/prompt/template.rs`
+None -- all in-scope findings were fixed.
 
-**Changes:**
-- Added validation pass before filter application that checks all filter-referenced variables exist in `vars`
-- Returns `PromptError::TemplateRender` with missing variable names, consistent with pass 1 behavior
-- Changed `filter_re` from `unwrap()` to `.map_err()` for consistency
+---
 
-### WR-02: Dead retry loop in parse_and_retry — FIXED
-
-**File:** `src/visual/analyzer.rs`
-
-**Changes:**
-- Removed the meaningless retry loop (identical input each iteration)
-- Simplified to single-pass: try `BatchResponse`, fallback to `FrameObservation`, else error
-
-### WR-03: RwLock poisoning silently recovered via into_inner() — FIXED
-
-**File:** `src/prompt/manager.rs`
-
-**Changes:**
-- Changed `search_prompts`, `list_categories`, `list_prompts` return types to `Result<Vec<...>, PromptError>`
-- All three now use `.map_err()` for lock poisoning, consistent with `get_prompt` and `register_prompt`
-- Removed unused `use std::sync::RwLock` import
-- Updated all test callers to use `.unwrap()`
-
-### WR-04: interval_seconds=0 causes near-infinite loop — FIXED
-
-**File:** `src/visual/frame_extractor.rs`
-
-**Changes:**
-- Added early validation at `extract_frames` entry: `if interval_seconds <= 0.0` returns `VisualError::FrameExtraction`
-
-### WR-05: has_chinese detection uses > instead of >= — FIXED
-
-**File:** `src/prompt/validators.rs`
-
-**Changes:**
-- Changed `c > '\u{4E00}'` to `c >= '\u{4E00}' && c <= '\u{9FFF}'`
-- Added CJK Extension A range (`\u{3400}`..`\u{4DBF}`) and Compatibility Ideographs range (`\u{F900}`..`\u{FAFF}`)
-
-### WR-06: strip_code_fence dead code duplication — FIXED
-
-**Files:** `src/visual/types.rs`, `src/visual/analyzer.rs`
-
-**Changes:**
-- `parse_and_retry` now calls `crate::visual::types::strip_code_fence` instead of inlining
-- Removed `#[allow(dead_code)]` from `strip_code_fence` in `types.rs`
-
-### WR-07: Documented $ escape not implemented — FIXED
-
-**File:** `src/prompt/template.rs`
-
-**Changes:**
-- Removed the false doc claim "supports `\$` escape to literal `$`"
-
-## Files Modified
-
-| File | Findings Fixed |
-|------|---------------|
-| `src/visual/analyzer.rs` | CR-01, WR-02, WR-06 |
-| `src/visual/types.rs` | WR-06 |
-| `src/visual/frame_extractor.rs` | WR-04 |
-| `src/prompt/template.rs` | CR-02, WR-01, WR-07 |
-| `src/prompt/manager.rs` | WR-03 |
-| `src/prompt/validators.rs` | WR-05 |
-
-## Test Results
-
-All 58 related tests pass:
-- `prompt::template`: 15 passed
-- `prompt::manager`: 11 passed
-- `prompt::validators`: 14 passed
-- `visual::analyzer`: 9 passed
-- `visual::frame_extractor`: 9 passed
-
-## Skipped (Info-level, out of scope)
-
-| ID | Description | Reason |
-|----|------------|--------|
-| IN-01 | Byte length vs char count in validators | Info level, not in fix scope |
-| IN-02 | visual_salience range validation | Info level, not in fix scope |
-| IN-03 | Hardcoded quality 85 in convert_image_to_jpeg | Info level, not in fix scope |
-| IN-04 | unwrap() on static regex consistency | Info level, not in fix scope |
+_Fixed: 2026-04-30T15:00:00Z_
+_Fixer: Claude (gsd-code-fixer)_
+_Iteration: 2_
