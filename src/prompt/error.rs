@@ -46,6 +46,13 @@ mod tests {
     }
 
     #[test]
+    fn test_lock_failure_error_message_chinese() {
+        let err = PromptError::LockFailure("读写锁中毒".into());
+        let msg = err.to_string();
+        assert!(msg.contains("注册中心锁失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
     fn test_registration_error_message_chinese() {
         let err = PromptError::Registration("version exists".into());
         let msg = err.to_string();
@@ -58,5 +65,4 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("模板校验失败"), "消息应包含中文: {}", msg);
     }
-
 }
