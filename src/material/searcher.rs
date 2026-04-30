@@ -3,10 +3,12 @@
 //! 通过 reqwest HTTP 客户端调用 Pexels 和 Pixabay 的 REST API 搜索视频素材。
 //! 支持多 API key 轮换（AtomicUsize 原子自增）、代理配置、分辨率过滤。
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use serde::Deserialize;
-use reqwest::Client;
+use reqwest::blocking::Client;
+use reqwest::Proxy;
 use thiserror::Error;
 
 // ---------------------------------------------------------------------------
@@ -119,55 +121,196 @@ pub struct MaterialInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Stubs — RED phase, will be implemented in GREEN phase
+// Key rotation
 // ---------------------------------------------------------------------------
 
 /// 从 key 数组中轮询返回 API key（AtomicUsize 原子自增，防止异步竞态）
-pub fn get_api_key(_keys: &[String], _counter: &AtomicUsize) -> Result<String, MaterialError> {
-    unimplemented!("get_api_key not yet implemented")
-}
-
-/// 构建 reqwest Client，按需配置代理
-pub(crate) fn build_client(
-    _proxy_section: &crate::config::types::ProxySection,
-) -> Result<Client, MaterialError> {
-    unimplemented!("build_client not yet implemented")
-}
-
-/// 简单 URL 编码（仅编码空格和特殊字符）
-fn urlencoding(s: &str) -> String {
-    // 简单实现，测试可以验证
-    s.replace(' ', "+")
-}
-
-/// 搜索 Pexels 视频素材
-pub fn search_videos_pexels(
-    _search_term: &str,
-    _minimum_duration: u32,
-    _target_width: u32,
-    _target_height: u32,
-    _api_keys: &[String],
-    _key_counter: &AtomicUsize,
-    _proxy_section: &crate::config::types::ProxySection,
-) -> Result<Vec<MaterialInfo>, MaterialError> {
-    unimplemented!("search_videos_pexels not yet implemented")
-}
-
-/// 搜索 Pixabay 视频素材
-pub fn search_videos_pixabay(
-    _search_term: &str,
-    _minimum_duration: u32,
-    _target_width: u32,
-    _target_height: u32,
-    _api_keys: &[String],
-    _key_counter: &AtomicUsize,
-    _proxy_section: &crate::config::types::ProxySection,
-) -> Result<Vec<MaterialInfo>, MaterialError> {
-    unimplemented!("search_videos_pixabax not yet implemented")
+pub fn get_api_key(keys: &[String], counter: &AtomicUsize) -> Result<String, MaterialError> {
+    if keys.is_empty() {
+        return Err(MaterialError::MissingApiKey("API key 列表为空".into()));
+    }
+    if keys.len() == 1 {
+        return Ok(keys[0].clone());
+    }
+    let idx = counter.fetch_add(1, Ordering::Relaxed) % keys.len();
+    Ok(keys[idx].clone())
 }
 
 // ---------------------------------------------------------------------------
-// Tests — RED phase: tests exist but fail because functions are stubbed
+// HTTP client helper
+// ---------------------------------------------------------------------------
+
+/// 构建 reqwest Client，按需配置代理
+pub(crate) fn build_client(
+    proxy_section: &crate::config::types::ProxySection,
+) -> Result<Client, MaterialError> {
+    let mut builder = Client::builder()
+        .timeout(Duration::from_secs(60))
+        .danger_accept_invalid_certs(false);
+
+    if proxy_section.enabled {
+        if !proxy_section.http.is_empty() {
+            let proxy = Proxy::http(&proxy_section.http)
+                .map_err(|e| MaterialError::ApiRequest(format!("代理配置无效: {}", e)))?;
+            builder = builder.proxy(proxy);
+        }
+        if !proxy_section.https.is_empty() {
+            let proxy = Proxy::https(&proxy_section.https)
+                .map_err(|e| MaterialError::ApiRequest(format!("代理配置无效: {}", e)))?;
+            builder = builder.proxy(proxy);
+        }
+    }
+
+    builder
+        .build()
+        .map_err(|e| MaterialError::ApiRequest(format!("HTTP 客户端创建失败: {}", e)))
+}
+
+// ---------------------------------------------------------------------------
+// URL encoding helper
+// ---------------------------------------------------------------------------
+
+/// 简单 URL 编码（仅编码空格和特殊字符）
+fn urlencoding(s: &str) -> String {
+    s.replace(' ', "+")
+}
+
+// ---------------------------------------------------------------------------
+// Search functions
+// ---------------------------------------------------------------------------
+
+/// 搜索 Pexels 视频素材
+///
+/// 调用 `GET https://api.pexels.com/videos/search`，过滤 duration 和分辨率。
+pub fn search_videos_pexels(
+    search_term: &str,
+    minimum_duration: u32,
+    target_width: u32,
+    target_height: u32,
+    api_keys: &[String],
+    key_counter: &AtomicUsize,
+    proxy_section: &crate::config::types::ProxySection,
+) -> Result<Vec<MaterialInfo>, MaterialError> {
+    let api_key = get_api_key(api_keys, key_counter)?;
+    let api_url = format!(
+        "https://api.pexels.com/videos/search?query={}&per_page=20&orientation={}",
+        urlencoding(search_term),
+        if target_width >= target_height {
+            "landscape"
+        } else {
+            "portrait"
+        },
+    );
+
+    let client = build_client(proxy_section)?;
+    let response = client
+        .get(&api_url)
+        .header("Authorization", &api_key)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .map_err(|e| MaterialError::ApiRequest(e.to_string()))?;
+
+    if response.status().as_u16() == 401 {
+        return Err(MaterialError::AuthenticationFailed(
+            "Pexels API key 无效".into(),
+        ));
+    }
+    if !response.status().is_success() {
+        return Err(MaterialError::ApiRequest(format!("HTTP {}", response.status())));
+    }
+
+    let body: PexelsSearchResponse = response
+        .json()
+        .map_err(|e| MaterialError::ApiRequest(e.to_string()))?;
+
+    let results: Vec<MaterialInfo> = body
+        .videos
+        .into_iter()
+        .filter(|v| v.duration >= minimum_duration)
+        .flat_map(|v| {
+            v.video_files
+                .into_iter()
+                .filter(|f| f.width == target_width && f.height == target_height)
+                .map(move |f| MaterialInfo {
+                    id: v.id,
+                    duration: v.duration,
+                    width: f.width,
+                    height: f.height,
+                    video_url: f.link,
+                    source: "pexels".into(),
+                })
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// 搜索 Pixabay 视频素材
+///
+/// 调用 `GET https://pixabay.com/api/videos/`，选择最匹配目标分辨率的 variant。
+pub fn search_videos_pixabay(
+    search_term: &str,
+    minimum_duration: u32,
+    _target_width: u32,
+    _target_height: u32,
+    api_keys: &[String],
+    key_counter: &AtomicUsize,
+    proxy_section: &crate::config::types::ProxySection,
+) -> Result<Vec<MaterialInfo>, MaterialError> {
+    let api_key = get_api_key(api_keys, key_counter)?;
+    let api_url = format!(
+        "https://pixabay.com/api/videos/?q={}&video_type=all&per_page=50&key={}",
+        urlencoding(search_term),
+        api_key,
+    );
+
+    let client = build_client(proxy_section)?;
+    let response = client
+        .get(&api_url)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .map_err(|e| MaterialError::ApiRequest(e.to_string()))?;
+
+    if !response.status().is_success() {
+        return Err(MaterialError::ApiRequest(format!("HTTP {}", response.status())));
+    }
+
+    let body: PixabaySearchResponse = response
+        .json()
+        .map_err(|e| MaterialError::ApiRequest(e.to_string()))?;
+
+    // 选择最匹配目标分辨率的 variant（large > medium > small > tiny）
+    fn choose_variant(videos: &PixabayVideos) -> Option<&PixabayVideoVariant> {
+        videos
+            .large
+            .as_ref()
+            .or_else(|| videos.medium.as_ref())
+            .or_else(|| videos.small.as_ref())
+            .or_else(|| videos.tiny.as_ref())
+    }
+
+    let results: Vec<MaterialInfo> = body
+        .hits
+        .into_iter()
+        .filter(|h| h.duration >= minimum_duration)
+        .filter_map(|h| {
+            let variant = choose_variant(&h.videos)?;
+            Some(MaterialInfo {
+                id: h.id,
+                duration: h.duration,
+                width: variant.width,
+                height: variant.height,
+                video_url: variant.url.clone(),
+                source: "pixabay".into(),
+            })
+        })
+        .collect();
+
+    Ok(results)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -296,5 +439,32 @@ mod tests {
         };
         assert_eq!(info.source, "pexels");
         assert_eq!(info.duration, 30);
+    }
+
+    #[test]
+    fn test_build_client_default_proxy() {
+        let proxy = crate::config::types::ProxySection::default();
+        let client = build_client(&proxy);
+        assert!(client.is_ok(), "默认代理配置应成功创建 Client");
+    }
+
+    #[test]
+    fn test_search_videos_pexels_empty_keys() {
+        let counter = AtomicUsize::new(0);
+        let proxy = crate::config::types::ProxySection::default();
+        let result = search_videos_pexels("test", 5, 1920, 1080, &[], &counter, &proxy);
+        assert!(result.is_err(), "空 API key 列表应返回错误");
+        let err = result.unwrap_err();
+        assert!(matches!(err, MaterialError::MissingApiKey(_)));
+    }
+
+    #[test]
+    fn test_search_videos_pixabay_empty_keys() {
+        let counter = AtomicUsize::new(0);
+        let proxy = crate::config::types::ProxySection::default();
+        let result = search_videos_pixabay("test", 5, 1920, 1080, &[], &counter, &proxy);
+        assert!(result.is_err(), "空 API key 列表应返回错误");
+        let err = result.unwrap_err();
+        assert!(matches!(err, MaterialError::MissingApiKey(_)));
     }
 }
