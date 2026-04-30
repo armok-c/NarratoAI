@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::event::FfmpegEvent;
+use tokio_util::sync::CancellationToken;
 
 use crate::error::FFmpegError;
 
@@ -56,72 +57,94 @@ pub async fn clip_video(
     let output_path = output.to_string_lossy().to_string();
     let progress = progress.map(Arc::new);
 
-    tokio::time::timeout(Duration::from_secs(600), tokio::task::spawn_blocking(move || {
-        let mut cmd = FfmpegCommand::new();
-        // -ss before -i = fast seek (keyframe-based, not frame-accurate)
-        cmd.seek(format!("{:.3}", start))
-            .input(&input_path)
-            .duration(format!("{:.3}", duration))
-            .codec_video("copy")
-            .codec_audio("copy")
-            .overwrite()
-            .output(&output_path);
+    let cancel = CancellationToken::new();
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
+    let handle = tokio::task::spawn_blocking({
+        let cancel = cancel.clone();
+        move || {
+            let mut cmd = FfmpegCommand::new();
+            // -ss before -i = fast seek (keyframe-based, not frame-accurate)
+            cmd.seek(format!("{:.3}", start))
+                .input(&input_path)
+                .duration(format!("{:.3}", duration))
+                .codec_video("copy")
+                .codec_audio("copy")
+                .overwrite()
+                .output(&output_path);
 
-        let iter = match child.iter() {
-            Ok(iter) => iter,
-            Err(e) => {
-                // Kill the orphaned child process before returning error
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(FFmpegError::SpawnFailed(e.to_string()));
-            }
-        };
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| FFmpegError::SpawnFailed(e.to_string()))?;
 
-        let mut had_errors = false;
-        for event in iter {
-            match event {
-                FfmpegEvent::Progress(p) => {
-                    if let Some(ref cb) = progress {
-                        let secs = parse_time_to_secs(&p.time);
-                        let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
-                        cb(fraction, "视频裁剪中");
+            let iter = match child.iter() {
+                Ok(iter) => iter,
+                Err(e) => {
+                    // Kill the orphaned child process before returning error
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(FFmpegError::SpawnFailed(e.to_string()));
+                }
+            };
+
+            let mut had_errors = false;
+            for event in iter {
+                // Check for cancellation before processing each event
+                if cancel.is_cancelled() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(FFmpegError::Timeout(
+                        "FFmpeg clip_video cancelled".into(),
+                    ));
+                }
+                match event {
+                    FfmpegEvent::Progress(p) => {
+                        if let Some(ref cb) = progress {
+                            let secs = parse_time_to_secs(&p.time);
+                            let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
+                            cb(fraction, "视频裁剪中");
+                        }
                     }
+                    FfmpegEvent::Error(e) => {
+                        tracing::error!("FFmpeg error: {}", e);
+                        had_errors = true;
+                    }
+                    _ => {}
                 }
-                FfmpegEvent::Error(e) => {
-                    tracing::error!("FFmpeg error: {}", e);
-                    had_errors = true;
-                }
-                _ => {}
             }
+
+            if had_errors {
+                return Err(FFmpegError::ExecutionError(
+                    "FFmpeg reported errors during processing".into(),
+                ));
+            }
+
+            // 检查 ffmpeg 进程退出状态
+            let status = child
+                .wait()
+                .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?;
+
+            if !status.success() {
+                return Err(FFmpegError::ExecutionError(format!(
+                    "FFmpeg 进程退出码: {:?}",
+                    status.code()
+                )));
+            }
+
+            Ok(())
         }
+    });
 
-        if had_errors {
-            return Err(FFmpegError::ExecutionError(
-                "FFmpeg reported errors during processing".into(),
-            ));
+    tokio::select! {
+        result = handle => {
+            result.map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
         }
-
-        // 检查 ffmpeg 进程退出状态
-        let status = child
-            .wait()
-            .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?;
-
-        if !status.success() {
-            return Err(FFmpegError::ExecutionError(format!(
-                "FFmpeg 进程退出码: {:?}",
-                status.code()
-            )));
+        _ = tokio::time::sleep(Duration::from_secs(600)) => {
+            cancel.cancel();
+            Err(FFmpegError::Timeout(
+                "FFmpeg clip_video timed out after 600s".into(),
+            ))
         }
-
-        Ok(())
-    }))
-    .await
-    .map_err(|_| FFmpegError::Timeout("FFmpeg clip_video timed out after 600s".into()))?
-    .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
+    }
 }
 
 #[cfg(test)]
