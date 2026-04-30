@@ -40,7 +40,7 @@ pub async fn extract_frames(
 ) -> Result<usize, VisualError> {
     let quality_val = quality.unwrap_or(5);
 
-    if interval_seconds <= 0.0 {
+    if interval_seconds.is_nan() || interval_seconds <= 0.0 {
         return Err(VisualError::FrameExtraction("帧提取间隔必须 > 0".into()));
     }
 
