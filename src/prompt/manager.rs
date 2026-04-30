@@ -53,7 +53,24 @@ impl PromptManager {
         vars: &HashMap<&str, &str>,
     ) -> Result<String, PromptError> {
         let prompt = self.get_prompt(category, name, version)?;
-        template::render(&prompt.content, vars)
+
+        // Merge defaults: caller vars take precedence over parameter defaults
+        let mut merged: HashMap<String, String> = HashMap::new();
+        for param in &prompt.metadata.parameters {
+            if let Some(ref default) = param.default {
+                merged.insert(param.name.clone(), default.clone());
+            }
+        }
+        for (k, v) in vars {
+            merged.insert(k.to_string(), v.to_string());
+        }
+
+        let merged_refs: HashMap<&str, &str> = merged
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        template::render(&prompt.content, &merged_refs)
     }
 
     /// 注册 Prompt 到 Registry（D-17）
@@ -111,7 +128,7 @@ impl PromptManager {
 mod tests {
     use super::*;
     use crate::prompt::registry::PromptRegistry;
-    use crate::prompt::types::{ModelType, OutputFormat, ParameterDef, PromptMetadata};
+    use crate::prompt::types::{ModelType, OutputFormat, PromptMetadata};
     use std::sync::{Arc, RwLock};
 
     fn make_test_prompt(category: &str, name: &str, version: &str, content: &str) -> Prompt {

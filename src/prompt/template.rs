@@ -129,6 +129,16 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
         )));
     }
 
+    // Validate filter names before applying
+    for caps in filter_re.captures_iter(&result) {
+        let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        if !filter_name.is_empty() && !filters.contains_key(filter_name) {
+            return Err(PromptError::TemplateRender(format!(
+                "未知过滤器: {}", filter_name
+            )));
+        }
+    }
+
     let result = filter_re.replace_all(&result, |caps: &regex::Captures| {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");

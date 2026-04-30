@@ -3,7 +3,7 @@ use thiserror::Error;
 /// Prompt 领域错误
 #[derive(Error, Debug)]
 pub enum PromptError {
-    #[error("模板渲染失败: 缺少必需参数 {0}")]
+    #[error("模板渲染失败: {0}")]
     TemplateRender(String),
 
     #[error("未找到模板: {category}/{name} v{version:?}")]
@@ -31,7 +31,7 @@ mod tests {
     fn test_template_render_error_message_chinese() {
         let err = PromptError::TemplateRender("test".into());
         let msg = err.to_string();
-        assert!(msg.contains("缺少必需参数"), "消息应包含中文: {}", msg);
+        assert!(msg.contains("模板渲染失败"), "消息应包含中文: {}", msg);
     }
 
     #[test]
