@@ -27,14 +27,14 @@ impl DoubaoTtsEngine {
     }
 
     /// 单次合成（无重试）
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64) -> Result<TtsOutput, TTSError> {
         // Doubao 不使用 voice_name 前缀解析，voice_name 直接作为 voice_type
         // 配置检查
         if self.config.appid.is_empty() || self.config.token.is_empty() {
             return Err(TTSError::AuthenticationFailed("豆包语音 TTS 配置未完成（缺少 appid 或 token）".to_string()));
         }
 
-        let speed_ratio = 1.0;  // rate 暂不使用（Python 版实际使用固定值或 ui.doubaotts_rate）
+        let speed_ratio = rate;  // 使用调用方传入的 rate 参数
 
         // 构建请求体 (对齐 Python 版 payload — voice.py:1149-1176)
         let mut payload = serde_json::json!({
@@ -120,14 +120,14 @@ impl TtsProvider for DoubaoTtsEngine {
         &self,
         text: &str,
         voice_name: &str,
-        _rate: f64,
+        rate: f64,
         _pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
+        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }

@@ -26,7 +26,7 @@ impl SoulVoiceEngine {
     }
 
     /// 单次 TTS 合成（无重试）
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64) -> Result<TtsOutput, TTSError> {
         // 解析 voice_name: 去除 "soulvoice:" 前缀
         // 对齐 Python 版 parse_soulvoice_voice() 函数
         let parsed_voice = common::parse_engine_prefix(voice_name, &["soulvoice:"]);
@@ -55,7 +55,7 @@ impl SoulVoiceEngine {
             "text": text.trim(),
             "model": model,
             "voice": parsed_voice,
-            "speed": 1.0,
+            "speed": rate,
         });
 
         let response = self.client
@@ -96,14 +96,14 @@ impl TtsProvider for SoulVoiceEngine {
         &self,
         text: &str,
         voice_name: &str,
-        _rate: f64,
+        rate: f64,
         _pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
+        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
