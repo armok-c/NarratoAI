@@ -185,11 +185,7 @@ src/
 │   ├── template.rs                 # TemplateRenderer: regex + 6 filters (D-05/06)
 │   ├── manager.rs                  # PromptManager: get_prompt, register_prompt, search, validate_output
 │   ├── validators.rs               # Output validators (JSON, narration script, plot analysis)
-│   ├── registry/                   # Registration functions (D-17)
-│   │   ├── mod.rs                  # pub mod + register_all_prompts()
-│   │   ├── documentary.rs          # frame_analysis_v1.0, narration_generation_v2.0
-│   │   ├── short_drama_editing.rs  # plot_extraction_v2.0
-│   │   └── short_drama_narration.rs # script_generation_v1.0 (placeholder)
+│   ├── register.rs                 # register_all_prompts() + 3 category functions + RegistrationErrors (D-17, 扁平结构避免与 registry.rs 冲突)
 │   └── templates/                  # .md template files (D-01: include_str! targets)
 │       ├── documentary/
 │       │   ├── frame_analysis_v1.0.md
@@ -705,7 +701,7 @@ pub type ProgressCallback = Box<dyn Fn(Option<f64>, &str) + Send + Sync>;
 
 Recommendation: The visual analyzer should call `analyze_images()` with `batch_size=all_frames` and `max_concurrency=1` PER BATCH, managing its own batches and error collection. This gives fine-grained error handling aligned with D-14.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where should PromptError and VisualError live?**
    - What we know: Phase 1 put ConfigError and FFmpegError in `src/error.rs`. Phase 2 put LLMError there too. D-21 says "two error enums" but doesn't specify location.
@@ -713,9 +709,8 @@ Recommendation: The visual analyzer should call `analyze_images()` with `batch_s
    - Recommendation: Put them in their module files (`src/prompt/error.rs`, `src/visual/error.rs`) for modularity. Add re-exports in `src/error.rs` if needed for backward compat. This matches the AI-SPEC structure recommendation and keeps module boundaries clean.
 
 2. **Can Phase 2's `analyze_images()` be used directly for D-14 partial error collection?**
-   - What we know: Phase 2 `analyze_images()` returns `Result<Vec<String>, LLMError>` — ANY batch failure causes full error.
-   - What's unclear: Whether to modify Phase 2 to support per-batch error collection, or have the visual analyzer manage batches manually.
-   - Recommendation: Visual analyzer manages its own batches and calls `client.chat().create()` (not `analyze_images()`) per batch. This gives direct control over error collection per D-14. Alternatively, call `analyze_images()` with single-frame "batches" (batch_size=1) but that's wasteful.
+   - What we know: Phase 2 `analyze_images()` returns `Result<Vec<String>, LLMError>` — if the entire batch call fails, it returns an error. However, Phase 2 internally uses `futures::future::join_all` to wait for all concurrent batches and only reports failure after all complete.
+   - Resolution: Plan 04 uses `analyze_images()` directly (not `client.chat().create()` per batch). D-14's per-batch error collection is implemented at the serde_json deserialization level via `parse_and_retry()` — individual batch parse failures are collected into `BatchAnalysisResult.errors`, while a complete API-level failure is treated as a hard `VisualError::Analysis`. This approach avoids modifying Phase 2 while satisfying D-14's "collect errors and continue" requirement through structured error handling in the deserialization layer.
 
 ## Environment Availability
 
