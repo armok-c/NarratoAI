@@ -1,4 +1,5 @@
 mod common;
+mod doubaotts;
 mod edge_tts;
 mod soulvoice;
 
@@ -94,6 +95,12 @@ pub async fn synthesize(
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
+        "doubaotts" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = doubaotts::DoubaoTtsEngine::new(cfg.doubaotts.clone(), &proxy_config);
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
