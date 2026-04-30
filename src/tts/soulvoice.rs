@@ -157,7 +157,7 @@ mod tests {
         let output_path = dir.path().join("output.mp3");
 
         // Override retry_loop by calling synthesize_once directly to avoid retry complexity
-        let result = engine.synthesize_once("test text", "soulvoice:speech:voice:id", &output_path).await;
+        let result = engine.synthesize_once("test text", "soulvoice:speech:voice:id", &output_path, 1.0).await;
         assert!(result.is_ok(), "soulvoice 成功: {:?}", result.err());
         let output = result.unwrap();
         assert!(output.audio_file_path.exists());
@@ -204,7 +204,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "soulvoice:voice", &output_path).await;
+        let result = engine.synthesize_once("test text", "soulvoice:voice", &output_path, 1.0).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::SynthesisFailed(msg) => assert!(msg.contains("401") || msg.contains("unauthorized")),

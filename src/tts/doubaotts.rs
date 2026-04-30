@@ -200,7 +200,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "voice", &output_path).await;
+        let result = engine.synthesize_once("test text", "voice", &output_path, 1.0, 1.0).await;
         match result.unwrap_err() {
             TTSError::AuthenticationFailed(msg) => assert!(msg.contains("配置未完成"), "错误消息: {}", msg),
             _ => panic!("应为 AuthenticationFailed"),
