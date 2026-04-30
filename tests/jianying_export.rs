@@ -19,6 +19,9 @@ use tempfile::TempDir;
 // ---------------------------------------------------------------------------
 
 /// 创建测试用 ScriptClip
+///
+/// video 和 audio 参数为文件名（如 "clip1.mp4"），会在 base_dir 下创建空文件
+/// 并使用绝对路径。
 fn make_clip(
     id: i64,
     ost: OstType,
@@ -26,7 +29,18 @@ fn make_clip(
     video: Option<&str>,
     audio: Option<&str>,
     source_time_range: Option<&str>,
+    base_dir: &std::path::Path,
 ) -> ScriptClip {
+    let video_path = video.map(|name| {
+        let path = base_dir.join(name);
+        std::fs::write(&path, b"").expect("创建测试视频文件失败");
+        path
+    });
+    let audio_path = audio.map(|name| {
+        let path = base_dir.join(name);
+        std::fs::write(&path, b"").expect("创建测试音频文件失败");
+        path
+    });
     ScriptClip {
         _id: id,
         timestamp: format!(
@@ -40,8 +54,8 @@ fn make_clip(
         duration: Some(duration),
         source_time_range: source_time_range.map(|s| s.to_string()),
         edited_time_range: None,
-        audio: audio.map(PathBuf::from),
-        video: video.map(PathBuf::from),
+        audio: audio_path,
+        video: video_path,
         subtitle: None,
     }
 }
@@ -68,9 +82,13 @@ fn load_draft_meta(draft_path: &std::path::Path) -> serde_json::Value {
 ///
 /// OST=1 不需要 probe_audio，因此不需要实际音频文件
 fn export_ost1_clips(clips: Vec<ScriptClip>, dir: &TempDir) -> (PathBuf, serde_json::Value) {
+    // 创建原始视频文件（绝对路径）
+    let video_origin = dir.path().join("original_video.mp4");
+    std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
+
     let req = ExportRequest {
         script: clips,
-        video_origin_path: PathBuf::from("original_video.mp4"),
+        video_origin_path: video_origin,
         draft_path: dir.path().to_path_buf(),
         draft_name: "TestDraft".to_string(),
         width: 1920,
@@ -101,6 +119,7 @@ fn test_ost_narration_only_timeline() {
             Some("clip1.mp4"),
             Some("audio1.mp3"),
             None,
+            dir.path(),
         ),
         make_clip(
             2,
@@ -109,6 +128,7 @@ fn test_ost_narration_only_timeline() {
             Some("clip2.mp4"),
             Some("audio2.mp3"),
             None,
+            dir.path(),
         ),
         make_clip(
             3,
@@ -117,12 +137,16 @@ fn test_ost_narration_only_timeline() {
             Some("clip3.mp4"),
             Some("audio3.mp3"),
             None,
+            dir.path(),
         ),
     ];
 
+    let video_origin = dir.path().join("original.mp4");
+    std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
+
     let req = ExportRequest {
         script: clips,
-        video_origin_path: PathBuf::from("original.mp4"),
+        video_origin_path: video_origin,
         draft_path: dir.path().to_path_buf(),
         draft_name: "TestOST0".to_string(),
         width: 1920,
@@ -175,8 +199,8 @@ fn test_ost_original_sound_video_only() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("clip1.mp4"), None, None),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("clip2.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("clip1.mp4"), None, None, dir.path()),
+        make_clip(2, OstType::OriginalSound, 4.0, Some("clip2.mp4"), None, None, dir.path()),
     ];
 
     let (draft_dir, json) = export_ost1_clips(clips, &dir);
@@ -224,9 +248,10 @@ fn test_ost_mixed_timeline() {
             Some("clip1.mp4"),
             Some("audio1.mp3"),
             None,
+            dir.path(),
         ),
         // OST=1（OriginalSound）——无音频
-        make_clip(2, OstType::OriginalSound, 4.0, Some("clip2.mp4"), None, None),
+        make_clip(2, OstType::OriginalSound, 4.0, Some("clip2.mp4"), None, None, dir.path()),
         // OST=2（Mixed）——有音频
         make_clip(
             3,
@@ -235,12 +260,16 @@ fn test_ost_mixed_timeline() {
             Some("clip3.mp4"),
             Some("audio3.mp3"),
             None,
+            dir.path(),
         ),
     ];
 
+    let video_origin = dir.path().join("original.mp4");
+    std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
+
     let req = ExportRequest {
         script: clips,
-        video_origin_path: PathBuf::from("original.mp4"),
+        video_origin_path: video_origin,
         draft_path: dir.path().to_path_buf(),
         draft_name: "TestMixed".to_string(),
         width: 1920,
@@ -283,6 +312,7 @@ fn test_video_fallback_source_range() {
             None,       // 无视频文件
             None,
             Some("00:00:10,000-00:00:15,000"), // 有 source_time_range
+            dir.path(),
         ),
     ];
 
@@ -342,7 +372,7 @@ fn test_draft_content_structure() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path()),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -384,8 +414,8 @@ fn test_materials_contain_all_types() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None, dir.path()),
+        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None, dir.path()),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -459,8 +489,8 @@ fn test_id_reference_consistency() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None, dir.path()),
+        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None, dir.path()),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -530,9 +560,9 @@ fn test_timeline_continuity() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None),
-        make_clip(3, OstType::OriginalSound, 3.5, Some("v3.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None, dir.path()),
+        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None, dir.path()),
+        make_clip(3, OstType::OriginalSound, 3.5, Some("v3.mp4"), None, None, dir.path()),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -599,12 +629,15 @@ fn test_timeline_continuity() {
 fn test_export_missing_duration() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
-    let mut clip = make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None);
+    let mut clip = make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path());
     clip.duration = None; // 清除 duration
+
+    let video_origin = dir.path().join("original.mp4");
+    std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
 
     let req = ExportRequest {
         script: vec![clip],
-        video_origin_path: PathBuf::from("original.mp4"),
+        video_origin_path: video_origin,
         draft_path: dir.path().to_path_buf(),
         draft_name: "TestMissing".to_string(),
         width: 1920,
@@ -641,7 +674,7 @@ fn test_export_empty_script() {
 
     let req = ExportRequest {
         script: vec![],
-        video_origin_path: PathBuf::from("original.mp4"),
+        video_origin_path: dir.path().join("original.mp4"),
         draft_path: dir.path().to_path_buf(),
         draft_name: "TestEmpty".to_string(),
         width: 1920,
@@ -680,12 +713,15 @@ fn test_draft_name_auto_generate() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path()),
     ];
+
+    let video_origin = dir.path().join("original.mp4");
+    std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
 
     let req = ExportRequest {
         script: clips,
-        video_origin_path: PathBuf::from("original.mp4"),
+        video_origin_path: video_origin,
         draft_path: dir.path().to_path_buf(),
         draft_name: String::new(), // 空名称
         width: 1920,
@@ -722,12 +758,15 @@ fn test_draft_meta_info_json() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None),
+        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path()),
     ];
+
+    let video_origin = dir.path().join("original.mp4");
+    std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
 
     let req = ExportRequest {
         script: clips,
-        video_origin_path: PathBuf::from("original.mp4"),
+        video_origin_path: video_origin,
         draft_path: dir.path().to_path_buf(),
         draft_name: "TestMetaInfo".to_string(),
         width: 1920,

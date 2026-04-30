@@ -18,6 +18,44 @@ pub enum SegmentOutput {
 }
 
 // ---------------------------------------------------------------------------
+// 共享辅助函数
+// ---------------------------------------------------------------------------
+
+/// 构建 SegmentJson 基础字段——VideoSegment 和 AudioSegment 共用
+fn build_base_segment(
+    segment_id: &str,
+    material_id: &str,
+    target_timerange: Timerange,
+    source_timerange: Option<Timerange>,
+    speed_id: &str,
+) -> SegmentJson {
+    SegmentJson {
+        enable_adjust: true,
+        enable_color_correct_adjust: false,
+        enable_color_curves: true,
+        enable_color_match_adjust: false,
+        enable_color_wheels: true,
+        enable_lut: true,
+        enable_smart_color_adjust: false,
+        last_nonzero_volume: 1.0,
+        reverse: false,
+        track_attribute: 0,
+        track_render_index: 0,
+        visible: true,
+        id: segment_id.to_string(),
+        material_id: material_id.to_string(),
+        target_timerange,
+        common_keyframes: vec![],
+        keyframe_refs: vec![],
+        source_timerange,
+        speed: 1.0,
+        volume: 1.0,
+        extra_material_refs: vec![speed_id.to_string()],
+        is_tone_modify: false,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // VideoSegment builder（per RESEARCH Pattern 5）
 // ---------------------------------------------------------------------------
 
@@ -64,38 +102,16 @@ impl VideoSegment {
         })
     }
 
-    /// 构建 SegmentJson 基础字段
-    fn build_base_segment(&self) -> SegmentJson {
-        SegmentJson {
-            enable_adjust: true,
-            enable_color_correct_adjust: false,
-            enable_color_curves: true,
-            enable_color_match_adjust: false,
-            enable_color_wheels: true,
-            enable_lut: true,
-            enable_smart_color_adjust: false,
-            last_nonzero_volume: 1.0,
-            reverse: false,
-            track_attribute: 0,
-            track_render_index: 0,
-            visible: true,
-            id: self.segment_id.clone(),
-            material_id: self.material.material_id.clone(),
-            target_timerange: self.target_timerange.clone(),
-            common_keyframes: vec![],
-            keyframe_refs: vec![],
-            source_timerange: self.source_timerange.clone(),
-            speed: 1.0,
-            volume: 1.0,
-            extra_material_refs: vec![self.speed.id.clone()],
-            is_tone_modify: false,
-        }
-    }
-
     /// 导出为 VideoSegmentJson
     pub fn to_json(&self) -> VideoSegmentJson {
         VideoSegmentJson {
-            base: self.build_base_segment(),
+            base: build_base_segment(
+                &self.segment_id,
+                &self.material.material_id,
+                self.target_timerange.clone(),
+                self.source_timerange.clone(),
+                &self.speed.id,
+            ),
             clip: ClipTransform::default_video(),
             uniform_scale: UniformScale {
                 on: true,
@@ -152,38 +168,16 @@ impl AudioSegment {
         })
     }
 
-    /// 构建 SegmentJson 基础字段
-    fn build_base_segment(&self) -> SegmentJson {
-        SegmentJson {
-            enable_adjust: true,
-            enable_color_correct_adjust: false,
-            enable_color_curves: true,
-            enable_color_match_adjust: false,
-            enable_color_wheels: true,
-            enable_lut: true,
-            enable_smart_color_adjust: false,
-            last_nonzero_volume: 1.0,
-            reverse: false,
-            track_attribute: 0,
-            track_render_index: 0,
-            visible: true,
-            id: self.segment_id.clone(),
-            material_id: self.material.material_id.clone(),
-            target_timerange: self.target_timerange.clone(),
-            common_keyframes: vec![],
-            keyframe_refs: vec![],
-            source_timerange: None,
-            speed: 1.0,
-            volume: 1.0,
-            extra_material_refs: vec![self.speed.id.clone()],
-            is_tone_modify: false,
-        }
-    }
-
     /// 导出为 AudioSegmentJson
     pub fn to_json(&self) -> AudioSegmentJson {
         AudioSegmentJson {
-            base: self.build_base_segment(),
+            base: build_base_segment(
+                &self.segment_id,
+                &self.material.material_id,
+                self.target_timerange.clone(),
+                None,
+                &self.speed.id,
+            ),
             clip: None,
             hdr_settings: None,
         }
