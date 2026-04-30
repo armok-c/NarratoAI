@@ -58,9 +58,15 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
     let duration_secs = json["format"]["duration"]
         .as_str()
         .and_then(|s| s.parse::<f64>().ok())
+        .or_else(|| json["format"]["duration"].as_f64())
         .ok_or_else(|| FFmpegError::OutputParseError(
             "Missing or invalid duration in ffprobe output".into()
         ))?;
+    if !duration_secs.is_finite() || duration_secs <= 0.0 {
+        return Err(FFmpegError::OutputParseError(
+            format!("Invalid video duration: {}", duration_secs)
+        ));
+    }
 
     let format_name = json["format"]["format_name"]
         .as_str()
@@ -101,12 +107,54 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
     })
 }
 
-/// 通过 ffprobe 获取视频信息（异步，spawn_blocking 包装）
-pub async fn probe_video_async(path: &Path) -> Result<VideoInfo, FFmpegError> {
-    let path_buf = path.to_path_buf();
-    tokio::task::spawn_blocking(move || probe_video(&path_buf))
-        .await
-        .map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
+/// 通过 ffprobe 获取音频文件时长（秒）（per D-10 音频时长使用 ffprobe）
+///
+/// 复用 `ffmpeg_sidecar::ffprobe::ffprobe_path()` 获取二进制路径，
+/// 使用 `-show_entries format=duration` 仅获取时长。
+pub fn probe_audio(path: &Path) -> Result<f64, FFmpegError> {
+    let ffprobe_bin = ffmpeg_sidecar::ffprobe::ffprobe_path();
+
+    let output = match Command::new(&ffprobe_bin)
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(path.as_os_str())
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Err(FFmpegError::BinaryNotFound);
+            }
+            return Err(FFmpegError::SpawnFailed(e.to_string()));
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(FFmpegError::ExecutionError(format!(
+            "ffprobe exited with code {:?}: {}",
+            output.status.code(),
+            stderr,
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let duration: f64 = stdout
+        .trim()
+        .parse()
+        .map_err(|e| FFmpegError::OutputParseError(format!("音频时长解析失败: {}", e)))?;
+    if !duration.is_finite() || duration <= 0.0 {
+        return Err(FFmpegError::OutputParseError(
+            format!("Invalid audio duration from ffprobe: {}", duration)
+        ));
+    }
+    Ok(duration)
 }
 
 #[cfg(test)]
@@ -134,5 +182,13 @@ mod tests {
         assert_eq!(cloned.width, 1920);
         assert_eq!(cloned.height, 1080);
         assert_eq!(cloned.codec_name, "h264");
+    }
+
+    /// probe_audio 对不存在的文件返回错误
+    #[test]
+    fn test_probe_audio_nonexistent_file() {
+        let path = std::path::PathBuf::from("/tmp/narratoai_nonexistent_audio_test_file.mp3");
+        let result = probe_audio(&path);
+        assert!(result.is_err(), "不存在的音频文件应返回错误");
     }
 }

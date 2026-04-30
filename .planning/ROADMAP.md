@@ -14,11 +14,11 @@
 - [ ] **Phase 2: LLM Service Layer** - OpenAI 兼容协议客户端、Provider/Registry 模式、Vision+Text 支持
 - [ ] **Phase 3: TTS Core + Edge-TTS** - TtsProvider trait、路由器、Edge-TTS WebSocket 实现
 - [ ] **Phase 4: Prompt System + Visual Analyzer** - Prompt 注册表/模板渲染、视频帧提取+批量视觉分析
-- [ ] **Phase 5: Script Management** - JSON 脚本加载/保存/编辑/校验
+- [x] **Phase 5: Script Management** - JSON 脚本加载/保存/编辑/校验 *(completed 2026-04-29)*
 - [ ] **Phase 6: Documentary Pipeline** - 纪录片完整 6 步流水线（旗舰模式）
 - [ ] **Phase 7: SDE Pipeline** - 短剧解说流水线（字幕解析、LLM 分析、OST 脚本）
 - [ ] **Phase 8: SDP Pipeline** - 短剧混剪流水线（多片段混剪）
-- [ ] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出
+- [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
 - [ ] **Phase 10: Tauri Command Layer** - Tauri 2.0 命令注册、进度推送、文件对话框
 - [ ] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量
 - [ ] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎
@@ -147,8 +147,20 @@ Plans:
 **Requirements**: JYNG-01, JYNG-02
 **Success Criteria** (what must be TRUE):
   1. 生成的剪映草稿 JSON 可被剪映专业版正确导入，显示完整的时间线结构
-  2. 视频片段、字幕轨道、音频轨道正确映射到剪映格式的时间线层级
-**Plans**: TBD
+  2. 视频片段、音频轨道正确映射到剪映格式的时间线层级（字幕轨道在 D-07 中明确排除）
+**Plans**: 4 plans
+
+Plans:
+- **Wave 1** *(no blockers — can execute immediately)*
+  - [x] 09-01-PLAN.md — 基础设施（error.rs, time.rs, types.rs, template.rs, Cargo.toml uuid, lib.rs 模块导出）
+- **Wave 2** *(blocked on Wave 1 completion)*
+  - [x] 09-02-PLAN.md — 核心构建块（material.rs, segment.rs, track.rs）
+- **Wave 3** *(blocked on Wave 2 completion)*
+  - [x] 09-03-PLAN.md — Builder API + 导出（builder.rs, probe_audio, ExportRequest, export_draft）
+- **Wave 4** *(blocked on Wave 3 completion)*
+  - [x] 09-04-PLAN.md — 集成测试（OST 分支 + JSON 结构 + ID 引用一致性验证）
+
+**Cross-cutting constraints:** 所有时间值为微秒整数（SEC=1,000,000），素材路径必须绝对路径，每个 segment 必须有 Speed 素材对象
 
 ### Phase 10: Tauri Command Layer
 **Goal**: 所有 Rust 业务功能通过 Tauri 2.0 命令暴露给前端，支持实时进度推送和文件选择
@@ -194,14 +206,14 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-04-28 |
-| 2. LLM Service Layer | 0/3 | Planning complete | - |
+| 2. LLM Service Layer | 3/3 | Complete | 2026-04-29 |
 | 3. TTS Core + Edge-TTS | 3/3 | Complete | 2026-04-28 |
 | 4. Prompt System + Visual Analyzer | 0/4 | Planning complete | - |
-| 5. Script Management | 0/2 | Planning complete | - |
+| 5. Script Management | 2/2 | Complete | 2026-04-29 |
 | 6. Documentary Pipeline | 0/? | Not started | - |
 | 7. SDE Pipeline | 0/? | Not started | - |
 | 8. SDP Pipeline | 0/? | Not started | - |
-| 9. JianYing Export | 0/? | Not started | - |
+| 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
 | 11. Extended Features | 0/? | Not started | - |
 | 12. Additional TTS Engines | 0/? | Not started | - |

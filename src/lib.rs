@@ -3,6 +3,7 @@ pub mod error;
 pub mod tts;
 pub mod llm;
 pub mod ffmpeg;
+pub mod jianying;
 pub mod script;
 pub mod prompt;
 pub mod visual;
