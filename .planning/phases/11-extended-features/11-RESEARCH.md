@@ -608,22 +608,25 @@ pub struct PixabayVideoVariant {
 | A3 | `tokio::process::Command` supports Windows paths correctly | Pattern 3 | Medium — Windows CLI path handling may differ. Test with actual yt-dlp install on Windows |
 | A4 | reqwest's `Client::builder().proxy()` handles the config proxy URL format without transformation | Pattern: Material Search | Low — reqwest proxy docs show simple URL passing works |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **ffmpeg-sidecar stderr capture for loudnorm JSON**
+1. **ffmpeg-sidecar stderr capture for loudnorm JSON** (RESOLVED)
    - What we know: `FfmpegEvent::Log(level, msg)` captures FFmpeg log output. loudnorm `print_format=json` outputs to stderr.
    - What's unclear: Whether ffmpeg-sidecar exposes all stderr lines as `FfmpegEvent::Log` or some go to `FfmpegEvent::Error`. The clipped JSON may need special handling.
    - Recommendation: Implement first pass using `std::process::Command` capturing stderr directly (as `src/ffmpeg/probe.rs` does for ffprobe). This is safer than relying on ffmpeg-sidecar event filtering. Fall back to ffmpeg-sidecar only if integration issues arise.
+   - **RESOLVED:** Plan 01 and Plan 02 both use `std::process::Command` directly (not ffmpeg-sidecar events) for loudnorm stderr capture, consistent with the `src/ffmpeg/probe.rs` pattern.
 
-2. **yt-dlp JSON output parsing for format list**
+2. **yt-dlp JSON output parsing for format list** (RESOLVED)
    - What we know: `yt-dlp --dump-json URL` outputs a single JSON object with a `formats` array. Python uses `yt_dlp.YoutubeDL` internal API for this.
    - What's unclear: The --dump-json output structure for the formats array may differ from Python API's `info.get('formats', [])` in edge cases (DASH manifests, adaptive formats).
    - Recommendation: Test format parsing with a range of YouTube URLs and validate against Python output. Use `serde_json::Value` for flexible access initially.
+   - **RESOLVED:** Plan 03 uses `serde_json::Value` for flexible format list parsing, handling edge cases in DASH manifests and adaptive formats gracefully.
 
-3. **symphonia default features**
+3. **symphonia default features** (RESOLVED)
    - What we know: symphonia default enables flac, mkv, ogg, pcm, vorbis, wav. MP3 requires explicit `"mp3"` feature.
    - What's unclear: Whether AAC support is needed for RMS fallback (TTS outputs are typically WAV/MP3, but downloaded audio could be AAC).
    - Recommendation: Enable `"mp3"` and optionally `"aac"` features. Fallback should handle the most common formats. AAC can be added when a need arises.
+   - **RESOLVED:** Plan 02 uses `features = ["mp3", "flac", "pcm", "wav", "vorbis"]` — MP3 explicitly enabled; AAC deferred until a concrete need arises.
 
 ## Environment Availability
 
