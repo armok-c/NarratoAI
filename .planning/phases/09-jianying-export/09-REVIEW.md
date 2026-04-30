@@ -1,6 +1,6 @@
 ---
 phase: 09-jianying-export
-reviewed: 2026-04-29T12:00:00Z
+reviewed: 2026-04-29T14:30:00Z
 depth: standard
 files_reviewed: 13
 files_reviewed_list:
@@ -18,141 +18,112 @@ files_reviewed_list:
   - src/lib.rs
   - tests/jianying_export.rs
 findings:
-  critical: 2
-  warning: 2
+  critical: 1
+  warning: 1
   info: 1
-  total: 5
+  total: 3
 status: issues_found
 ---
 
-# Phase 09: Code Review Report (Iteration 4)
+# Phase 09: Code Review Report (Iteration 5)
 
-**Reviewed:** 2026-04-29T12:00:00Z
+**Reviewed:** 2026-04-29T14:30:00Z
 **Depth:** standard
 **Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-Reviewed 13 source files for the JianYing (CapCut) draft export module at standard depth. Previous iterations (1-3) addressed validation gaps in `trange_from_secs`, empty timelines, ffprobe duration parsing, and path validation. All 8 findings from iteration 3 have been correctly fixed. This iteration found 2 new critical issues and 2 warnings that remain in the codebase.
+Reviewed 13 source files for the JianYing (CapCut) draft export module at standard depth, iteration 5. All 4 findings from iteration 4 (CR-01 JSON injection, CR-02 path traversal, WR-01 silent audio skip, WR-02 negative start) have been correctly fixed and verified. This iteration identified 1 new warning, confirmed a previously noted info item, and found 1 critical edge case in the timestamp parser.
 
-Both critical issues stem from the same root cause: `draft_name` is user-controlled input with no validation or sanitization. (1) JSON injection via naive `.replace()` in the meta info template corrupts the output when the name contains special characters. (2) Path traversal via `draft_name` allows creating directories outside the intended `draft_path`.
+The codebase quality has improved substantially across 5 review iterations. The remaining issue is a timestamp parsing edge case that can produce incorrect output without any error signal.
+
+## Verification of Previous Fixes
+
+### Iteration 4 Fixes (all confirmed fixed)
+
+- **CR-01 (JSON injection):** Verified. `builder.rs:98-101` now parses the template as `serde_json::Value` and sets `draft_id`/`draft_name` via `serde_json::json!()`, eliminating injection risk.
+- **CR-02 (path traversal):** Verified. `validate_draft_name()` at `builder.rs:61-72` rejects `/`, `\`, `..`, and `\0`. Called at `builder.rs:92` before `draft_path.join(draft_name)`. Test coverage at `builder.rs:762-791`.
+- **WR-01 (silent audio skip):** Verified. `builder.rs:306-326` now uses `match clip.audio` with a `None =>` arm that returns `JianYingError::MissingField { field: "audio", clip_index: i }`.
+- **WR-02 (negative start):** Verified. `time.rs:20` now checks `if start_us < 0 || duration_us < 0`. Test `test_trange_negative_start_returns_none` at `time.rs:146-148`.
+
+### Iteration 1-3 Fixes (all confirmed fixed)
+
+- `trange_from_secs` validates NaN/Inf/negative (`time.rs:33`)
+- Empty timeline returns duration 0 instead of panicking (`builder.rs:245`)
+- `probe_video` validates finite positive duration (`probe.rs:65-69`)
+- `probe_audio` validates finite positive duration (`probe.rs:152-155`)
+- `video_origin_path` validated as non-empty (`builder.rs:352-356`)
+- `Track::max_end_time` uses struct field access, not JSON re-serialization (`track.rs:94-99`)
+- `parse_timestamp_start` parses h/m/s as `u32` (`builder.rs:392-394`)
 
 ## Critical Issues
 
-### CR-01: JSON injection via unescaped draft_name in DRAFT_META_INFO_TEMPLATE
+### CR-01: parse_timestamp_start produces wrong result for single-segment timestamps without comma-millis
 
-**File:** `src/jianying/builder.rs:79-81`
+**File:** `src/jianying/builder.rs:383-408`
 **Severity:** BLOCKER
 
-**Issue:** The `draft_name` string is inserted into the JSON template via naive `String::replace()` without any JSON escaping. If `draft_name` contains double quotes (`"`), backslashes (`\`), newlines, or other JSON-special characters, the resulting `draft_meta_info.json` will be malformed JSON that JianYing cannot parse.
+**Issue:** The `parse_timestamp_start` function uses `rsplit_once('-')` to split the range at the *last* hyphen. This works correctly for the standard format `"HH:MM:SS,mmm-HH:MM:SS,mmm"`. However, when the timestamp format omits the comma-millisecond part (e.g., `"00:00:07-00:00:15"`), the function produces an incorrect result.
 
-Example: `draft_name = "Test\"Draft"` produces:
-```json
-"draft_name": "Test"Draft"
-```
+The split produces `start_str = "00:00:07-00:00:15"` (the entire string minus the part after the last `-`). Then `sub_parts = start_str.split(',')` yields only one element (`"00:00:07-00:00:15"`), so `time_str = "00:00:07-00:00:15"`. Then `time_str.split(':')` yields `["00", "00", "07-00", "00", "15"]` which has 5 parts, failing the `len() != 3` check and returning `None`.
 
-This breaks the entire draft -- JianYing will reject it as invalid JSON. More concerning, a crafted name like `foo","draft_type":0}//` could inject arbitrary JSON fields.
+While the function correctly rejects this malformed input, the problem is that the *test* `test_parse_timestamp_start_invalid` at `builder.rs:753` only tests `"invalid"`, `""`, and `"--"` -- it does NOT test the actual no-comma format. This means the parser silently rejects a valid-looking timestamp format, and the caller (`parse_source_start_time`) converts this to a `JianYingError::Validation` with a generic "格式无效" message, masking the real issue.
 
-**Fix:** Parse the template as `serde_json::Value` (same safe pattern already used in `ScriptFile::save` for `draft_content.json`), then set the fields programmatically:
+More critically, consider the input `"00:00:07,559"`. `rsplit_once('-')` returns `None` because there is no `-` in the string. The function returns `None`, meaning a single timestamp (without end time) is also rejected. This may be unexpected for callers who pass timestamp strings that lack a range separator.
 
-```rust
-let mut meta: serde_json::Value = serde_json::from_str(DRAFT_META_INFO_TEMPLATE)?;
-meta["draft_id"] = serde_json::json!(draft_id);
-meta["draft_name"] = serde_json::json!(draft_name);
-let meta_content = serde_json::to_string(&meta)?;
-std::fs::write(draft_dir.join("draft_meta_info.json"), meta_content)?;
-```
+This is a BLOCKER because the function's behavior with no-comma timestamps (which are a valid variant of the `"HH:MM:SS-HH:MM:SS"` format documented in the docstring at line 379) is to silently fail, and there is no test coverage for this case.
 
-### CR-02: Path traversal via unsanitized draft_name
-
-**File:** `src/jianying/builder.rs:74`
-**Severity:** BLOCKER
-
-**Issue:** The `draft_name` is passed directly to `draft_path.join(draft_name)` without any validation. If `draft_name` contains path traversal sequences like `../../etc/cron.d`, the resulting directory will be created outside the intended `draft_path` hierarchy. Combined with the file writes at lines 82 (`draft_meta_info.json`) and 218 (`draft_content.json`), this allows arbitrary file creation on the filesystem.
-
-The `validate_export_request` function at line 313 validates `draft_path` is non-empty but does not check `draft_name` at all.
-
-**Fix:** Add validation to reject `draft_name` containing path separators or traversal sequences. Call this in `validate_export_request` or at the top of `DraftFolder::create_draft`:
+**Fix:** Either (a) handle the no-comma format by detecting whether the split produced a valid time string, or (b) document clearly that only the `HH:MM:SS,mmm-HH:MM:SS,mmm` format with comma-milliseconds is supported. Add tests for the no-comma case to confirm the desired behavior:
 
 ```rust
-fn validate_draft_name(name: &str) -> Result<(), JianYingError> {
-    if name.contains('/')
-        || name.contains('\\')
-        || name.contains("..")
-        || name.contains('\0')
-    {
-        return Err(JianYingError::Validation {
-            details: format!("草稿名称包含非法字符: {}", name),
-        });
-    }
-    Ok(())
+// Option (a): support both formats
+fn parse_timestamp_start(range: &str) -> Option<f64> {
+    let (start_str, _) = range.rsplit_once('-')?;
+    let sub_parts: Vec<&str> = start_str.split(',').collect();
+    let time_str = sub_parts.first()?;
+    // ... existing logic
+}
+// Add test:
+#[test]
+fn test_parse_timestamp_start_no_comma() {
+    let result = parse_timestamp_start("00:00:07-00:00:15");
+    // Document expected behavior: Some(7.0) or None?
 }
 ```
 
 ## Warnings
 
-### WR-01: OST=NarrationOnly silently skips audio when clip.audio is None
+### WR-01: parse_seconds does not validate for negative values
 
-**File:** `src/jianying/builder.rs:286-297`
+**File:** `src/jianying/time.rs:47-55`
 **Severity:** WARNING
 
-**Issue:** When `clip.ost == OstType::NarrationOnly` (OST=0) but `clip.audio` is `None`, the inner `if let Some(ref audio_path) = clip.audio` does not match, and no audio segment is created. The export succeeds without error, but the resulting draft is semantically incorrect -- a "narration only" segment has no audio track.
+**Issue:** The `parse_seconds` helper function converts an input string to microseconds but does not check for negative values. While `trange()` at line 20 now checks `start_us < 0 || duration_us < 0` (fixed in iteration 4), the `parse_seconds` function itself can produce negative `i64` values that propagate until that outer check. If `parse_seconds` is ever called from a context that does not perform its own negative-value check, negative durations will silently pass through.
 
-This is a silent data loss scenario. The caller expects narration audio for OST=0 clips, but the exported draft silently omits it. The OST enum variant `NarrationOnly` explicitly declares that audio is required; silently proceeding without it violates the contract.
+For example, `parse_seconds("-5s")` returns `Some(-5_000_000)` instead of `None`. The current `trange()` guards against this, but `parse_seconds` is a `fn` (not `pub`, but accessible within the module) that could be used from new code without the guard.
 
-**Fix:** Return an error when OST requires audio but none is available:
-
-```rust
-if clip.ost == OstType::NarrationOnly || clip.ost == OstType::Mixed {
-    match clip.audio {
-        Some(ref audio_path) => {
-            let audio_duration = probe_audio(audio_path)
-                .map_err(|e| JianYingError::ProbeError(e.to_string()))?;
-            let safe_duration = duration.min(audio_duration);
-            let audio_target = trange_from_secs(current_time_secs, safe_duration)
-                .ok_or_else(|| JianYingError::Validation {
-                    details: format!("第 {} 段构造音频时间范围失败", i + 1),
-                })?;
-            let audio_seg = AudioSegment::new(audio_path, audio_target)?;
-            script_file.add_audio_segment(audio_seg, "音频轨道")?;
-        }
-        None => {
-            return Err(JianYingError::MissingField {
-                field: "audio".to_string(),
-                clip_index: i,
-            });
-        }
-    }
-}
-```
-
-### WR-02: trange() accepts negative start values
-
-**File:** `src/jianying/time.rs:17-27`
-**Severity:** WARNING
-
-**Issue:** The `trange()` function validates `duration_us < 0` (line 20) but does not validate `start_us < 0`. A negative start value will pass through silently. In contrast, `trange_from_secs()` correctly validates both parameters. While `trange()` is currently only called from test code, it is a `pub` API and this inconsistency could cause bugs if used in production code later.
-
-**Fix:** Add start validation to `trange()`:
+**Fix:** Add negative-value validation inside `parse_seconds`:
 
 ```rust
-pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
-    let start_us = parse_seconds(start)?;
-    let duration_us = parse_seconds(duration)?;
-    if start_us < 0 || duration_us < 0 {
+fn parse_seconds(input: &str) -> Option<i64> {
+    let input = input.trim().to_lowercase();
+    let secs: f64 = if input.ends_with('s') {
+        input.trim_end_matches('s').parse().ok()?
+    } else {
+        input.parse().ok()?
+    };
+    let us = (secs * SEC as f64).round() as i64;
+    if us < 0 {
         return None;
     }
-    Some(Timerange {
-        start: start_us,
-        duration: duration_us,
-    })
+    Some(us)
 }
 ```
 
 ## Info
 
-### IN-01: Inconsistent error message language in probe.rs
+### IN-01: Inconsistent error message language in probe.rs (carried from iteration 4)
 
 **File:** `src/ffmpeg/probe.rs:63, 97, 154`
 **Severity:** INFO
@@ -163,7 +134,7 @@ pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
 
 ---
 
-_Reviewed: 2026-04-29T12:00:00Z_
+_Reviewed: 2026-04-29T14:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 4_
+_Iteration: 5_
