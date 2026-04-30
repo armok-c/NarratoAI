@@ -21,9 +21,6 @@ pub enum PromptError {
 
     #[error("模板校验失败: {0}")]
     Validation(String),
-
-    #[error("版本错误: {0}")]
-    Version(String),
 }
 
 #[cfg(test)]
@@ -62,10 +59,4 @@ mod tests {
         assert!(msg.contains("模板校验失败"), "消息应包含中文: {}", msg);
     }
 
-    #[test]
-    fn test_version_error_message_chinese() {
-        let err = PromptError::Version("bad version".into());
-        let msg = err.to_string();
-        assert!(msg.contains("版本错误"), "消息应包含中文: {}", msg);
-    }
 }
