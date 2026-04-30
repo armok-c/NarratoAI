@@ -30,7 +30,7 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具（当前 Python 版
 
 - [ ] Rust 核心视频处理库（FFmpeg 绑定、裁剪、合并、混音）
 - [ ] Rust LLM 服务层（OpenAI 兼容协议、Provider/Registry 模式、Vision+Text 支持）
-- [ ] Rust TTS 路由层（7 个引擎全部重写）
+- [x] Rust TTS 路由层（7 个引擎全部重写） — Validated in Phase 12
 - [ ] Rust Prompt 系统（版本化、分类注册表、模板渲染）
 - [ ] Rust 纪录片解说流水线（6 步编排）
 - [ ] Rust 短剧解说流水线
@@ -91,4 +91,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-29 after Phase 5 completion*
+*Last updated: 2026-04-30 after Phase 12 completion — all 7 TTS engines implemented*
