@@ -5,7 +5,14 @@ use crate::tts::common;
 use async_trait::async_trait;
 use regex::Regex;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
+
+/// 编译一次的重用 Azure 音色正则表达式
+fn azure_voice_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$").expect("Azure voice regex is valid"))
+}
 
 /// 判断 voice_name 是否应使用 Azure Speech Services REST API (V2)
 ///
@@ -24,10 +31,8 @@ pub fn should_use_azure_services(voice_name: &str) -> bool {
     }
     // 正则匹配 Azure Neural 格式: [language]-[REGION]-[Name]Neural
     // 如 zh-CN-YunzeNeural, en-US-AvaMultilingualNeural
-    // 使用 regex crate (已在 Cargo.toml 中)
-    Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$")
-        .map(|re| re.is_match(name))
-        .unwrap_or(false)
+    // 使用 OnceLock 缓存避免每次调用重新编译
+    azure_voice_regex().is_match(name)
 }
 
 /// 返回硬编码的 Azure Neural 音色列表（供 UI/调试用）
@@ -202,6 +207,34 @@ impl AzureSpeechEngine {
         Self { client, config, endpoint_override: None }
     }
 
+    /// 将 rate 转换为 Azure SSML 百分比格式
+    /// 1.0 → "+0%", 1.5 → "+50%", 0.5 → "-50%"
+    fn convert_rate_to_percent(rate: f64) -> String {
+        if !rate.is_finite() || rate < 0.0 {
+            return "+0%".to_string();
+        }
+        let percent = ((rate - 1.0) * 100.0).round() as i32;
+        if percent >= 0 {
+            format!("+{}%", percent)
+        } else {
+            format!("{}%", percent)
+        }
+    }
+
+    /// 将 pitch 转换为 Azure SSML Hz 格式
+    /// 0 → "+0Hz", 50 → "+50Hz", -10 → "-10Hz"
+    fn convert_pitch_to_hz(pitch: f64) -> String {
+        if !pitch.is_finite() {
+            return "+0Hz".to_string();
+        }
+        let int_pitch = pitch.round() as i32;
+        if int_pitch >= 0 {
+            format!("+{}Hz", int_pitch)
+        } else {
+            format!("{}Hz", int_pitch)
+        }
+    }
+
     /// 构建 Azure REST API 的完整 URL
     fn api_url(&self) -> String {
         if let Some(ref override_url) = self.endpoint_override {
@@ -214,7 +247,7 @@ impl AzureSpeechEngine {
         )
     }
 
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64, pitch: f64) -> Result<TtsOutput, TTSError> {
         if self.config.speech_key.is_empty() || self.config.speech_region.is_empty() {
             return Err(TTSError::AuthenticationFailed("Azure Speech key/region 未配置".to_string()));
         }
@@ -229,13 +262,15 @@ impl AzureSpeechEngine {
 
         // 构建 SSML 请求体 (对齐 Python 版 azure_tts_v2 SDK 调用)
         // REST API 使用 SSML 格式:
+        let rate_str = Self::convert_rate_to_percent(rate);
+        let pitch_str = Self::convert_pitch_to_hz(pitch);
         let escaped_text: String = text
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
         let ssml = format!(
-            r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{}"><voice name="{}">{}</voice></speak>"#,
-            lang, processed_voice_name, escaped_text
+            r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
+            lang, processed_voice_name, rate_str, pitch_str, escaped_text
         );
 
         let url = self.api_url();
@@ -293,17 +328,20 @@ impl TtsProvider for AzureSpeechEngine {
         &self,
         text: &str,
         voice_name: &str,
-        _rate: f64,
-        _pitch: f64,
+        rate: f64,
+        pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
         if voice_name.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await
+        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate, pitch)).await.map_err(|e| {
+            let _ = std::fs::remove_file(output_path);
+            e
+        })
     }
 }
 
@@ -394,7 +432,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "zh-CN-YunzeNeural", &output_path).await;
+        let result = engine.synthesize_once("test text", "zh-CN-YunzeNeural", &output_path, 1.0, 0.0).await;
         assert!(result.is_ok(), "Azure 成功: {:?}", result.err());
         let output = result.unwrap();
         assert!(output.audio_file_path.exists());
@@ -430,7 +468,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "zh-CN-YunzeNeural", &output_path).await;
+        let result = engine.synthesize_once("test text", "zh-CN-YunzeNeural", &output_path, 1.0, 0.0).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::AuthenticationFailed(msg) => assert!(msg.contains("未配置"), "错误消息: {}", msg),
@@ -461,7 +499,7 @@ mod tests {
 
         // -V2 后缀被剥离后，should_use_azure_services 在上层已处理
         // engine 内部会剥离 -V2 后再构建 SSML
-        let result = engine.synthesize_once("test", "zh-CN-YunzeNeural-V2", &output_path).await;
+        let result = engine.synthesize_once("test", "zh-CN-YunzeNeural-V2", &output_path, 1.0, 0.0).await;
         assert!(result.is_ok());
     }
 }

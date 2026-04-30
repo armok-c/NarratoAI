@@ -86,10 +86,6 @@ pub struct UiSection {
     pub azure_rate: f64,
     #[serde(default)]
     pub azure_pitch: i32,
-    #[serde(default)]
-    pub doubaotts_voice_type: String,
-    #[serde(default)]
-    pub doubaotts_rate: f64,
 }
 
 /// [azure] 配置段
@@ -120,8 +116,6 @@ pub struct TencentSection {
 pub struct SoulVoiceSection {
     #[serde(default)]
     pub api_key: String,
-    #[serde(default)]
-    pub voice_uri: String,
     #[serde(default)]
     pub api_url: String,
     #[serde(default)]
@@ -168,10 +162,6 @@ pub struct IndexTTS2Section {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
-    #[serde(default)]
-    pub ak: String,
-    #[serde(default)]
-    pub sk: String,
     #[serde(default)]
     pub appid: String,
     #[serde(default)]
@@ -273,8 +263,6 @@ azure_voice_name = "zh-CN-XiaoyiNeural-Female"
 azure_volume = 80
 azure_rate = 1.0
 azure_pitch = 0
-doubaotts_voice_type = "BV700_V2_streaming"
-doubaotts_rate = 1.0
 
 [azure]
 speech_key = "az-key"
@@ -287,7 +275,6 @@ region = "ap-beijing"
 
 [soulvoice]
 api_key = "sv-key"
-voice_uri = "speech:test"
 api_url = "https://tts.scsmtech.cn/tts"
 model = "FunAudioLLM/CosyVoice2-0.5B"
 
@@ -307,8 +294,6 @@ num_beams = 3
 repetition_penalty = 10.0
 
 [doubaotts]
-ak = "db-ak"
-sk = "db-sk"
 appid = "db-appid"
 token = "db-token"
 cluster = "volcano_tts"

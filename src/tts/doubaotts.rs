@@ -124,10 +124,13 @@ impl TtsProvider for DoubaoTtsEngine {
         _pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await
+        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await.map_err(|e| {
+            let _ = std::fs::remove_file(output_path);
+            e
+        })
     }
 }
 
@@ -139,8 +142,6 @@ mod tests {
     #[test]
     fn test_doubaotts_engine_new() {
         let config = DoubaoTTSSection {
-            ak: String::new(),
-            sk: String::new(),
             appid: "test-appid".to_string(),
             token: "test-token".to_string(),
             cluster: "volcano_tts".to_string(),
@@ -158,8 +159,6 @@ mod tests {
     #[tokio::test]
     async fn test_doubaotts_empty_text() {
         let config = DoubaoTTSSection {
-            ak: String::new(),
-            sk: String::new(),
             appid: "test-appid".to_string(),
             token: "test-token".to_string(),
             cluster: String::new(),
@@ -184,8 +183,6 @@ mod tests {
     async fn test_doubaotts_missing_config() {
         // Missing appid and token should return AuthenticationFailed
         let config = DoubaoTTSSection {
-            ak: String::new(),
-            sk: String::new(),
             appid: String::new(),
             token: String::new(),
             cluster: String::new(),
@@ -210,8 +207,6 @@ mod tests {
         // 验证 Authorization 头使用 Bearer;（分号）而不是 Bearer （空格）
         // 对齐 Python 版: headers = {"Authorization": f"Bearer;{token}"}
         let config = DoubaoTTSSection {
-            ak: String::new(),
-            sk: String::new(),
             appid: "test-appid".to_string(),
             token: "test-token".to_string(),
             cluster: String::new(),

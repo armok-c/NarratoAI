@@ -100,10 +100,13 @@ impl TtsProvider for SoulVoiceEngine {
         _pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await
+        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await.map_err(|e| {
+            let _ = std::fs::remove_file(output_path);
+            e
+        })
     }
 }
 
@@ -118,7 +121,6 @@ mod tests {
     fn test_soulvoice_engine_new() {
         let config = SoulVoiceSection {
             api_key: "test-key".to_string(),
-            voice_uri: String::new(),
             api_url: String::new(),
             model: String::new(),
         };
@@ -142,7 +144,6 @@ mod tests {
 
         let config = SoulVoiceSection {
             api_key: "test-key".to_string(),
-            voice_uri: String::new(),
             api_url: mock_server.uri() + "/tts",
             model: "test-model".to_string(),
         };
@@ -163,7 +164,6 @@ mod tests {
     async fn test_soulvoice_empty_text() {
         let config = SoulVoiceSection {
             api_key: "test-key".to_string(),
-            voice_uri: String::new(),
             api_url: String::new(),
             model: String::new(),
         };
@@ -192,7 +192,6 @@ mod tests {
 
         let config = SoulVoiceSection {
             api_key: "bad-key".to_string(),
-            voice_uri: String::new(),
             api_url: mock_server.uri() + "/tts",
             model: String::new(),
         };

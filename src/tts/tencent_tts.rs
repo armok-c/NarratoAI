@@ -36,7 +36,7 @@ impl TencentTtsEngine {
     }
 
     /// 实际执行一次 TTS 合成的内部方法
-    async fn synthesize_at_url(&self, text: &str, voice_name: &str, output_path: &Path, api_url: &str) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_at_url(&self, text: &str, voice_name: &str, output_path: &Path, api_url: &str, rate: f64) -> Result<TtsOutput, TTSError> {
         if self.config.secret_id.is_empty() || self.config.secret_key.is_empty() {
             return Err(TTSError::AuthenticationFailed("腾讯云 secret_id/secret_key 未配置".to_string()));
         }
@@ -48,7 +48,7 @@ impl TencentTtsEngine {
 
         // 速度映射: rate=1.0 -> speed=0, rate=1.5 -> speed=1.0, rate=0.5 -> speed=-1.0
         // Python 版: speed_value = max(-2.0, min(2.0, (speed - 1.0) * 2))
-        let speed_value = 0.0_f64.clamp(-2.0, 2.0); // 使用默认 rate=1.0
+        let speed_value = ((rate - 1.0) * 2.0).clamp(-2.0, 2.0);
 
         let region = if self.config.region.is_empty() {
             "ap-beijing"
@@ -222,12 +222,12 @@ impl TencentTtsEngine {
     }
 
     /// 使用生产 API URL 执行一次 TTS 合成
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64) -> Result<TtsOutput, TTSError> {
         if let Some(ref override_url) = self.endpoint_override {
-            self.synthesize_at_url(text, voice_name, output_path, override_url).await
+            self.synthesize_at_url(text, voice_name, output_path, override_url, rate).await
         } else {
             const PRODUCTION_URL: &str = "https://tts.tencentcloudapi.com";
-            self.synthesize_at_url(text, voice_name, output_path, PRODUCTION_URL).await
+            self.synthesize_at_url(text, voice_name, output_path, PRODUCTION_URL, rate).await
         }
     }
 }
@@ -238,14 +238,17 @@ impl TtsProvider for TencentTtsEngine {
         &self,
         text: &str,
         voice_name: &str,
-        _rate: f64,
+        rate: f64,
         _pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await
+        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await.map_err(|e| {
+            let _ = std::fs::remove_file(output_path);
+            e
+        })
     }
 }
 
@@ -300,7 +303,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("你好世界", "tencent:101001", &output_path).await;
+        let result = engine.synthesize_once("你好世界", "tencent:101001", &output_path, 1.0).await;
         assert!(result.is_ok(), "Tencent 成功: {:?}", result.err());
         let output = result.unwrap();
         assert!(output.audio_file_path.exists());
@@ -357,7 +360,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test", "tencent:101001", &output_path).await;
+        let result = engine.synthesize_once("test", "tencent:101001", &output_path, 1.0).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::SynthesisFailed(msg) => assert!(msg.contains("InvalidParameter"), "错误消息: {}", msg),
@@ -390,7 +393,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test", "tencent:101001", &output_path).await;
+        let result = engine.synthesize_once("test", "tencent:101001", &output_path, 1.0).await;
         let err = result.unwrap_err();
         match err {
             TTSError::SynthesisFailed(ref msg) => assert!(msg.contains("Audio"), "错误消息: {}", msg),
