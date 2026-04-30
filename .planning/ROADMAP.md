@@ -87,10 +87,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Prompt 系统核心：类型/错误/注册表/模板渲染（PRMP-01, PRMP-02）
-- [ ] 04-02-PLAN.md — 视觉分析器核心：帧提取快路径 + 4 级回退（VISL-01）
-- [ ] 04-03-PLAN.md — Prompt 系统完成：Manager/验证器/注册函数/模板文件（PRMP-03, PRMP-04）
-- [ ] 04-04-PLAN.md — 视觉分析器完成 + 模块集成（VISL-02, VISL-03）
+- [x] 04-01-PLAN.md — Prompt 系统核心：类型/错误/注册表/模板渲染（PRMP-01, PRMP-02）
+- [x] 04-02-PLAN.md — 视觉分析器核心：帧提取快路径 + 4 级回退（VISL-01）
+- [x] 04-03-PLAN.md — Prompt 系统完成：Manager/验证器/注册函数/模板文件（PRMP-03, PRMP-04）
+- [x] 04-04-PLAN.md — 视觉分析器完成 + 模块集成（VISL-02, VISL-03）
 
 ### Phase 5: Script Management
 **Goal**: 系统能加载、编辑、校验、保存 JSON 格式的视频脚本，且与 Python 版格式兼容
