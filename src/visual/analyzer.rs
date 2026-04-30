@@ -159,8 +159,9 @@ pub async fn analyze_video_frames(
 
     // Step 8 — 空结果屏障（在线护栏，AI-SPEC Section 6）
     if observations.is_empty() && !errors.is_empty() {
+        let success_count = raw_results.len() - errors.len();
         return Err(VisualError::BatchPartial {
-            analyzed_count: 0,
+            analyzed_count: success_count,
             total_count: raw_results.len(),
             errors,
         });
