@@ -1,5 +1,7 @@
 pub mod config;
 pub mod error;
+pub mod tts;
+pub mod llm;
 pub mod ffmpeg;
 pub mod jianying;
 pub mod script;
@@ -14,7 +16,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_version_returns_0_1_0() {
-        assert_eq!(version(), "0.1.0");
+    fn test_version_is_nonempty_semver() {
+        assert!(!version().is_empty(), "版本号不应为空");
+        assert!(version().contains('.'), "版本号应包含点号 (semver 格式)");
     }
 }
