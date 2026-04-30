@@ -17,6 +17,8 @@ impl Default for AppSection {
             llm_text_timeout: 180,
             llm_max_retries: 3,
             hide_config: true,
+            pexels_api_keys: Vec::new(),
+            pixabay_api_keys: Vec::new(),
         }
     }
 }
@@ -107,6 +109,25 @@ impl Default for FramesSection {
             frame_interval_input: 3,
             vision_batch_size: 10,
             vision_max_concurrency: 2,
+        }
+    }
+}
+
+impl Default for AudioSection {
+    fn default() -> Self {
+        Self {
+            target_lufs: -23.0,
+            max_peak: -1.0,
+            enable_audio_normalization: false,
+            enable_smart_volume: false,
+            tts_volume: 0.8,
+            original_volume: 1.3,
+            bgm_volume: 0.3,
+            sample_rate: 44100,
+            channels: 2,
+            bitrate: 192_000,
+            crossfade_duration: 0.1,
+            bgm_fade_out: 3.0,
         }
     }
 }

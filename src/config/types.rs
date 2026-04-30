@@ -24,6 +24,8 @@ pub struct AppConfig {
     pub proxy: ProxySection,
     #[serde(default)]
     pub frames: FramesSection,
+    #[serde(default)]
+    pub audio: AudioSection,
 }
 
 /// [app] 配置段
@@ -56,6 +58,10 @@ pub struct AppSection {
     pub llm_max_retries: u32,
     #[serde(default)]
     pub hide_config: bool,
+    #[serde(default)]
+    pub pexels_api_keys: Vec<String>,
+    #[serde(default)]
+    pub pixabay_api_keys: Vec<String>,
 }
 
 /// [ui] 配置段
@@ -204,6 +210,36 @@ pub struct FramesSection {
     pub vision_max_concurrency: u32,
 }
 
+/// [audio] 配置段
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AudioSection {
+    #[serde(default)]
+    pub target_lufs: f64,
+    #[serde(default)]
+    pub max_peak: f64,
+    #[serde(default)]
+    pub enable_audio_normalization: bool,
+    #[serde(default)]
+    pub enable_smart_volume: bool,
+    #[serde(default)]
+    pub tts_volume: f64,
+    #[serde(default)]
+    pub original_volume: f64,
+    #[serde(default)]
+    pub bgm_volume: f64,
+    #[serde(default)]
+    pub sample_rate: u32,
+    #[serde(default)]
+    pub channels: u32,
+    #[serde(default)]
+    pub bitrate: u32,
+    #[serde(default)]
+    pub crossfade_duration: f64,
+    #[serde(default)]
+    pub bgm_fade_out: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +325,20 @@ enabled = true
 frame_interval_input = 3
 vision_batch_size = 10
 vision_max_concurrency = 2
+
+[audio]
+target_lufs = -23.0
+max_peak = -1.0
+enable_audio_normalization = true
+enable_smart_volume = true
+tts_volume = 0.8
+original_volume = 1.3
+bgm_volume = 0.3
+sample_rate = 44100
+channels = 2
+bitrate = 192000
+crossfade_duration = 0.1
+bgm_fade_out = 3.0
 "#;
 
         let config: AppConfig = toml::from_str(toml_str).expect("完整 TOML 应解析成功");
@@ -306,6 +356,12 @@ vision_max_concurrency = 2
         assert_eq!(config.doubaotts.volume, 1.0);
         assert!(config.proxy.enabled);
         assert_eq!(config.frames.frame_interval_input, 3);
+        assert_eq!(config.audio.target_lufs, -23.0);
+        assert_eq!(config.audio.enable_audio_normalization, true);
+        assert_eq!(config.audio.tts_volume, 0.8);
+        assert_eq!(config.audio.sample_rate, 44100);
+        assert!(config.app.pexels_api_keys.is_empty());
+        assert!(config.app.pixabay_api_keys.is_empty());
     }
 
     /// 从空 TOML 字符串解析，应全部使用默认值
