@@ -79,8 +79,9 @@ impl IndexTts2Engine {
 
         let status = response.status();
         if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
             return Err(TTSError::SynthesisFailed(format!(
-                "IndexTTS2 API 返回 {}", status.as_u16()
+                "IndexTTS2 API 返回 {}: {}", status.as_u16(), body
             )));
         }
 

@@ -74,8 +74,9 @@ impl QwenTtsEngine {
 
         let status = response.status();
         if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
             return Err(TTSError::SynthesisFailed(format!(
-                "Qwen API 返回 {} (期望 200)", status.as_u16()
+                "Qwen API 返回 {}: {}", status.as_u16(), body
             )));
         }
 

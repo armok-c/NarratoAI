@@ -82,7 +82,8 @@ impl DoubaoTtsEngine {
 
         let status = response.status();
         if !status.is_success() {
-            return Err(TTSError::SynthesisFailed(format!("Doubao API 返回 {}", status.as_u16())));
+            let body = response.text().await.unwrap_or_default();
+            return Err(TTSError::SynthesisFailed(format!("Doubao API 返回 {}: {}", status.as_u16(), body)));
         }
 
         let result: serde_json::Value = response.json().await
