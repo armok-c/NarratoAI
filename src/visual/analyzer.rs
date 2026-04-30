@@ -5,6 +5,8 @@
 //!
 //! 核心函数：
 //! - `analyze_video_frames()` — 主入口，完整编排流水线
+//!
+//! 内部辅助：
 //! - `parse_and_retry()` — JSON 反序列化含 markdown 剥离和重试
 //! - `collect_frame_paths()` — 收集帧文件路径匹配 `keyframe_*.jpg`
 
@@ -32,7 +34,7 @@ struct BatchResponse {
 }
 
 /// `parse_and_retry` 的返回值，包含观察列表和总体摘要
-pub struct ParsedBatch {
+struct ParsedBatch {
     observations: Vec<FrameObservation>,
     overall_activity_summary: Option<String>,
 }
@@ -195,7 +197,7 @@ pub async fn analyze_video_frames(
 ///
 /// 先尝试按 LLM schema（`BatchResponse` 包装）解析，失败后回退尝试
 /// 直接解析单个 `FrameObservation`（兼容只返回单个对象的 LLM 响应）。
-pub fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
+fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
     let cleaned = types::strip_code_fence(json_text);
 
     // 尝试按 BatchResponse schema 解析（匹配 prompt 中声明的结构）
