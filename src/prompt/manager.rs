@@ -35,7 +35,7 @@ impl PromptManager {
         version: Option<&str>,
     ) -> Result<Prompt, PromptError> {
         let registry = self.registry.read().map_err(|e| {
-            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
         })?;
         let prompt = registry.get(category, name, version)?;
         Ok(prompt.clone())
@@ -80,7 +80,7 @@ impl PromptManager {
         is_default: bool,
     ) -> Result<(), PromptError> {
         let mut registry = self.registry.write().map_err(|e| {
-            PromptError::TemplateRender(format!("注册中心写入锁失败: {}", e))
+            PromptError::LockFailure(format!("注册中心写入锁失败: {}", e))
         })?;
         registry.register(prompt, is_default)
     }
@@ -88,7 +88,7 @@ impl PromptManager {
     /// 搜索匹配的 Prompt（D-02）
     pub fn search_prompts(&self, query: &str) -> Result<Vec<Prompt>, PromptError> {
         let registry = self.registry.read().map_err(|e| {
-            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
         })?;
         Ok(registry.search(query).into_iter().cloned().collect())
     }
@@ -107,7 +107,7 @@ impl PromptManager {
     /// 列出所有已注册的分类
     pub fn list_categories(&self) -> Result<Vec<String>, PromptError> {
         let registry = self.registry.read().map_err(|e| {
-            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
         })?;
         Ok(registry.list_categories())
     }
@@ -115,7 +115,7 @@ impl PromptManager {
     /// 列出指定分类下的所有 Prompt 名称
     pub fn list_prompts(&self, category: &str) -> Result<Vec<String>, PromptError> {
         let registry = self.registry.read().map_err(|e| {
-            PromptError::TemplateRender(format!("注册中心读取锁失败: {}", e))
+            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
         })?;
         Ok(registry.list_prompts(category)
             .iter()
