@@ -1,9 +1,11 @@
+mod azure_speech;
 mod common;
 mod doubaotts;
 mod edge_tts;
 mod indextts2;
 mod qwen_tts;
 mod soulvoice;
+mod tencent_tts;
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -115,6 +117,30 @@ pub async fn synthesize(
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = indextts2::IndexTts2Engine::new(cfg.indextts2.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
+        "azure_speech" => {
+            // D-01/D-02: 内联智能回退 (对齐 Python 版 should_use_azure_speech_services)
+            if azure_speech::should_use_azure_services(voice_name) {
+                // V2: Azure Speech REST API
+                let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+                let proxy_config = common::ProxyConfig::from_proxy(proxy);
+                let engine = azure_speech::AzureSpeechEngine::new(cfg.azure.clone(), &proxy_config);
+                engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            } else {
+                // V1: 回退 Edge-TTS
+                let (proxy_enabled, proxy_http, proxy_https) = match proxy {
+                    Some(p) => (p.enabled, p.http.clone(), p.https.clone()),
+                    None => (false, String::new(), String::new()),
+                };
+                let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
+                edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            }
+        }
+        "tencent_tts" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = tencent_tts::TencentTtsEngine::new(cfg.tencent.clone(), &proxy_config);
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
