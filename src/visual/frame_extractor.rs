@@ -327,7 +327,7 @@ fn extract_single_frame(
         png_str,
     ]);
     if level3_ok && file_is_valid(&png_path) {
-        match convert_image_to_jpeg(&png_path, output_path) {
+        match convert_image_to_jpeg(&png_path, output_path, quality) {
             Ok(_) => {
                 let _ = std::fs::remove_file(&png_path);
                 return Ok(());
@@ -358,7 +358,7 @@ fn extract_single_frame(
         bmp_str,
     ]);
     if level4_ok && file_is_valid(&bmp_path) {
-        match convert_image_to_jpeg(&bmp_path, output_path) {
+        match convert_image_to_jpeg(&bmp_path, output_path, quality) {
             Ok(_) => {
                 let _ = std::fs::remove_file(&bmp_path);
                 return Ok(());
@@ -515,17 +515,22 @@ fn run_ffmpeg(args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-/// 使用 image crate 将任意格式图片转换为 JPEG（quality 85）
-fn convert_image_to_jpeg(input: &Path, output: &Path) -> Result<(), VisualError> {
+/// 使用 image crate 将任意格式图片转换为 JPEG
+///
+/// `ffmpeg_quality` 是 FFmpeg 的 `-q:v` 值（范围 2-31，越小质量越高），
+/// 此函数将其映射到 image crate 的 JPEG quality（范围 1-100，越高越好）。
+fn convert_image_to_jpeg(input: &Path, output: &Path, ffmpeg_quality: u32) -> Result<(), VisualError> {
     let img = image::open(input).map_err(|e| {
         VisualError::FrameExtraction(format!("图片解码失败: {}", e))
     })?;
 
-    // Use quality 85 JPEG encoding
+    // Map FFmpeg quality (2-31, lower=better) to image crate quality (1-100, higher=better)
+    let image_quality = ((31 - ffmpeg_quality.clamp(2, 31)) as f32 / 29.0 * 99.0 + 1.0) as u8;
+
     let file = std::fs::File::create(output).map_err(|e| {
         VisualError::FrameExtraction(format!("创建输出文件失败: {}", e))
     })?;
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, 85);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, image_quality);
     img.write_with_encoder(encoder).map_err(|e| {
         VisualError::FrameExtraction(format!("JPEG 编码失败: {}", e))
     })
