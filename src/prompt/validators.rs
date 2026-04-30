@@ -61,7 +61,10 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         )));
     }
 
-    let paragraphs: Vec<&str> = trimmed.split("\n\n").collect();
+    let paragraphs: Vec<&str> = trimmed
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
     if paragraphs.len() < 3 {
         return Err(PromptError::Validation(format!(
             "解说文案段落数不足: {} 段（需要 >= 3）",
