@@ -20,7 +20,7 @@
 - [ ] **Phase 8: SDP Pipeline** - 短剧混剪流水线（多片段混剪）
 - [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
 - [ ] **Phase 10: Tauri Command Layer** - Tauri 2.0 命令注册、进度推送、文件对话框
-- [ ] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量
+- [x] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量 (completed 2026-04-30)
 - [x] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎 (completed 2026-04-30)
 
 ## Phase Details
@@ -192,7 +192,7 @@ Plans:
   - [x] 11-03-PLAN.md — YouTube 模块：视频下载（YoutubeError + download_video，格式查询/分辨率匹配/异步 CLI 子进程）
   - [x] 11-04-PLAN.md — 素材模块：Pexels/Pixabay 搜索下载（MaterialError + 搜索/key 轮询/MD5 缓存/ffprobe 验证/时长限制）
 - **Wave 3** *(blocked on Wave 2 completion)*
-  - [ ] 11-05-PLAN.md — 集成测试存根：audio_integration / youtube_integration / material_integration
+  - [x] 11-05-PLAN.md — 集成测试存根：audio_integration / youtube_integration / material_integration
 
 ### Phase 12: Additional TTS Engines
 **Goal**: 除 Edge-TTS 外的 6 个 TTS 引擎全部实现，达到与 Python 版一致的 TTS 功能覆盖
@@ -230,5 +230,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. SDP Pipeline | 0/? | Not started | - |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
-| 11. Extended Features | 4/5 | In Progress|  |
+| 11. Extended Features | 5/5 | Complete   | 2026-04-30 |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |
