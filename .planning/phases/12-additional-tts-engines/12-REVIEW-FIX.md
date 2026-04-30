@@ -1,117 +1,83 @@
 ---
 phase: 12-additional-tts-engines
-fixed_at: 2026-04-30T00:00:00Z
+fixed_at: 2026-05-01T00:00:00Z
 review_path: .planning/phases/12-additional-tts-engines/12-REVIEW.md
 iteration: 1
-findings_in_scope: 9
-fixed: 9
+findings_in_scope: 8
+fixed: 8
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 12: Code Review Fix Report
 
-**Fixed at:** 2026-04-30T00:00:00Z
+**Fixed at:** 2026-05-01T00:00:00Z
 **Source review:** .planning/phases/12-additional-tts-engines/12-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 9
-- Fixed: 9
+- Findings in scope: 8 (1 critical, 7 warnings)
+- Fixed: 8
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: Tencent TTS `speed_value` always computed as 0.0 (rate parameter ignored)
-
-**Files modified:** `src/tts/tencent_tts.rs`
-**Commit:** 50b7429
-
-**Applied fix:**
-- Added `rate: f64` parameter to `synthesize_at_url()` and `synthesize_once()`
-- Changed speed computation from `0.0_f64.clamp(-2.0, 2.0)` to `((rate - 1.0) * 2.0).clamp(-2.0, 2.0)`
-- Updated `synthesize()` to pass `rate` instead of using `_rate` as a discarded parameter
-- Updated all test calls to pass rate parameter (1.0)
-
-### WR-02: Azure Speech SSML omits prosody rate and pitch
-
-**Files modified:** `src/tts/azure_speech.rs`
-**Commit:** 2e1593f
-
-**Applied fix:**
-- Added `convert_rate_to_percent()` helper method (1.0 → "+0%", 1.5 → "+50%", 0.5 → "-50%")
-- Added `convert_pitch_to_hz()` helper method (0 → "+0Hz", 50 → "+50Hz", -10 → "-10Hz")
-- Updated SSML template to wrap voice text in `<prosody rate="{}" pitch="{}">` element
-- Changed `synthesize()` to pass `rate` and `pitch` (no longer underscore-prefixed)
-- Updated `synthesize_once()` to accept and use rate/pitch parameters
-- Added `xmlns:mstts` namespace to SSML declaration
-
-### WR-03: Whitespace-only text bypasses empty-text validation
-
-**Files modified:** `src/tts/soulvoice.rs`, `src/tts/doubaotts.rs`, `src/tts/qwen_tts.rs`, `src/tts/indextts2.rs`, `src/tts/tencent_tts.rs`, `src/tts/azure_speech.rs`
-**Commit:** 7b0bac1
-
-**Applied fix:**
-- Changed all 6 engine `synthesize()` methods from `if text.is_empty()` to `if text.trim().is_empty()`, preventing whitespace-only strings (e.g., `"  "`) from bypassing validation and being sent as empty text to upstream APIs.
-
-### WR-04: `should_use_azure_services` recompiles regex on each invocation
-
-**Files modified:** `src/tts/azure_speech.rs`
-**Commit:** 340aef2
-
-**Applied fix:**
-- Added `azure_voice_regex()` function using `std::sync::OnceLock` to compile the Azure Neural voice regex once and reuse it
-- Changed `should_use_azure_services()` to call the cached regex instead of `Regex::new()` on every invocation
-- Used `.expect()` instead of `.unwrap_or(false)` — regex compilation failure is a programming error that should panic, not silently return false
-
-### WR-05: `build_client` silently falls back to unproxied client on error
+### CR-01: `reqwest::Client::new()` returns `Result` -- compilation error
 
 **Files modified:** `src/tts/common.rs`
-**Commit:** 9751569
+**Commit:** `90c51ab`
+**Applied fix:** Changed `reqwest::Client::new()` to `reqwest::Client::new().expect("Failed to create default HTTP client")` to resolve the `Result<Client, Error>` type mismatch introduced by reqwest 0.12+.
 
-**Applied fix:**
-- Added `tracing::warn!` logging in the `unwrap_or_else` fallback path, so proxy configuration errors are logged with the error details instead of being silently swallowed
+### WR-01: Blocking `std::fs::remove_file` called in async runtime context
 
-### WR-06: Dead config field `SoulVoiceSection::voice_uri`
+**Files modified:** `src/tts/azure_speech.rs`, `src/tts/doubaotts.rs`, `src/tts/indextts2.rs`, `src/tts/qwen_tts.rs`, `src/tts/soulvoice.rs`, `src/tts/tencent_tts.rs`
+**Commit:** `594d363`
+**Applied fix:** Restructured `synthesize()` in all 6 engines to use async `tokio::fs::remove_file(output_path).await` instead of blocking `std::fs::remove_file(output_path)` inside `.map_err()`. The pattern was changed from `retry_loop(...).await.map_err(|e| { std::fs::remove_file(output_path); e })` to `let result = retry_loop(...).await; if result.is_err() { tokio::fs::remove_file(output_path).await; } result`.
 
-**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`, `src/tts/soulvoice.rs`
-**Commit:** e0036c1
+### WR-02: TtsProvider trait contract violated -- `rate` silently ignored by 4 engines
 
-**Applied fix:**
-- Removed `voice_uri` field from `SoulVoiceSection` struct
-- Removed `voice_uri: String::new()` from `Default` impl and all test constructors (4 occurrences in soulvoice.rs)
-- Removed `voice_uri = "speech:test"` from test TOML (would have caused `deny_unknown_fields` rejection)
+**Files modified:** `src/tts/soulvoice.rs`, `src/tts/doubaotts.rs`
+**Commit:** `2632b01`
+**Applied fix:** Implemented rate support in two engines whose APIs support it:
+- **SoulVoice**: Threaded `rate` through `synthesize_once()` and used it as the `"speed"` JSON field value (was hardcoded to `1.0`).
+- **Doubao**: Threaded `rate` through `synthesize_once()` and used it as `speed_ratio` (was hardcoded to `1.0`).
+- **IndexTTS2** and **Qwen**: Left as `_rate` (underscore-prefixed to document intentional disuse) since their upstream APIs lack speed control parameters.
 
-### WR-07: Dead config fields `DoubaoTTSSection::ak` and `sk`
+### WR-03: TtsProvider trait contract violated -- `pitch` silently ignored by 5 engines
 
-**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`, `src/tts/doubaotts.rs`
-**Commit:** 515c538
+**Files modified:** `src/tts/doubaotts.rs`
+**Commit:** `0460226`
+**Applied fix:** Implemented pitch support in Doubao (only engine whose API supports per-request pitch):
+- Changed `"pitch_ratio": self.config.pitch` to `"pitch_ratio": pitch` to use the caller's pitch parameter instead of engine config default.
+- Threaded `pitch` through `synthesize_once()` signature and closure.
+- Other engines (IndexTTS2, Qwen, SoulVoice, Tencent) left as `_pitch` due to genuine API limitations.
 
-**Applied fix:**
-- Removed `ak` and `sk` fields from `DoubaoTTSSection` struct (unused — authentication uses only `token` field)
-- Removed from `Default` impl and all test constructors (4 occurrences in doubaotts.rs)
-- Removed `ak = "db-ak"` and `sk = "db-sk"` from test TOML
+### WR-04: Response body discarded in HTTP error responses (4 engines)
 
-### WR-08: Dead config fields `UiSection::doubaotts_voice_type` and `doubaotts_rate`
+**Files modified:** `src/tts/azure_speech.rs`, `src/tts/doubaotts.rs`, `src/tts/qwen_tts.rs`, `src/tts/indextts2.rs`
+**Commit:** `f5f44cb`
+**Applied fix:** Added response body capture in all 4 engines' HTTP error handling paths: `let body = response.text().await.unwrap_or_default();` and included the body text in the error message format `"{}: {}"`, matching the pattern already used by soulvoice and tencent.
 
-**Files modified:** `src/config/types.rs`, `src/config/defaults.rs`
-**Commit:** 908a04b
+### WR-05: Missing empty `voice_name` validation in 5 engines
 
-**Applied fix:**
-- Removed `doubaotts_voice_type` and `doubaotts_rate` fields from `UiSection` struct (unused — voice type comes from `voice_name` parameter flow, rate is passed via the `rate` parameter)
-- Removed from `Default` impl
-- Removed from test TOML
+**Files modified:** `src/tts/doubaotts.rs`, `src/tts/indextts2.rs`, `src/tts/qwen_tts.rs`, `src/tts/soulvoice.rs`, `src/tts/tencent_tts.rs`
+**Commit:** `cd029c4`
+**Applied fix:** Added `if voice_name.trim().is_empty()` validation at the start of each engine's `synthesize()` method, matching the pattern already used by Azure Speech and Edge TTS. Returns `TTSError::SynthesisFailed("voice_name 不能为空")`.
 
-### WR-09: `retry_loop` callers do not clean up corrupted output files after retry exhaustion
+### WR-06: Tencent TC3 signature uses hardcoded host -- test does not verify production signing path
 
-**Files modified:** `src/tts/soulvoice.rs`, `src/tts/doubaotts.rs`, `src/tts/qwen_tts.rs`, `src/tts/indextts2.rs`, `src/tts/tencent_tts.rs`, `src/tts/azure_speech.rs`
-**Commit:** 0b7d086
+**Files modified:** `src/tts/tencent_tts.rs`
+**Commit:** `cb58fac`
+**Applied fix:** Changed the TC3 signing to derive the canonical host dynamically from `api_url` instead of hardcoding `tts.tencentcloudapi.com`. Both the canonical request's `host:` header line and the HTTP `Host` request header now use this dynamically-extracted host, ensuring the signature covers the actual target server. This allows wiremock tests to validate the full signing path.
 
-**Applied fix:**
-- Added `.map_err(|e| { let _ = std::fs::remove_file(output_path); e })` after each `retry_loop()` call across all 6 engines, ensuring partial/corrupted output files are cleaned up when all retry attempts are exhausted (matching the existing pattern in `edge_tts.rs:402`).
+### WR-07: Edge-TTS `synthesize_with_retry` duplicates `common::retry_loop` logic
+
+**Files modified:** `src/tts/edge_tts.rs`
+**Commit:** `cb88623`
+**Applied fix:** Replaced the duplicated retry logic in `synthesize_with_retry()` with a delegation to `common::retry_loop()`. Added the missing `use crate::tts::common;` import. Cleanup on retry exhaustion handled by `tokio::fs::remove_file`.
 
 ---
 
-_Fixed: 2026-04-30T00:00:00Z_
+_Fixed: 2026-05-01T00:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
