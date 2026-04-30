@@ -1,3 +1,4 @@
+mod common;
 mod edge_tts;
 
 use async_trait::async_trait;
@@ -77,6 +78,7 @@ pub async fn synthesize(
     pitch: f64,
     output_path: &Path,
     proxy: Option<&crate::config::types::ProxySection>,
+    app_config: Option<&crate::config::types::AppConfig>,
 ) -> Result<TtsOutput, TTSError> {
     match engine {
         "edge_tts" => {
@@ -140,6 +142,7 @@ mod tests {
             0.0,
             Path::new("test.mp3"),
             None,
+            None,
         )
         .await;
         assert!(result.is_err());
@@ -160,6 +163,7 @@ mod tests {
             1.0,
             0.0,
             Path::new("test.mp3"),
+            None,
             None,
         )
         .await;
