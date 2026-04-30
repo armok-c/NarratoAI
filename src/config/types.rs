@@ -129,6 +129,8 @@ pub struct TtsQwenSection {
     #[serde(default)]
     pub api_key: String,
     #[serde(default)]
+    pub api_url: String,
+    #[serde(default)]
     pub model_name: String,
 }
 

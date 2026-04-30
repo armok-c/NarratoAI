@@ -64,6 +64,7 @@ impl Default for TtsQwenSection {
     fn default() -> Self {
         Self {
             api_key: String::new(),
+            api_url: String::new(),
             model_name: "qwen3-tts-flash".to_string(),
         }
     }
