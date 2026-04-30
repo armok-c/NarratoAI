@@ -2,7 +2,7 @@
 phase: 04-prompt-system-visual-analyzer
 reviewed: 2026-04-30T12:00:00Z
 depth: standard
-files_reviewed: 19
+files_reviewed: 20
 files_reviewed_list:
   - Cargo.toml
   - src/lib.rs
@@ -26,154 +26,156 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 3
-  info: 5
-  total: 8
+  info: 3
+  total: 6
 status: issues_found
 ---
 
-# Phase 4: Code Review Report (Re-review #8, Iteration 9)
+# Phase 04: Code Review Report (Iteration 10)
 
 **Reviewed:** 2026-04-30T12:00:00Z
 **Depth:** standard
-**Files Reviewed:** 19
+**Files Reviewed:** 20
 **Status:** issues_found
 
 ## Summary
 
-Re-review #8 of Phase 04 covering the prompt system (types, error, registry, template, manager, validators, register) and visual analyzer (error, types, frame_extractor, analyzer) subsystems. All 273 library tests pass.
+对 Phase 04 (prompt-system-visual-analyzer) 进行第 10 次迭代审查。上次审查（迭代 9）发现的 3 个 WARNING（WR-01: 未校验 quality 范围、WR-02: extract_frames_fast_path 公开可见性、WR-03: analyzed_count 始终为 0）已在 commits b14a6a7、96e788c、7256b6a 中修复。本次审查确认所有历史修复均保持有效，并发现 3 个新 WARNING 和 3 个 INFO 级别问题。
 
-**Previous fix verification (iteration 8 -> 9):**
-- IN-01 (PromptError::Version dead code): Verified -- `grep` for `PromptError::Version` returns zero matches across `src/`. Fix confirmed.
-- IN-02 (total_frames used extract count): Verified -- line 185 of `analyzer.rs` now reads `total_frames: frame_paths.len()`. Fix confirmed.
-- IN-03 (missing LockFailure test): Verified -- `error.rs` lines 48-53 contain `test_lock_failure_error_message_chinese` test. Fix confirmed.
+整体代码质量良好：类型系统完整、错误处理规范、测试覆盖充分。新发现的问题集中在临时文件清理、边界验证和 LLM 响应兼容性三个方面。
 
-All three previous fixes are correctly applied.
+## Previous Fix Verification
 
-**New findings:** 0 critical, 3 warnings, 5 info items. The warnings involve unvalidated `quality` parameter bounds in frame extraction, an `extract_frames_fast_path` function that is `pub` but only used internally, and an incorrect `analyzed_count` value (always 0) in the `BatchPartial` error path.
+以下验证上次审查（迭代 9）的 3 个 WARNING 修复是否保持有效：
+
+| 旧编号 | 问题 | 修复 Commit | 状态 |
+|--------|------|-------------|------|
+| WR-01 | 未校验 JPEG quality 范围 | b14a6a7 | 已验证：`frame_extractor.rs:42-46` 添加了 `quality_val < 2 \|\| quality_val > 31` 校验 |
+| WR-02 | `extract_frames_fast_path` 公开可见性 | 96e788c | 已验证：`frame_extractor.rs:102` 标记为 `pub(crate)` |
+| WR-03 | `BatchPartial` 的 `analyzed_count` 始终为 0 | 7256b6a | 已验证：`analyzer.rs:162` 使用 `raw_results.len() - errors.len()` 计算成功数 |
+
+所有三个历史修复均已验证有效。
 
 ## Warnings
 
-### WR-01: Unvalidated `quality` parameter passed directly to FFmpeg `-q:v`
+### WR-01: Level 3/4 回退路径失败时临时文件未清理
 
-**File:** `src/visual/frame_extractor.rs:41`
-**Issue:** The `quality` parameter (`Option<u32>`) is accepted with `unwrap_or(5)` but never validated against the FFmpeg `-q:v` valid range (2-31). A caller passing `quality: Some(0)` or `quality: Some(999)` will produce a malformed FFmpeg command. While `extract_single_frame` calls `convert_image_to_jpeg` which does `ffmpeg_quality.clamp(2, 31)` for the image crate conversion, the direct FFmpeg `-q:v` argument at line 128 (`&quality.to_string()`) and lines 279, 298 is unclamped.
+**File:** `src/visual/frame_extractor.rs:316-375`
+**Issue:** `extract_single_frame` 的 Level 3 和 Level 4 回退会创建 PNG/BMP 临时文件。当 FFmpeg 生成文件成功但后续 `convert_image_to_jpeg` 失败时（第 340-343 行和 369-373 行），临时 PNG/BMP 文件不会被删除。虽然最终 `extract_frames_fallback` 会报告错误并继续处理下一帧，但这些残留文件会留在 `output_dir` 中。
 
-Note: `convert_image_to_jpeg` at line 528 correctly clamps the quality, but the primary FFmpeg JPEG extraction paths (levels 1 and 2) do not.
+更关键的场景：当 Level 3 PNG 写入成功但转换失败，然后进入 Level 4 时，Level 3 的 PNG 文件仍然残留。同理 Level 4 BMP 转换失败时 BMP 也残留。此外，Level 1/2 写入的无效 `output_path` 文件在最终所有级别均失败时也不会清理。
 
-**Fix:** Add validation at the entry point of `extract_frames`:
+**Fix:**
+
 ```rust
-let quality_val = quality.unwrap_or(5);
-if quality_val < 2 || quality_val > 31 {
-    return Err(VisualError::FrameExtraction(
-        format!("JPEG quality 值 ({}) 超出有效范围 2-31", quality_val)
-    ));
+// Level 3: PNG -> JPEG conversion
+// ... (existing code) ...
+if level3_ok && file_is_valid(&png_path) {
+    match convert_image_to_jpeg(&png_path, output_path, quality) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&png_path);
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::warn!("PNG 转 JPEG 失败: {}", e);
+            let _ = std::fs::remove_file(&png_path); // 清理失败的 PNG
+        }
+    }
+}
+
+// Level 4: BMP -> JPEG conversion
+// ... (existing code) ...
+if level4_ok && file_is_valid(&bmp_path) {
+    match convert_image_to_jpeg(&bmp_path, output_path, quality) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&bmp_path);
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::warn!("BMP 转 JPEG 失败: {}", e);
+            let _ = std::fs::remove_file(&bmp_path); // 清理失败的 BMP
+        }
+    }
+}
+
+// 最终所有级别均失败时清理残留的 output_path
+let _ = std::fs::remove_file(output_path);
+Err(VisualError::FrameExtraction(...))
+```
+
+### WR-02: `validate_narration_script` 按 `\n\n` 分割不验证空段落
+
+**File:** `src/prompt/validators.rs:64-70`
+**Issue:** 验证解说文案时按 `"\n\n"` 分割并检查段落数 >= 3。但分割不排除空段落——例如输入以 `"\n\n"` 开头会产生一个空字符串作为第一个段落。虽然长度检查 `>= 50` 会阻止极端情况，但 `"a\n\nb\n\nc"` 这样总长超过 50 字符、每段仅含 1 字符的输入也能通过验证，显然不满足"解说文案"的语义要求。空段落不构成有效内容，应在计数前过滤。
+
+**Fix:**
+
+```rust
+let paragraphs: Vec<&str> = trimmed
+    .split("\n\n")
+    .filter(|p| !p.trim().is_empty())
+    .collect();
+if paragraphs.len() < 3 {
+    return Err(PromptError::Validation(format!(
+        "解说文案段落数不足: {} 段（需要 >= 3）",
+        paragraphs.len()
+    )));
 }
 ```
 
-### WR-02: `extract_frames_fast_path` is `pub` but only called internally
+### WR-03: `BatchResponse` 的 `deny_unknown_fields` 与 LLM 响应兼容性风险
 
-**File:** `src/visual/frame_extractor.rs:97`
-**Issue:** The function `extract_frames_fast_path` is declared `pub async fn` but is only called from `extract_frames` (line 54) within the same module. No external crate or module references it. Making it `pub` exposes an internal implementation detail as part of the module's public API, increasing the maintenance surface and making it harder to change the fast-path/fallback strategy later.
+**File:** `src/visual/analyzer.rs:28-34`
+**Issue:** `BatchResponse` 结构体使用了 `#[serde(deny_unknown_fields)]`。当 LLM 返回的 JSON 中包含除 `observations`/`frame_observations` 和 `overall_activity_summary` 之外的任何额外字段时，整个批次解析会失败。某些 LLM 可能在响应中额外返回 `frame_number`、`total_frames` 等元数据字段，导致整个批次的解析结果被丢弃。
 
-Similarly, `parse_frame_number_from_name` (line 541) is `pub(crate)` with `#[allow(dead_code)]` and is never used outside its own test block.
+虽然 `parse_and_retry` 存在回退到单帧 `FrameObservation` 解析的逻辑，但该回退只能处理单帧响应。如果 LLM 返回多帧数组附带额外字段，整个批次将丢失。
 
-**Fix:** Change visibility to `pub(crate)` or remove `pub` entirely:
+`FrameObservation`（`types.rs`）同样使用了 `deny_unknown_fields`，但那是对已知 schema 的严格校验。`BatchResponse` 作为 LLM 输出的外层包装，应更宽松。
+
+**Fix:** 移除 `BatchResponse` 上的 `deny_unknown_fields`：
+
 ```rust
-pub(crate) async fn extract_frames_fast_path(
-```
-And remove `#[allow(dead_code)]` from `parse_frame_number_from_name` if it remains unused, or remove the function entirely.
-
-### WR-03: `analyzed_count` always 0 in `VisualError::BatchPartial`
-
-**File:** `src/visual/analyzer.rs:162-166`
-**Issue:** When the "empty result barrier" triggers (all batches failed, zero observations), the code returns:
-```rust
-VisualError::BatchPartial {
-    analyzed_count: 0,
-    total_count: raw_results.len(),
-    errors,
-}
-```
-Since all batches failed, `analyzed_count` is indeed 0. However, the error message format `"已分析 {analyzed_count}/{total_count} 批次"` (from `error.rs` line 15) will always read `"已分析 0/N 批次"`. This is technically correct but misleading -- the `BatchPartial` variant is described as "部分批次失败" (partial batch failure), yet this code path represents a total failure, not a partial one. A consumer distinguishing between "some succeeded" vs "all failed" cannot do so from this variant alone.
-
-**Fix:** Consider tracking the actual number of successful batches and using it:
-```rust
-let success_count = raw_results.len() - errors.len();
-if observations.is_empty() && !errors.is_empty() {
-    return Err(VisualError::BatchPartial {
-        analyzed_count: success_count, // or use a separate TotalFailure variant
-        total_count: raw_results.len(),
-        errors,
-    });
+#[derive(serde::Deserialize)]
+struct BatchResponse {
+    #[serde(alias = "frame_observations")]
+    observations: Vec<FrameObservation>,
+    overall_activity_summary: Option<String>,
 }
 ```
 
 ## Info
 
-### IN-01: `strip_code_fence` does not handle whitespace between ``` and json
+### IN-01: `template.rs` json 过滤器使用 `expect` 代替错误传播
 
-**File:** `src/visual/types.rs:47`
-**Issue:** The function checks `strip_prefix("```json")` but does not handle the case where the LLM returns `` ``` json `` (with a space). This is a less common but possible LLM output variation. The current code would fall through to the plain `` ``` `` strip, which would then leave `json ...` as part of the content, causing a JSON parse failure.
+**File:** `src/prompt/template.rs:54`
+**Issue:** `serde_json::to_string(s).expect("serde_json cannot fail serializing &str")` 使用 `expect` 而非 `Result`。虽然对于 `&str` 输入 `serde_json::to_string` 不会失败，但这是一个硬编码的不可恢复假设。代码中已有注释说明，无需修改。
 
-**Fix:** Consider normalizing whitespace:
-```rust
-pub(crate) fn strip_code_fence(text: &str) -> &str {
-    let trimmed = text.trim();
-    trimmed
-        .strip_prefix("```")
-        .map(|rest| {
-            // Skip optional language tag (json, etc.)
-            let rest = rest.strip_prefix("json").unwrap_or(rest);
-            rest.trim().trim_end_matches("```").trim()
-        })
-        .unwrap_or(trimmed)
-}
-```
-Alternatively, use a regex or match the language tag more loosely.
+**Fix:** 无需修改。现有注释已足够说明。
 
-### IN-02: Missing `interval_seconds.is_infinite()` check
+### IN-02: `file_is_valid` 存在 TOCTOU 竞态窗口
 
-**File:** `src/visual/frame_extractor.rs:43`
-**Issue:** The validation checks `is_nan() || <= 0.0` but does not check `is_infinite()`. If `interval_seconds` is `f64::INFINITY`, it passes validation. The fast path would generate `fps=1/inf` which FFmpeg would reject, causing a silent fallback to the per-frame path. In the fallback path, `(duration / f64::INFINITY).ceil()` would produce 0.0, and the function would return `Ok(0)` silently. Not a crash, but a confusing silent no-op.
+**File:** `src/visual/frame_extractor.rs:510-512`
+**Issue:** `file_is_valid` 先检查 `path.exists()` 再读取 `path.metadata()`，两步之间存在理论上的 TOCTOU（Time-of-check to time-of-use）窗口。在此代码的上下文中（单线程帧提取）不存在实际风险，但可简化为单步操作。
 
 **Fix:**
+
+```rust
+fn file_is_valid(path: &Path) -> bool {
+    std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false)
+}
+```
+
+### IN-03: `interval_seconds` 缺少 `is_infinite()` 检查
+
+**File:** `src/visual/frame_extractor.rs:48`
+**Issue:** 验证检查了 `is_nan() || <= 0.0` 但未检查 `is_infinite()`。如果 `interval_seconds` 为 `f64::INFINITY`，会通过验证。快速路径将生成 `fps=1/inf`，FFmpeg 会拒绝，静默回退到逐帧路径。在回退路径中 `(duration / f64::INFINITY).ceil()` 产生 0.0，函数返回 `Ok(0)` 静默无操作。不会崩溃，但行为令人困惑。
+
+**Fix:**
+
 ```rust
 if interval_seconds.is_nan() || interval_seconds.is_infinite() || interval_seconds <= 0.0 {
     return Err(VisualError::FrameExtraction("帧提取间隔必须为有限正数".into()));
 }
-```
-
-### IN-03: Stale intermediate files left on fallback level transition
-
-**File:** `src/visual/frame_extractor.rs:268-369`
-**Issue:** In `extract_single_frame`, when Level 1 (HW JPEG) writes to `output_path` but produces an invalid file, and Level 2 also fails, the stale/empty `output_path` file from Level 1/2 is left on disk. Levels 3 and 4 write to separate `.png`/`.bmp` paths and only convert to `output_path` on success. But if Level 3's `run_ffmpeg` succeeds but `convert_image_to_jpeg` fails, the stale `output_path` from Level 1/2 remains. Similarly if Level 4 fails after Level 3's conversion failed. The stale JPEG at `output_path` (0 bytes or corrupted from Level 1/2) is never cleaned up before the final `Err` return.
-
-This is unlikely to cause real-world issues since `file_is_valid` checks would catch it, and the caller (`extract_frames_fallback`) does not re-use failed frame paths, but it leaves orphan files in the output directory.
-
-**Fix:** Add cleanup before returning the final error:
-```rust
-// Before the final error return
-let _ = std::fs::remove_file(output_path);
-Err(VisualError::FrameExtraction(...))
-```
-
-### IN-04: `#[allow(dead_code)]` on `seconds_to_hhmmssmmm` is unnecessary
-
-**File:** `src/visual/frame_extractor.rs:448`
-**Issue:** The function `seconds_to_hhmmssmmm` has `#[allow(dead_code)]` but is used at lines 212, 430, 576, and 602. The `#[allow(dead_code)]` annotation is stale and should be removed.
-
-**Fix:** Remove `#[allow(dead_code)]` from line 448.
-
-### IN-05: `truncate` filter test uses byte indexing on potentially multi-byte strings
-
-**File:** `src/prompt/template.rs:253`
-**Issue:** The assertion `&result[..97] == &long_text[..97]` works only because `long_text` is `"A".repeat(150)` (pure ASCII). However, this test pattern could mislead future developers into using byte slicing on multi-byte strings. The `truncate` filter itself correctly uses `.chars().take(97)`, but the test assertion couples to byte boundaries.
-
-**Fix:** Use character-based comparison instead:
-```rust
-let result_chars: String = result.chars().take(97).collect();
-let expected_chars: String = long_text.chars().take(97).collect();
-assert_eq!(result_chars, expected_chars);
 ```
 
 ---
@@ -181,4 +183,4 @@ assert_eq!(result_chars, expected_chars);
 _Reviewed: 2026-04-30T12:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Re-review: #8, iteration 9_
+_Iteration: 10_
