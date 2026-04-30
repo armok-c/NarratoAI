@@ -1,5 +1,5 @@
 use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
+use crate::tts::{common, TtsOutput, TtsProvider, WordBoundary};
 use async_trait::async_trait;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -371,41 +371,17 @@ impl EdgeTtsEngine {
 
     /// 执行带重试的 TTS 合成
     ///
-    /// 对应 D-03: 3 次重试，间隔 1 秒
+    /// 对应 D-03: 3 次重试，间隔 1 秒。委托给 common::retry_loop
     async fn synthesize_with_retry(
         &self,
         ssml: &str,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        let max_attempts = 4; // 1 initial + 3 retries (D-03: 3 次重试)
-        let mut last_error = None;
-
-        for attempt in 1..=max_attempts {
-            tracing::info!("Edge-TTS 合成尝试 {}/{}", attempt, max_attempts);
-
-            match self.synthesize_once(ssml, output_path).await {
-                Ok(output) => return Ok(output),
-                Err(e) => {
-                    if matches!(&e, TTSError::AuthenticationFailed(_)) {
-                        return Err(e);
-                    }
-                    tracing::warn!("Edge-TTS 合成尝试 {} 失败: {}", attempt, e);
-                    last_error = Some(e);
-                    if attempt < max_attempts {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                }
-            }
+        let result = common::retry_loop(|| self.synthesize_once(ssml, output_path)).await;
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(output_path).await;
         }
-
-        // 清理重试失败后可能残留的损坏输出文件
-        let _ = tokio::fs::remove_file(output_path).await;
-
-        Err(TTSError::RetryExhausted(format!(
-            "Edge-TTS 重试 {} 次后仍失败: {}",
-            max_attempts - 1,
-            last_error.map_or("未知错误".to_string(), |e| e.to_string())
-        )))
+        result
     }
 
     /// 单次 TTS 合成（无重试）
