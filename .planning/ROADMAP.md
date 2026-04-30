@@ -195,7 +195,12 @@ Plans:
   4. Qwen TTS 引擎生成语音音频
   5. IndexTTS2 语音克隆引擎用参考音频生成语音
   6. Doubao TTS 引擎生成语音音频
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [x] 12-01-PLAN.md — 共享模块 common.rs + SoulVoice + Doubao 引擎（Wave 1）
+- [ ] 12-02-PLAN.md — Qwen + IndexTTS2 引擎（Wave 2）
+- [ ] 12-03-PLAN.md — Azure Speech + Tencent TTS 引擎（Wave 3，含 TC3 签名）
 
 ## Progress
 
@@ -216,4 +221,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
 | 11. Extended Features | 0/? | Not started | - |
-| 12. Additional TTS Engines | 0/? | Not started | - |
+| 12. Additional TTS Engines | 1/3 | In Progress|  |
