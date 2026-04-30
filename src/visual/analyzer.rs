@@ -10,7 +10,6 @@
 //! - `parse_and_retry()` — JSON 反序列化含 markdown 剥离和重试
 //! - `collect_frame_paths()` — 收集帧文件路径匹配 `keyframe_*.jpg`
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use tracing::{error, info, warn};
@@ -63,7 +62,6 @@ pub async fn analyze_video_frames(
     output_dir: &Path,
     llm_provider: &dyn LlmProvider,
     prompt_template: &str,
-    _context: &HashMap<&str, &str>,
     batch_size: usize,
     max_concurrency: usize,
     progress: Option<ProgressCallback>,
