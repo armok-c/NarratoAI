@@ -215,7 +215,7 @@ pub fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
         Err(e) => {
             warn!(
                 error = %e,
-                raw_preview = &json_text[..json_text.len().min(200)],
+                raw_preview = truncate_str(json_text, 200),
                 "JSON 反序列化失败",
             );
             Err(VisualError::Analysis(format!(
@@ -265,6 +265,14 @@ fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
     // Sort by frame number (lexical sort on zero-padded prefix)
     paths.sort();
     Ok(paths)
+}
+
+/// 按字符边界截断字符串，避免在多字节 UTF-8 字符中间切割导致 panic
+fn truncate_str(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
 }
 
 // ---------------------------------------------------------------------------
