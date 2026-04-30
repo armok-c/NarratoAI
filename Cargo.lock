@@ -1574,6 +1574,7 @@ dependencies = [
  "image",
  "native-tls",
  "notify",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -1582,6 +1583,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -2868,6 +2870,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]
