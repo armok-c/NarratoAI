@@ -1,61 +1,49 @@
 ---
 phase: 09-jianying-export
-fixed_at: 2026-04-29T13:00:00Z
+fixed_at: 2026-04-30T12:00:00Z
 review_path: .planning/phases/09-jianying-export/09-REVIEW.md
-iteration: 4
-findings_in_scope: 4
-fixed: 4
+iteration: 5
+findings_in_scope: 2
+fixed: 2
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 09: Code Review Fix Report (Iteration 4)
+# Phase 09: Code Review Fix Report (Iteration 5)
 
-**Fixed at:** 2026-04-29T13:00:00Z
-**Source review:** .planning/phases/09-jianying-export/09-REVIEW.md
-**Iteration:** 4
+**Fixed at:** 2026-04-30T12:00:00Z
+**Source review:** `.planning/phases/09-jianying-export/09-REVIEW.md`
+**Iteration:** 5
 
 **Summary:**
-- Findings in scope: 4 (2 Critical + 2 Warning)
-- Fixed: 4
+- Findings in scope: 2 (CR-01, WR-01)
+- Fixed: 2
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: JSON injection via unescaped draft_name in DRAFT_META_INFO_TEMPLATE
+### CR-01: parse_timestamp_start produces wrong result for single-segment timestamps without comma-millis
 
 **Files modified:** `src/jianying/builder.rs`
-**Commit:** (uncommitted -- applied as working tree change)
-**Applied fix:** Replaced the naive `String::replace()` approach with `serde_json::Value` parsing. The `DRAFT_META_INFO_TEMPLATE` is now parsed as `serde_json::Value`, then `draft_id` and `draft_name` fields are set programmatically via `serde_json::json!()`. This eliminates JSON injection by ensuring all values are properly escaped through serde's serialization. The pattern matches the existing safe approach already used in `ScriptFile::save` for `draft_content.json`.
+**Commit:** pending (orchestrator handles)
+**Applied fix:** After careful code trace, confirmed the parser already handles both `"HH:MM:SS,mmm-HH:MM:SS,mmm"` and `"HH:MM:SS-HH:MM:SS"` formats correctly. The actual gap was lack of test coverage and unclear documentation. Added two new tests (`test_parse_timestamp_start_no_comma_range` and `test_parse_timestamp_start_single_timestamp_rejected`) to verify the correct behavior, and updated the docstring to clarify that the range separator `-` is mandatory.
 
-### CR-02: Path traversal via unsanitized draft_name
-
-**Files modified:** `src/jianying/builder.rs`
-**Commit:** (uncommitted -- applied as working tree change)
-**Applied fix:** Added `validate_draft_name()` function that rejects draft names containing `/`, `\`, `..`, or `\0` characters. Called at the top of `DraftFolder::create_draft` before the name is used in `draft_path.join(draft_name)`. Added test `test_validate_draft_name_rejects_traversal` covering path traversal, forward/backslash, null byte, double-dot, and valid name acceptance.
-
-### WR-01: OST=NarrationOnly silently skips audio when clip.audio is None
-
-**Files modified:** `src/jianying/builder.rs`
-**Commit:** (uncommitted -- applied as working tree change)
-**Applied fix:** Replaced `if let Some(ref audio_path) = clip.audio` with `match clip.audio` that returns `JianYingError::MissingField { field: "audio", clip_index: i }` in the `None` arm. This ensures that when `OstType::NarrationOnly` or `OstType::Mixed` is declared but no audio is provided, the error is surfaced immediately instead of silently producing a semantically incorrect draft.
-
-### WR-02: trange() accepts negative start values
+### WR-01: parse_seconds does not validate for negative values
 
 **Files modified:** `src/jianying/time.rs`
-**Commit:** (uncommitted -- applied as working tree change)
-**Applied fix:** Added `start_us < 0` to the existing validation condition in `trange()`, changing `if duration_us < 0` to `if start_us < 0 || duration_us < 0`. This brings `trange()` into parity with `trange_from_secs()` which already validates both parameters. Added test `test_trange_negative_start_returns_none` confirming that `trange("-2s", "5s")` returns `None`.
+**Commit:** pending (orchestrator handles)
+**Applied fix:** Added negative-value validation inside `parse_seconds` -- after computing microseconds, returns `None` if the result is negative. This makes `parse_seconds` self-contained in its validation, rather than relying solely on callers (like `trange`) to check. Added test `test_parse_seconds_negative_returns_none` covering both `"-5s"` and `"-3.0"` inputs.
 
 ## Verification Results
 
-- **cargo check**: All fixes compile cleanly.
-- **cargo test --lib**: 138 unit tests passed, 0 failed (2 new tests added).
+- **cargo test --lib**: 141 unit tests passed, 0 failed (3 new tests added).
 - New tests confirmed passing:
-  - `test_validate_draft_name_rejects_traversal` (CR-02)
-  - `test_trange_negative_start_returns_none` (WR-02)
+  - `test_parse_timestamp_start_no_comma_range` (CR-01)
+  - `test_parse_timestamp_start_single_timestamp_rejected` (CR-01)
+  - `test_parse_seconds_negative_returns_none` (WR-01)
 
 ---
 
-_Fixed: 2026-04-29T13:00:00Z_
+_Fixed: 2026-04-30T12:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 4_
+_Iteration: 5_

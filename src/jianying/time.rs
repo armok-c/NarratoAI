@@ -43,7 +43,7 @@ pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange
 
 /// 解析时间字符串为微秒——支持 "1.5s" 和纯数字
 ///
-/// 如果输入格式无效（如 "abc" 或 "5x"），返回 None 而非静默转为 0。
+/// 如果输入格式无效（如 "abc" 或 "5x"）或结果为负数，返回 None 而非静默转为 0。
 fn parse_seconds(input: &str) -> Option<i64> {
     let input = input.trim().to_lowercase();
     let secs: f64 = if input.ends_with('s') {
@@ -51,7 +51,11 @@ fn parse_seconds(input: &str) -> Option<i64> {
     } else {
         input.parse().ok()?
     };
-    Some((secs * SEC as f64).round() as i64)
+    let us = (secs * SEC as f64).round() as i64;
+    if us < 0 {
+        return None;
+    }
+    Some(us)
 }
 
 #[cfg(test)]
@@ -135,6 +139,12 @@ mod tests {
         assert!(parse_seconds("abc").is_none(), "无效输入应返回 None");
         assert!(parse_seconds("5x").is_none(), "非数字后缀应返回 None");
         assert!(parse_seconds("").is_none(), "空字符串应返回 None");
+    }
+
+    #[test]
+    fn test_parse_seconds_negative_returns_none() {
+        assert!(parse_seconds("-5s").is_none(), "负数输入应返回 None");
+        assert!(parse_seconds("-3.0").is_none(), "负数纯数字应返回 None");
     }
 
     #[test]

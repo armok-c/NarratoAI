@@ -378,6 +378,8 @@ fn parse_source_start_time(clip: &ScriptClip, index: usize) -> Result<f64, JianY
 /// 解析时间戳字符串的起始部分为秒数
 /// 格式: "HH:MM:SS,mmm-HH:MM:SS,mmm" 或 "HH:MM:SS-HH:MM:SS"
 ///
+/// 输入必须包含范围分隔符 `-`（用于分割起止时间），否则返回 None。
+/// 单一时间戳（如 "00:00:07,559"，不含 `-`）不属于此函数的受理范围。
 /// 使用 `rsplit_once('-')` 从最后一个 `-` 分割，避免负号和逗号分隔符冲突。
 /// 同时验证小时、分钟、秒、毫秒非负且在有效范围内。
 fn parse_timestamp_start(range: &str) -> Option<f64> {
@@ -753,6 +755,29 @@ mod tests {
         assert!(parse_timestamp_start("invalid").is_none());
         assert!(parse_timestamp_start("").is_none());
         assert!(parse_timestamp_start("--").is_none());
+    }
+
+    /// Test: parse_timestamp_start 正确解析无逗号毫秒格式 "00:00:07-00:00:15" → 7.0 秒
+    #[test]
+    fn test_parse_timestamp_start_no_comma_range() {
+        let result = parse_timestamp_start("00:00:07-00:00:15");
+        assert!(result.is_some(), "无逗号毫秒的范围格式应解析成功");
+        let secs = result.unwrap();
+        assert!(
+            (secs - 7.0).abs() < 0.001,
+            "应为 7.0 秒，实际: {}",
+            secs
+        );
+    }
+
+    /// Test: parse_timestamp_start 单一时间戳（不含 `-`）返回 None
+    #[test]
+    fn test_parse_timestamp_start_single_timestamp_rejected() {
+        let result = parse_timestamp_start("00:00:07,559");
+        assert!(
+            result.is_none(),
+            "不含范围分隔符 `-` 的单一时间戳应返回 None"
+        );
     }
 
     // --- validate_draft_name 测试 ---
