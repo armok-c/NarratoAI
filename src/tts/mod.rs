@@ -1,4 +1,7 @@
+mod common;
+mod doubaotts;
 mod edge_tts;
+mod soulvoice;
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -77,6 +80,7 @@ pub async fn synthesize(
     pitch: f64,
     output_path: &Path,
     proxy: Option<&crate::config::types::ProxySection>,
+    app_config: Option<&crate::config::types::AppConfig>,
 ) -> Result<TtsOutput, TTSError> {
     match engine {
         "edge_tts" => {
@@ -86,6 +90,18 @@ pub async fn synthesize(
             };
             let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
             edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
+        "soulvoice" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+        }
+        "doubaotts" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = doubaotts::DoubaoTtsEngine::new(cfg.doubaotts.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
             engine: engine.to_string(),
@@ -140,6 +156,7 @@ mod tests {
             0.0,
             Path::new("test.mp3"),
             None,
+            None,
         )
         .await;
         assert!(result.is_err());
@@ -160,6 +177,7 @@ mod tests {
             1.0,
             0.0,
             Path::new("test.mp3"),
+            None,
             None,
         )
         .await;
