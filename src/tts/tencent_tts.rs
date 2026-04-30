@@ -83,13 +83,21 @@ impl TencentTtsEngine {
         let timestamp = now.timestamp().to_string();
         let date = now.format("%Y-%m-%d").to_string();
 
+        // 从 api_url 中提取 host（用于 TC3 签名和 Host 头），确保与目标服务器一致
+        let host = api_url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split('/')
+            .next()
+            .unwrap_or("tts.tencentcloudapi.com");
+
         // Step 1: 构建 CanonicalRequest
         let http_request_method = "POST";
         let canonical_uri = "/";
         let canonical_query_string = "";
         let payload_hash = hex::encode(sha2::Sha256::digest(&request_body_bytes));
         let canonical_headers = format!(
-            "content-type:application/json; charset=utf-8\nhost:tts.tencentcloudapi.com\n"
+            "content-type:application/json; charset=utf-8\nhost:{}\n", host
         );
         let signed_headers = "content-type;host";
         let canonical_request = format!(
@@ -152,7 +160,7 @@ impl TencentTtsEngine {
             .post(api_url)
             .header("Authorization", &authorization)
             .header("Content-Type", "application/json; charset=utf-8")
-            .header("Host", "tts.tencentcloudapi.com")
+            .header("Host", host)
             .header("X-TC-Action", "TextToVoice")
             .header("X-TC-Timestamp", &timestamp)
             .header("X-TC-Version", "2019-08-23")
