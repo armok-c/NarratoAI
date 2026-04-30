@@ -53,7 +53,10 @@ impl ProxyConfig {
 pub fn build_client(proxy_config: &ProxyConfig) -> reqwest::Client {
     let builder = reqwest::Client::builder();
     let builder = proxy_config.apply_to_client(builder);
-    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+    builder.build().unwrap_or_else(|e| {
+        tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
+        reqwest::Client::new()
+    })
 }
 
 /// 带重试的 TTS 合成执行器
