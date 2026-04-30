@@ -26,7 +26,6 @@ use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
 /// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
 /// 需要先反序列化为该类型再提取内部的观察列表。
 #[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BatchResponse {
     #[serde(alias = "frame_observations")]
     observations: Vec<FrameObservation>,
