@@ -5,6 +5,7 @@ mod edge_tts;
 mod indextts2;
 mod qwen_tts;
 mod soulvoice;
+mod tencent_tts;
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -135,6 +136,12 @@ pub async fn synthesize(
                 let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
                 edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
             }
+        }
+        "tencent_tts" => {
+            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let engine = tencent_tts::TencentTtsEngine::new(cfg.tencent.clone(), &proxy_config);
+            engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {
             engine: engine.to_string(),
