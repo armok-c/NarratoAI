@@ -112,6 +112,9 @@ impl TtsProvider for IndexTts2Engine {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
+        if voice_name.trim().is_empty() {
+            return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
+        }
         // 检查 voice_name 或配置中是否有参考音频路径
         let has_prefix = voice_name.starts_with("indextts2:");
         if !has_prefix && self.config.reference_audio.is_empty() {

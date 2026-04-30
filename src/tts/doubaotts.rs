@@ -128,6 +128,9 @@ impl TtsProvider for DoubaoTtsEngine {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
+        if voice_name.trim().is_empty() {
+            return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
+        }
         let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate, pitch)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
