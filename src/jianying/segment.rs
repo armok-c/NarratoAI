@@ -216,10 +216,26 @@ mod tests {
     use crate::jianying::time::trange;
     use std::path::PathBuf;
 
+    /// 创建临时视频文件用于测试
+    fn make_video(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join(name);
+        std::fs::write(&path, b"").expect("创建测试文件失败");
+        (dir, path)
+    }
+
+    /// 创建临时音频文件用于测试
+    fn make_audio(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join(name);
+        std::fs::write(&path, b"").expect("创建测试文件失败");
+        (dir, path)
+    }
+
     /// Test 1: VideoSegment::new 生成的 JSON 包含 target_timerange={start:0,duration:5000000}
     #[test]
     fn test_video_segment_target_timerange() {
-        let path = PathBuf::from("video.mp4");
+        let (_dir, path) = make_video("video.mp4");
         let target = trange("0s", "5s").expect("应解析时间范围");
         let seg = VideoSegment::new(&path, target, 1920, 1080).expect("应成功创建 VideoSegment");
         let json = seg.to_json();
@@ -234,7 +250,7 @@ mod tests {
     /// Test 2: VideoSegment JSON 包含 clip 字段（alpha=1.0, scale x/y=1.0）
     #[test]
     fn test_video_segment_clip_fields() {
-        let path = PathBuf::from("video.mp4");
+        let (_dir, path) = make_video("video.mp4");
         let target = trange("0s", "5s").expect("应解析时间范围");
         let seg = VideoSegment::new(&path, target, 1920, 1080).expect("应成功创建");
         let json = seg.to_json();
@@ -250,7 +266,7 @@ mod tests {
     /// Test 3: VideoSegment JSON 包含 hdr_settings（intensity=1.0, mode=1, nits=1000）
     #[test]
     fn test_video_segment_hdr_settings() {
-        let path = PathBuf::from("video.mp4");
+        let (_dir, path) = make_video("video.mp4");
         let target = trange("0s", "5s").expect("应解析时间范围");
         let seg = VideoSegment::new(&path, target, 1920, 1080).expect("应成功创建");
         let json = seg.to_json();
@@ -263,7 +279,7 @@ mod tests {
     /// Test 4: VideoSegment::with_source_timerange 的 JSON 包含 source_timerange
     #[test]
     fn test_video_segment_with_source_timerange() {
-        let path = PathBuf::from("original.mp4");
+        let (_dir, path) = make_video("original.mp4");
         let target = trange("0s", "5s").expect("应解析时间范围");
         let source = trange("10s", "5s").expect("应解析时间范围");
         let seg =
@@ -287,7 +303,7 @@ mod tests {
     /// Test 5: AudioSegment::new 的 JSON 包含 clip=null, hdr_settings=null
     #[test]
     fn test_audio_segment_null_fields() {
-        let path = PathBuf::from("audio.mp3");
+        let (_dir, path) = make_audio("audio.mp3");
         let target = trange("0s", "3.5s").expect("应解析时间范围");
         let seg = AudioSegment::new(&path, target).expect("应成功创建 AudioSegment");
         let json = seg.to_json();
@@ -299,7 +315,7 @@ mod tests {
     /// Test 6: AudioSegment JSON 的 volume=1.0, speed=1.0
     #[test]
     fn test_audio_segment_volume_speed() {
-        let path = PathBuf::from("audio.mp3");
+        let (_dir, path) = make_audio("audio.mp3");
         let target = trange("0s", "3.5s").expect("应解析时间范围");
         let seg = AudioSegment::new(&path, target).expect("应成功创建");
         let json = seg.to_json();
@@ -312,7 +328,7 @@ mod tests {
     #[test]
     fn test_segment_extra_material_refs_contains_speed_id() {
         // VideoSegment
-        let vpath = PathBuf::from("video.mp4");
+        let (_vdir, vpath) = make_video("video.mp4");
         let vtarget = trange("0s", "5s").expect("应解析时间范围");
         let vseg = VideoSegment::new(&vpath, vtarget, 1920, 1080).expect("应成功创建");
         let vjson = vseg.to_json();
@@ -323,7 +339,7 @@ mod tests {
         );
 
         // AudioSegment
-        let apath = PathBuf::from("audio.mp3");
+        let (_adir, apath) = make_audio("audio.mp3");
         let atarget = trange("0s", "3.5s").expect("应解析时间范围");
         let aseg = AudioSegment::new(&apath, atarget).expect("应成功创建");
         let ajson = aseg.to_json();

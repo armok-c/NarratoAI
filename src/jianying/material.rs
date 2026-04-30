@@ -57,6 +57,11 @@ impl VideoMaterial {
     /// - `height`: 视频高度
     pub fn new(path: &Path, duration_us: i64, width: u32, height: u32) -> Result<Self, JianYingError> {
         let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if !abs_path.is_absolute() {
+            return Err(JianYingError::Validation {
+                details: format!("路径必须为绝对路径或已存在的文件: {}", abs_path.display()),
+            });
+        }
         let id = Uuid::new_v4().to_string().replace("-", "");
         let file_name = path
             .file_name()
@@ -116,6 +121,11 @@ impl AudioMaterial {
     /// - `duration_us`: 时长（微秒）
     pub fn new(path: &Path, duration_us: i64) -> Result<Self, JianYingError> {
         let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if !abs_path.is_absolute() {
+            return Err(JianYingError::Validation {
+                details: format!("路径必须为绝对路径或已存在的文件: {}", abs_path.display()),
+            });
+        }
         let id = Uuid::new_v4().to_string().replace("-", "");
         let file_name = path
             .file_name()
@@ -161,7 +171,9 @@ mod tests {
     /// Test 1: VideoMaterial::new 生成 VideoMaterialJson，id 为 32 位 hex，path 为绝对路径
     #[test]
     fn test_video_material_new_generates_valid_json() {
-        let path = PathBuf::from("test_video.mp4");
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("test_video.mp4");
+        std::fs::write(&path, b"").expect("创建测试文件失败");
         let mat = VideoMaterial::new(&path, 5_000_000, 1920, 1080).expect("应成功创建 VideoMaterial");
         let json = mat.to_json();
 
@@ -183,7 +195,9 @@ mod tests {
     /// Test 2: VideoMaterialJson 的 crop 字段为默认全画面裁剪
     #[test]
     fn test_video_material_crop_defaults() {
-        let path = PathBuf::from("test.mp4");
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("test.mp4");
+        std::fs::write(&path, b"").expect("创建测试文件失败");
         let mat = VideoMaterial::new(&path, 5_000_000, 1920, 1080).expect("应成功创建");
         let json = mat.to_json();
 
@@ -194,7 +208,9 @@ mod tests {
     /// Test 3: VideoMaterialJson 的 check_flag, type, category_name
     #[test]
     fn test_video_material_fixed_fields() {
-        let path = PathBuf::from("test.mp4");
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("test.mp4");
+        std::fs::write(&path, b"").expect("创建测试文件失败");
         let mat = VideoMaterial::new(&path, 5_000_000, 1920, 1080).expect("应成功创建");
         let json = mat.to_json();
 
@@ -206,7 +222,9 @@ mod tests {
     /// Test 4: AudioMaterial::new 生成 AudioMaterialJson，type = "extract_music"
     #[test]
     fn test_audio_material_new_generates_valid_json() {
-        let path = PathBuf::from("test_audio.mp3");
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("test_audio.mp3");
+        std::fs::write(&path, b"").expect("创建测试文件失败");
         let mat = AudioMaterial::new(&path, 3_500_000).expect("应成功创建 AudioMaterial");
         let json = mat.to_json();
 
@@ -224,7 +242,9 @@ mod tests {
     /// Test 5: AudioMaterialJson 的 check_flag = 3, wave_points = []
     #[test]
     fn test_audio_material_fixed_fields() {
-        let path = PathBuf::from("test.mp3");
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join("test.mp3");
+        std::fs::write(&path, b"").expect("创建测试文件失败");
         let mat = AudioMaterial::new(&path, 3_500_000).expect("应成功创建");
         let json = mat.to_json();
 
@@ -245,20 +265,12 @@ mod tests {
         assert_eq!(json.id.len(), 32, "id 应为 32 位 hex");
     }
 
-    /// Test 7: VideoMaterial 路径自动转为绝对路径（canonicalize fallback）
+    /// Test 7: VideoMaterial 拒绝不存在的相对路径
     #[test]
-    fn test_video_material_path_canonicalize_fallback() {
-        // 使用不存在的路径——canonicalize 会失败，应 fallback 到原始路径
+    fn test_video_material_rejects_relative_path() {
+        // 使用不存在的相对路径——canonicalize 失败，应返回 Validation 错误
         let path = PathBuf::from("nonexistent_video.mp4");
-        let mat = VideoMaterial::new(&path, 5_000_000, 1920, 1080).expect("应成功创建");
-        let json = mat.to_json();
-
-        // 由于文件不存在，canonicalize 失败，应 fallback 到原始路径
-        // 但路径应包含文件名
-        assert!(
-            json.path.contains("nonexistent_video.mp4"),
-            "路径应包含文件名: {}",
-            json.path
-        );
+        let result = VideoMaterial::new(&path, 5_000_000, 1920, 1080);
+        assert!(result.is_err(), "相对路径应返回错误");
     }
 }

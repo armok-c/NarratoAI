@@ -122,6 +122,14 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// 创建临时文件用于测试
+    fn make_temp_file(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let path = dir.path().join(name);
+        std::fs::write(&path, b"").expect("创建测试文件失败");
+        (dir, path)
+    }
+
     /// Test 8: TrackType::Video.as_str() 返回 "video"，TrackType::Audio.as_str() 返回 "audio"
     #[test]
     fn test_track_type_as_str() {
@@ -146,12 +154,12 @@ mod tests {
     fn test_track_add_segments() {
         let mut track = Track::new(TrackType::Video, "视频轨道");
 
-        let path1 = PathBuf::from("video1.mp4");
+        let (_dir1, path1) = make_temp_file("video1.mp4");
         let seg1 = VideoSegment::new(&path1, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
         track.add_video_segment(seg1).expect("应成功添加视频片段");
 
-        let path2 = PathBuf::from("video2.mp4");
+        let (_dir2, path2) = make_temp_file("video2.mp4");
         let seg2 = VideoSegment::new(&path2, super::super::time::trange("5s", "3s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
         track.add_video_segment(seg2).expect("应成功添加视频片段");
@@ -174,7 +182,7 @@ mod tests {
     #[test]
     fn test_track_rejects_video_segment_on_audio_track() {
         let mut track = Track::new(TrackType::Audio, "音频轨道");
-        let path = PathBuf::from("video.mp4");
+        let (_dir, path) = make_temp_file("video.mp4");
         let seg = VideoSegment::new(&path, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
             .expect("应成功创建");
         let result = track.add_video_segment(seg);
@@ -185,7 +193,7 @@ mod tests {
     #[test]
     fn test_track_rejects_audio_segment_on_video_track() {
         let mut track = Track::new(TrackType::Video, "视频轨道");
-        let path = PathBuf::from("audio.mp3");
+        let (_dir, path) = make_temp_file("audio.mp3");
         let seg = AudioSegment::new(&path, super::super::time::trange("0s", "3s").expect("应解析时间范围"))
             .expect("应成功创建");
         let result = track.add_audio_segment(seg);
