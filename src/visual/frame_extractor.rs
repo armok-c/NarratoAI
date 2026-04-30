@@ -339,6 +339,7 @@ fn extract_single_frame(
             }
             Err(e) => {
                 tracing::warn!("PNG 转 JPEG 失败: {}", e);
+                let _ = std::fs::remove_file(&png_path);
             }
         }
     }
@@ -370,10 +371,12 @@ fn extract_single_frame(
             }
             Err(e) => {
                 tracing::warn!("BMP 转 JPEG 失败: {}", e);
+                let _ = std::fs::remove_file(&bmp_path);
             }
         }
     }
 
+    let _ = std::fs::remove_file(output_path);
     Err(VisualError::FrameExtraction(format!(
         "所有 4 级回退均失败 (timestamp={}s)",
         timestamp_secs
