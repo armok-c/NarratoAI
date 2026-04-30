@@ -70,9 +70,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — TTS Core: TTSError + WordBoundary/TtsOutput + TtsProvider trait + synthesize 路由器
-- [ ] 03-02-PLAN.md — Edge-TTS 引擎: 原生 WebSocket 实现（SSML/音频流/词边界/重试/代理）
-- [ ] 03-03-PLAN.md — TTS 集成测试: 8 项测试覆盖 TTS-01/02/03
+- [x] 03-01-PLAN.md — TTS Core: TTSError + WordBoundary/TtsOutput + TtsProvider trait + synthesize 路由器
+- [x] 03-02-PLAN.md — Edge-TTS 引擎: 原生 WebSocket 实现（SSML/音频流/词边界/重试/代理）
+- [x] 03-03-PLAN.md — TTS 集成测试: 8 项测试覆盖 TTS-01/02/03
 
 ### Phase 4: Prompt System + Visual Analyzer
 **Goal**: 系统能管理版本化 Prompt 模板并按需渲染，能从视频中提取关键帧并批量发送给视觉 LLM 获取结构化分析结果
@@ -189,7 +189,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-04-28 |
 | 2. LLM Service Layer | 0/3 | Planning complete | - |
-| 3. TTS Core + Edge-TTS | 0/3 | Planning complete | - |
+| 3. TTS Core + Edge-TTS | 3/3 | Complete | 2026-04-28 |
 | 4. Prompt System + Visual Analyzer | 0/? | Not started | - |
 | 5. Script Management | 0/2 | Planning complete | - |
 | 6. Documentary Pipeline | 0/? | Not started | - |
