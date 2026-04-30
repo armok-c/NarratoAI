@@ -25,9 +25,14 @@ use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
 /// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
 /// 需要先反序列化为该类型再提取内部的观察列表。
 #[derive(serde::Deserialize)]
-#[allow(dead_code)]
 struct BatchResponse {
     #[serde(alias = "frame_observations")]
+    observations: Vec<FrameObservation>,
+    overall_activity_summary: Option<String>,
+}
+
+/// `parse_and_retry` 的返回值，包含观察列表和总体摘要
+pub struct ParsedBatch {
     observations: Vec<FrameObservation>,
     overall_activity_summary: Option<String>,
 }
@@ -133,10 +138,16 @@ pub async fn analyze_video_frames(
 
     let mut observations = Vec::new();
     let mut errors: Vec<String> = Vec::new();
+    let mut last_summary: Option<String> = None;
 
     for (idx, text) in raw_results.iter().enumerate() {
         match parse_and_retry(text) {
-            Ok(batch_obs) => observations.extend(batch_obs),
+            Ok(batch) => {
+                observations.extend(batch.observations);
+                if batch.overall_activity_summary.is_some() {
+                    last_summary = batch.overall_activity_summary;
+                }
+            }
             Err(e) => {
                 let err_msg = format!("批次 {} 解析失败: {}", idx, e);
                 warn!("{}", err_msg);
@@ -169,7 +180,7 @@ pub async fn analyze_video_frames(
 
     Ok(BatchAnalysisResult {
         observations,
-        overall_activity_summary: None,
+        overall_activity_summary: last_summary,
         total_frames: frame_count as usize,
         analyzed_batches: raw_results.len(),
         errors,
@@ -180,21 +191,27 @@ pub async fn analyze_video_frames(
 // JSON 解析与重试
 // ---------------------------------------------------------------------------
 
-/// JSON 反序列化：剥离 markdown 代码块后解析为 `Vec<FrameObservation>`
+/// JSON 反序列化：剥离 markdown 代码块后解析为 `ParsedBatch`
 ///
 /// 先尝试按 LLM schema（`BatchResponse` 包装）解析，失败后回退尝试
 /// 直接解析单个 `FrameObservation`（兼容只返回单个对象的 LLM 响应）。
-pub fn parse_and_retry(json_text: &str) -> Result<Vec<FrameObservation>, VisualError> {
+pub fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
     let cleaned = types::strip_code_fence(json_text);
 
     // 尝试按 BatchResponse schema 解析（匹配 prompt 中声明的结构）
     if let Ok(resp) = serde_json::from_str::<BatchResponse>(cleaned) {
-        return Ok(resp.observations);
+        return Ok(ParsedBatch {
+            observations: resp.observations,
+            overall_activity_summary: resp.overall_activity_summary,
+        });
     }
 
     // 回退：尝试解析为单个 FrameObservation（兼容单对象响应）
     match serde_json::from_str::<FrameObservation>(cleaned) {
-        Ok(obs) => Ok(vec![obs]),
+        Ok(obs) => Ok(ParsedBatch {
+            observations: vec![obs],
+            overall_activity_summary: None,
+        }),
         Err(e) => {
             warn!(
                 error = %e,
@@ -270,10 +287,11 @@ mod tests {
         }"#;
         let result = parse_and_retry(json);
         assert!(result.is_ok(), "有效 JSON 应解析成功");
-        let obs = result.unwrap();
-        assert_eq!(obs.len(), 1);
-        assert_eq!(obs[0].frame_number, 0);
-        assert_eq!(obs[0].scene_description, "测试场景");
+        let batch = result.unwrap();
+        assert_eq!(batch.observations.len(), 1);
+        assert_eq!(batch.observations[0].frame_number, 0);
+        assert_eq!(batch.observations[0].scene_description, "测试场景");
+        assert!(batch.overall_activity_summary.is_none());
     }
 
     /// Test: BatchResponse 格式（含 frame_observations 数组）应正确解析
@@ -288,10 +306,11 @@ mod tests {
         }"#;
         let result = parse_and_retry(json);
         assert!(result.is_ok(), "BatchResponse 格式应解析成功");
-        let obs = result.unwrap();
-        assert_eq!(obs.len(), 2);
-        assert_eq!(obs[0].scene_description, "场景A");
-        assert_eq!(obs[1].scene_description, "场景B");
+        let batch = result.unwrap();
+        assert_eq!(batch.observations.len(), 2);
+        assert_eq!(batch.observations[0].scene_description, "场景A");
+        assert_eq!(batch.observations[1].scene_description, "场景B");
+        assert_eq!(batch.overall_activity_summary, Some("测试摘要".to_string()));
     }
 
     /// Test: ```json ... ``` 包裹的 JSON 应被剥离后解析
@@ -303,9 +322,9 @@ mod tests {
             result.is_ok(),
             "代码块包裹的 JSON 应被剥离后解析成功"
         );
-        let obs = result.unwrap();
-        assert_eq!(obs[0].frame_number, 1);
-        assert_eq!(obs[0].scene_description, "室内");
+        let batch = result.unwrap();
+        assert_eq!(batch.observations[0].frame_number, 1);
+        assert_eq!(batch.observations[0].scene_description, "室内");
     }
 
     /// Test: ``` ... ```（无 json 标记）也应剥离
@@ -317,9 +336,9 @@ mod tests {
             result.is_ok(),
             "无 json 标记的代码块包裹也应被剥离后解析成功"
         );
-        let obs = result.unwrap();
-        assert_eq!(obs[0].frame_number, 2);
-        assert_eq!(obs[0].scene_description, "室外");
+        let batch = result.unwrap();
+        assert_eq!(batch.observations[0].frame_number, 2);
+        assert_eq!(batch.observations[0].scene_description, "室外");
     }
 
     /// Test: 纯文本响应应返回 VisualError::Analysis

@@ -192,8 +192,9 @@ mod tests {
 
     #[test]
     fn test_narration_too_few_paragraphs() {
-        let script = "只有一段解说内容，虽然长度超过五十个字符但格式上不满足段落数要求。";
+        let script = "第一段解说内容：这段文字包含足够的字符数以满足最低长度要求。第二段内容继续描述更多细节和场景发展。第三段总结全篇内容要点。";
         let result = validate_output(script, &OutputFormat::NarrationScript);
+        // The script has only 1 paragraph (no \n\n separators) so it should fail
         assert!(result.is_err());
         match result {
             Err(PromptError::Validation(msg)) => {
