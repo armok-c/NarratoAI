@@ -1,8 +1,8 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-04-30T15:00:00Z
+fixed_at: 2026-04-30T16:00:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 2
+iteration: 3
 findings_in_scope: 3
 fixed: 3
 skipped: 0
@@ -11,40 +11,40 @@ status: all_fixed
 
 # Phase 4: Code Review Fix Report
 
-**Fixed at:** 2026-04-30T15:00:00Z
+**Fixed at:** 2026-04-30T16:00:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 2
+**Iteration:** 3
 
 **Summary:**
-- Findings in scope: 3 (re-review warnings)
+- Findings in scope: 3 (1 critical, 2 warnings from re-review #2)
 - Fixed: 3
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: `analyze_video_frames` discards `overall_activity_summary` from LLM responses
+### CR-01: Byte-index slice on potentially multi-byte UTF-8 string can panic
 
-**Files modified:** `src/visual/analyzer.rs`, `src/prompt/validators.rs`
-**Commit:** 974c0da
-**Applied fix:** Introduced `ParsedBatch` struct as return type of `parse_and_retry`, carrying both `observations` and `overall_activity_summary`. Updated `analyze_video_frames` to accumulate the last non-empty summary across batches and pass it to `BatchAnalysisResult`. Removed `#[allow(dead_code)]` from `BatchResponse`. Updated all unit tests to access `.observations` on the new return type. Also fixed `test_narration_too_few_paragraphs` test string which was under 50 characters when counted correctly (related to WR-02 fix).
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** 8eecd94
+**Applied fix:** Added `truncate_str` helper function that uses `char_indices().nth()` for char-boundary-aware truncation, replacing the byte-index slice `&json_text[..json_text.len().min(200)]` with `truncate_str(json_text, 200)` in the error logging path. This prevents a runtime panic when the 200th byte falls inside a multi-byte UTF-8 character (common with Chinese LLM responses).
 
-### WR-02: `validators.rs` uses byte length while error messages claim "character" count
+### WR-01: ParsedBatch is pub but fields are private
 
-**Files modified:** `src/prompt/validators.rs`
-**Commit:** 3bf4d35
-**Applied fix:** Replaced `trimmed.len()` with `trimmed.chars().count()` in both `validate_narration_script` (threshold 50) and `validate_plot_analysis` (threshold 100) so error messages accurately report character counts. For Chinese text (CJK = 3 UTF-8 bytes per char), the previous byte-based thresholds were ~3x weaker than documented.
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** 4359475
+**Applied fix:** Removed `pub` visibility from `ParsedBatch` struct and `parse_and_retry` function since they are only used internally within `analyzer.rs`. Updated module docstring to categorize `parse_and_retry` and `collect_frame_paths` as internal helpers rather than public API.
 
-### WR-03: `convert_image_to_jpeg` uses hardcoded quality 85, ignoring caller-provided quality parameter
+### WR-02: Unused _context parameter in analyze_video_frames
 
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** fa3ee3e
-**Applied fix:** Added `ffmpeg_quality: u32` parameter to `convert_image_to_jpeg` and implemented scale mapping from FFmpeg `-q:v` (2-31, lower=better) to image crate quality (1-100, higher=better). Updated both caller sites (Level 3 PNG and Level 4 BMP fallback) to pass the quality parameter through.
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** 1e22aee
+**Applied fix:** Removed the unused `_context: &HashMap<&str, &str>` parameter from `analyze_video_frames` and the now-unnecessary `use std::collections::HashMap` import. No external callers exist for this function, so no call sites needed updating.
 
 ## Verification
 
 - All 273 library unit tests pass (`cargo test --lib`)
-- Zero compiler warnings after fixes
-- Integration test `test_clip_video_async` fails due to FFmpeg not processing test video (pre-existing, unrelated)
+- Zero compiler warnings after fixes (`cargo check --lib`)
+- Each fix verified with `cargo check --lib` before committing
 
 ## Skipped Issues
 
@@ -52,6 +52,6 @@ None -- all in-scope findings were fixed.
 
 ---
 
-_Fixed: 2026-04-30T15:00:00Z_
+_Fixed: 2026-04-30T16:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 3_
