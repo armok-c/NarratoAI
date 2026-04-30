@@ -265,8 +265,6 @@ mod tests {
     fn test_doubaotts_payload_structure() {
         // 验证请求体结构正确
         let config = DoubaoTTSSection {
-            ak: "ak".to_string(),
-            sk: "sk".to_string(),
             appid: "test-appid".to_string(),
             token: "test-token".to_string(),
             cluster: "volcano_tts".to_string(),
