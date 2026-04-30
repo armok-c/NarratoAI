@@ -118,10 +118,11 @@ impl TtsProvider for IndexTts2Engine {
                 "IndexTTS2 需要参考音频路径（在 voice_name 中或 indextts2.reference_audio 配置中提供）".to_string()
             ));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await.map_err(|e| {
-            let _ = std::fs::remove_file(output_path);
-            e
-        })
+        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(output_path).await;
+        }
+        result
     }
 }
 

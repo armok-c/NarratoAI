@@ -245,10 +245,11 @@ impl TtsProvider for TencentTtsEngine {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await.map_err(|e| {
-            let _ = std::fs::remove_file(output_path);
-            e
-        })
+        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(output_path).await;
+        }
+        result
     }
 }
 
