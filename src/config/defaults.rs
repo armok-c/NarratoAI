@@ -90,8 +90,6 @@ impl Default for IndexTTS2Section {
 impl Default for DoubaoTTSSection {
     fn default() -> Self {
         Self {
-            ak: String::new(),
-            sk: String::new(),
             appid: String::new(),
             token: String::new(),
             cluster: "volcano_tts".to_string(),

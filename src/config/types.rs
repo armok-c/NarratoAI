@@ -167,10 +167,6 @@ pub struct IndexTTS2Section {
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
     #[serde(default)]
-    pub ak: String,
-    #[serde(default)]
-    pub sk: String,
-    #[serde(default)]
     pub appid: String,
     #[serde(default)]
     pub token: String,
@@ -304,8 +300,6 @@ num_beams = 3
 repetition_penalty = 10.0
 
 [doubaotts]
-ak = "db-ak"
-sk = "db-sk"
 appid = "db-appid"
 token = "db-token"
 cluster = "volcano_tts"
