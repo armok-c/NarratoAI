@@ -4,6 +4,7 @@ pub mod tts;
 pub mod llm;
 pub mod ffmpeg;
 pub mod script;
+pub mod prompt;
 
 /// 库版本号，编译时从 Cargo.toml 注入
 pub fn version() -> &'static str {
