@@ -130,7 +130,10 @@ impl TtsProvider for QwenTtsEngine {
         if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await
+        common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await.map_err(|e| {
+            let _ = std::fs::remove_file(output_path);
+            e
+        })
     }
 }
 
