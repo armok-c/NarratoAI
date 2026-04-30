@@ -1,6 +1,6 @@
 ---
 phase: 12-additional-tts-engines
-reviewed: 2026-04-30T00:00:00Z
+reviewed: 2026-05-01T00:00:00Z
 depth: standard
 files_reviewed: 12
 files_reviewed_list:
@@ -17,256 +17,316 @@ files_reviewed_list:
   - src/tts/tencent_tts.rs
   - src/tts/mod.rs
 findings:
-  critical: 0
-  warning: 9
+  critical: 1
+  warning: 7
   info: 3
-  total: 12
+  total: 11
 status: issues_found
 ---
 
-# Phase 12: Code Review Report — Additional TTS Engines (Rust)
+# Phase 12: Code Review Report — Additional TTS Engines (Rust, Iteration 2)
 
-**Reviewed:** 2026-04-30T00:00:00Z
+**Reviewed:** 2026-05-01T00:00:00Z
 **Depth:** standard
 **Files Reviewed:** 12
 **Status:** issues_found
 
 ## Summary
 
-Reviewed 12 files implementing 6 new TTS engine backends in Rust (SoulVoice, Doubao, Qwen, IndexTTS2, Azure Speech, Tencent Cloud) plus shared infrastructure (config types, defaults, common utilities). The overall code organization and error handling approach is solid, but several significant issues were found:
+Reviewed 12 files implementing 6 TTS engine backends in Rust. The previous review (2026-04-30) identified 9 warnings and 3 info items, all of which were confirmed fixed in the current codebase (WR-01 through WR-09 applied).
 
-1. **Logic errors** — Tencent TTS speed computation uses a constant `0.0_f64` instead of the input `rate` parameter; Azure Speech SSML omits prosody tags making rate/pitch have no effect.
-2. **Validation gaps** — Whitespace-only text bypasses empty-text validation in 4 of 6 engines.
-3. **Dead configuration** — Three configuration fields (`voice_uri`, `ak`/`sk`, `doubaotts_voice_type`/`doubaotts_rate`) are defined in config structs but never read by engine code.
-4. **Silent fallback risks** — Proxy configuration errors are silently swallowed.
+However, this second pass identified **11 additional findings** not caught in the initial review:
 
-No critical (security) issues were found — API keys are properly segregated in configuration, no hardcoded secrets in source, no command injection vectors, and HTTP client libraries handle TLS correctly.
+1. **1 CRITICAL (blocker):** `reqwest::Client::new()` returns `Result<Client, Error>` in reqwest 0.13.3, but `common.rs:59` treats it as returning `Client` directly -- the code will not compile.
+2. **6 warnings:** Blocking I/O calls in async context, `rate`/`pitch` contract violations in multiple engines, missing API response body in error messages, missing `voice_name` validation across five engines, test validity gap in Tencent TC3 signing, and duplicate retry-logic in edge_tts.
+3. **3 info items:** Zero-duration placeholder in 4 engines, hardcoded sample rate, and Cargo.lock review scope.
+
+The compilation error in `common.rs` must be resolved before any other finding -- the project cannot build in its current state.
+
+## Critical Issues
+
+### CR-01: `reqwest::Client::new()` returns `Result` -- compilation error
+
+**File:** `src/tts/common.rs:59`
+
+**Issue:**
+In reqwest 0.12+, `Client::new()` was changed to return `Result<Client, reqwest::Error>` instead of `Client` (breaking change). The Cargo.lock resolves to reqwest 0.13.3. However, `build_client()` at line 59 calls `reqwest::Client::new()` inside an `unwrap_or_else` closure that must return `Client`:
+
+```rust
+builder.build().unwrap_or_else(|e| {
+    tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
+    reqwest::Client::new()   // Returns Result<Client, Error>, expected Client
+})
+```
+
+The closure's return type is `Result<Client, reqwest::Error>` but `unwrap_or_else` expects `Client`. This is a type mismatch -- the code **will not compile**.
+
+**Fix:**
+```rust
+builder.build().unwrap_or_else(|e| {
+    tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
+    reqwest::Client::new().expect("Failed to create default HTTP client")
+})
+```
+
+Or alternatively, to avoid a panic:
+```rust
+builder.build().unwrap_or_else(|e| {
+    tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
+    reqwest::Client::builder().build().unwrap_or_else(|e| {
+        panic!("Failed to create HTTP client (with and without proxy): {}", e)
+    })
+})
+```
+
+Note: This finding was NOT present in the previous review. The previous WR-05 only addressed the silent-fallback issue (missing `tracing::warn!`), not the type-mismatch compilation error on the fallback path itself.
+
+---
 
 ## Warnings
 
-### WR-01: Tencent TTS `speed_value` always computed as 0.0 (rate parameter ignored)
+### WR-01: Blocking `std::fs::remove_file` called in async runtime context
 
-**File:** `src/tts/tencent_tts.rs:51`
-
-**Issue:**
-Line 51 computes `speed_value` as `0.0_f64.clamp(-2.0, 2.0)` which always evaluates to `0.0`. The `_rate: f64` parameter passed to the public `synthesize()` method is entirely ignored. The intended computation (matching the Python version) should derive speed from the rate input.
-
-The comment `// 使用默认 rate=1.0` confirms this was known but left unimplemented. However, unlike other engines that intentionally have no speed control (e.g., Qwen API has no speed parameter), Tencent Cloud TTS explicitly supports a `Speed` field that should reflect the caller's rate setting.
-
-```rust
-// Current (wrong):
-let speed_value = 0.0_f64.clamp(-2.0, 2.0);
-
-// Should be:
-// Pass rate parameter through synthesize_once → synthesize_at_url, then:
-let speed_value = ((rate - 1.0) * 2.0).clamp(-2.0, 2.0);
-```
-
-**Fix:** Pass the `rate` parameter from `synthesize()` through `synthesize_once()` into `synthesize_at_url()` and use it in the speed computation.
-
----
-
-### WR-02: Azure Speech SSML omits prosody rate and pitch
-
-**File:** `src/tts/azure_speech.rs:237-239`
+**Files:**
+- `src/tts/azure_speech.rs:342`
+- `src/tts/doubaotts.rs:131`
+- `src/tts/indextts2.rs:122`
+- `src/tts/qwen_tts.rs:134`
+- `src/tts/soulvoice.rs:107`
+- `src/tts/tencent_tts.rs:249`
 
 **Issue:**
-The Azure Speech SSML template omits the `<prosody>` element entirely:
+All 6 new engine `synthesize()` methods call `std::fs::remove_file(output_path)` inside a `.map_err()` closure that executes on the tokio async runtime after `.await`:
+
 ```rust
-r#"<speak version="1.0" ... xml:lang="{}"><voice name="{}">{}</voice></speak>"#
+common::retry_loop(|| self.synthesize_once(...)).await.map_err(|e| {
+    let _ = std::fs::remove_file(output_path);  // Blocking call on async runtime
+    e
+})
 ```
 
-All `_rate` and `_pitch` parameters passed to `synthesize()` are silently ignored. By contrast, the Edge-TTS engine (in `edge_tts.rs:94`) wraps the voice block in `<prosody rate="..." pitch="...">`. The Azure Speech REST API fully supports prosody tags for rate/pitch control, so this is a functionality gap — not an API limitation.
+`std::fs::remove_file` is a blocking system call. When called on a tokio worker thread, it blocks that thread from processing other async tasks. By contrast, the `edge_tts` engine (line 402 of `edge_tts.rs`) correctly uses the async equivalent:
 
-**Fix:**
 ```rust
-r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#
+let _ = tokio::fs::remove_file(output_path).await;
 ```
-And convert `rate`/`pitch` to the appropriate percentage/Hz format (similar to edge_tts.rs `convert_rate_to_percent` and `convert_pitch_to_hz`).
 
----
+While the file deletion is fast in most cases, on network filesystems or under high I/O load this can stall the tokio runtime.
 
-### WR-03: Whitespace-only text bypasses empty-text validation
+**Fix:** Change all 6 occurrences from `std::fs::remove_file(output_path)` to `tokio::fs::remove_file(output_path).await`:
 
-**File (all occurences):**
-- `src/tts/soulvoice.rs:55` — `text.trim()` inside `synthesize_once`
-- `src/tts/doubaotts.rs:59` — `text.trim()` inside `synthesize_once`
-- `src/tts/qwen_tts.rs:60` — `text.trim()` inside `synthesize_once`
-- `src/tts/indextts2.rs:62` — `text.trim().to_string()` inside `synthesize_once`
-
-**Issue:**
-Each engine's `synthesize()` method validates `if text.is_empty()` before calling `retry_loop`. Inside `synthesize_once()`, the text is trimmed before being sent to the API. If `text` contains only whitespace (e.g., `"  "`), `is_empty()` returns `false`, the validation passes, but `trim()` produces an empty string which is sent to the upstream API. The API will likely return an error, but the resulting error message will be confusing (protocol-level error rather than "text cannot be empty").
-
-Azure Speech and Tencent TTS engines have a related but different variant of this issue — they do not trim the text before sending, so whitespace-only text is sent as-is to the API, which may also reject it.
-
-**Fix:** Change all empty-text checks from:
 ```rust
-if text.is_empty() { return Err(...) }
+common::retry_loop(|| self.synthesize_once(...)).await.map_err(|e| {
+    let _ = tokio::fs::remove_file(output_path);
+    e
+})
 ```
-to:
+
+Note: Since the cleanup runs synchronously inside `.map_err` (not inside a future), the correct approach would be to move the cleanup before `.map_err`:
+
 ```rust
-if text.trim().is_empty() { return Err(...) }
+let result = common::retry_loop(|| self.synthesize_once(...)).await;
+if result.is_err() {
+    let _ = tokio::fs::remove_file(output_path).await;
+}
+result
 ```
 
 ---
 
-### WR-04: `should_use_azure_services` recompiles regex on each invocation
+### WR-02: TtsProvider trait contract violated -- `rate` silently ignored by 4 engines
 
-**File:** `src/tts/azure_speech.rs:28`
+**Files:**
+- `src/tts/doubaotts.rs:122` -- `_rate` ignored, speed_ratio hardcoded to 1.0 (line 37)
+- `src/tts/indextts2.rs:107` -- `_rate` ignored, no speed parameter in API call
+- `src/tts/qwen_tts.rs:126` -- `_rate` ignored, Qwen API has no rate parameter
+- `src/tts/soulvoice.rs:98` -- `_rate` ignored, speed hardcoded to 1.0 (line 58)
 
 **Issue:**
-`Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$")` is called every time `should_use_azure_services()` is invoked. If the regex compilation fails (e.g., under memory pressure), `.unwrap_or(false)` silently returns `false`, meaning the Azure engine is never selected and all voices silently fall through to Edge-TTS. This makes the Azure routing heuristic fragile.
+The `TtsProvider` trait defines `rate: f64` as the speed control parameter (1.0 = standard). However, 4 of 6 new engines discard this parameter without using it. The parameter is underscore-prefixed (documenting the intentional disuse), but this violates the caller's expectation that setting rate will affect speech speed.
 
-The regex should be compiled once (e.g., via `once_cell::sync::Lazy` or `std::sync::OnceLock`) and reused.
+The impact: if the application calls `synthesize()` with `rate: 0.8` expecting slower speech, Doubao, IndexTTS2, Qwen, and SoulVoice will all produce output at normal speed (1.0) without warning.
 
-**Fix:**
+Only `azure_speech`, `tencent_tts`, and `edge_tts` correctly use the rate parameter.
+
+**Fix:** Either implement rate support in each engine (e.g., passing as speed parameter if the API supports it), or document in the `TtsProvider` trait docstring that rate/pitch support is engine-dependent. For engines whose upstream API genuinely lacks speed control (e.g., Qwen), the trait documentation should note the limitation.
+
+---
+
+### WR-03: TtsProvider trait contract violated -- `pitch` silently ignored by 5 engines
+
+**Files:**
+- `src/tts/doubaotts.rs:123` -- `_pitch` ignored (uses config pitch_ratio instead)
+- `src/tts/indextts2.rs:108` -- `_pitch` ignored
+- `src/tts/qwen_tts.rs:127` -- `_pitch` ignored
+- `src/tts/soulvoice.rs:99` -- `_pitch` ignored
+- `src/tts/tencent_tts.rs:242` -- `_pitch` ignored
+
+**Issue:**
+Same pattern as WR-02, but for pitch. Only `azure_speech` and `edge_tts` use the pitch parameter. The remaining 5 engines silently discard caller-supplied pitch values, returning default-pitch audio.
+
+Note: This affects one more engine than rate (WR-02) because `tencent_tts` uses rate but not pitch.
+
+**Fix:** Same as WR-02 -- implement pitch support or document the limitation in the trait. For Tencent Cloud TTS specifically, the API supports a `VoiceSpeed` parameter but has no per-request pitch control, so this is a genuine API limitation that should be documented.
+
+---
+
+### WR-04: Response body discarded in HTTP error responses (4 engines)
+
+**Files:**
+- `src/tts/azure_speech.rs:291-295` -- only status code, no body
+- `src/tts/doubaotts.rs:84-86` -- only status code, no body
+- `src/tts/qwen_tts.rs:76-79` -- only status code, no body
+- `src/tts/indextts2.rs:81-85` -- only status code, no body
+
+**Issue:**
+When the upstream API returns a non-success HTTP status, 4 of 6 new engines only include the status code in the error message:
+
 ```rust
-use std::sync::OnceLock;
+if !status.is_success() {
+    return Err(TTSError::SynthesisFailed(format!(
+        "Azure TTS 返回 {} (期望 200)", status.as_u16()
+    )));
+}
+```
 
-fn azure_voice_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$").expect("Azure voice regex is valid"))
+The response body typically contains critical debugging information (e.g., "Access denied", "Invalid subscription key", "Quota exceeded for current month", "Region not supported"). Without the body text, users and developers cannot diagnose API configuration issues.
+
+By contrast, `soulvoice.rs:73-76` and `tencent_tts.rs:169-172` correctly read and include the body text:
+
+```rust
+// soulvoice.rs (correct pattern)
+let body_text = response.text().await.unwrap_or_default();
+return Err(TTSError::SynthesisFailed(format!(
+    "SoulVoice API 返回 {}: {}", status.as_u16(), body_text
+)));
+```
+
+**Fix:** Replace the status-code-only error with body-inclusive error handling in all 4 engines:
+```rust
+if !status.is_success() {
+    let body = response.text().await.unwrap_or_default();
+    return Err(TTSError::SynthesisFailed(format!(
+        "Azure TTS 返回 {}: {}", status.as_u16(), body
+    )));
 }
 ```
 
 ---
 
-### WR-05: `build_client` silently falls back to unproxied client on error
+### WR-05: Missing empty `voice_name` validation in 5 engines
 
-**File:** `src/tts/common.rs:56`
+**Files:**
+- `src/tts/doubaotts.rs:120-134` -- `synthesize()` only checks empty text, not voice_name
+- `src/tts/indextts2.rs:102-126` -- same
+- `src/tts/qwen_tts.rs:121-138` -- same
+- `src/tts/soulvoice.rs:94-111` -- same
+- `src/tts/tencent_tts.rs:236-253` -- same
 
 **Issue:**
-```rust
-builder.build().unwrap_or_else(|_| reqwest::Client::new())
-```
-If `reqwest::Client::builder().build()` fails (e.g., due to TLS backend initialization), the error is silently swallowed and a new unconfigured client is returned. This means:
-- Proxy configuration is lost without any warning
-- If a corporate network requires the proxy, all subsequent TTS requests will fail with connection errors
-- The user sees obscure connection-failure errors that don't mention the proxy
+Only `azure_speech.rs:338-340` and `edge_tts.rs:626` validate that `voice_name` is non-empty before proceeding with TTS synthesis. The other 5 engines pass an empty (or whitespace-only) voice name string to upstream APIs, which will respond with protocol-level errors rather than clear validation errors.
 
-**Fix:** Log a warning when the builder fails:
+Example: If `voice_name` is `""`:
+- `soulvoice::synthesize_once` sends `"voice": ""` in JSON body -- API returns confusing error
+- `tencent_tts::synthesize_at_url` parses `""` as voice_type via `unwrap_or(101001)` -- silently uses wrong voice
+- `indextts2::synthesize_once` tries to construct path from `""` -- confusing file-not-found error
+
+**Fix:** Add validation at the start of each engine's `synthesize()` method:
 ```rust
-builder.build().unwrap_or_else(|e| {
-    tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
-    reqwest::Client::new()
-})
+if voice_name.trim().is_empty() {
+    return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
+}
 ```
 
 ---
 
-### WR-06: Dead config field `SoulVoiceSection::voice_uri`
+### WR-06: Tencent TC3 signature uses hardcoded host -- test does not verify production signing path
 
-**File:** `src/config/types.rs:118`
-
-**Issue:**
-The `voice_uri` field is defined in `SoulVoiceSection` with a default value and even has a test value (`"speech:test"` in the test TOML at line 254), but it is **never read** by the `soulvoice` engine or any other code path. The voice identifier is passed exclusively through the `voice_name` parameter from the caller, parsed via `parse_engine_prefix`.
-
-This field creates false expectations: users who set `voice_uri` in their config.toml will believe it affects behavior, but it has no effect.
-
-**Fix:** Remove the `voice_uri` field from `SoulVoiceSection`, or document that it is reserved for future use.
-
----
-
-### WR-07: Dead config fields `DoubaoTTSSection::ak` and `sk`
-
-**File:** `src/config/types.rs:166,168`
+**File:** `src/tts/tencent_tts.rs:93`
 
 **Issue:**
-The `ak` (access key) and `sk` (secret key) fields in `DoubaoTTSSection` are never read by the Doubao TTS engine. Authentication uses only the `token` field, sent as `Authorization: Bearer;{token}`. The `ak` and `sk` fields appear to be leftover from a different authentication scheme (possibly CAM/STS temporary credentials that were never integrated).
-
-These fields add confusion and surface area for misconfiguration.
-
-**Fix:** Remove `ak` and `sk` from `DoubaoTTSSection`.
-
----
-
-### WR-08: Dead config fields `UiSection::doubaotts_voice_type` and `doubaotts_rate`
-
-**File:** `src/config/types.rs:84,86`
-
-**Issue:**
-The `UiSection` contains `doubaotts_voice_type: String` and `doubaotts_rate: f64` with both a default value and a test value. However, when the `"doubaotts"` engine is instantiated in `src/tts/mod.rs:104-109`, only `cfg.doubaotts` is passed — the `ui` section is never consulted. The voice type comes from the `voice_name` parameter (which originates from `ui.edge_voice_name` or `ui.azure_voice_name` in the caller), and the rate is hardcoded to 1.0.
-
-This means users who configure `doubaotts_voice_type` or `doubaotts_rate` in their `[ui]` section will find their settings have no effect. The `doubaotts_rate` comment on line 37 of `doubaotts.rs` even acknowledges this: `// rate 暂不使用（Python 版实际使用固定值或 ui.doubaotts_rate）`.
-
-**Fix (option A):** Wire the values through: pass `cfg.ui.doubaotts_voice_type` and `cfg.ui.doubaotts_rate` to the engine, or at minimum pass the `ui` section alongside `doubaotts` config.
-
-**Fix (option B):** Remove the fields from `UiSection` and document that Doubao voice type comes from the standard `voice_name` flow (same as other engines).
-
----
-
-### WR-09: `retry_loop` callers do not clean up corrupted output files after retry exhaustion
-
-**File:** `src/tts/common.rs:89` (comment) and all 6 engine `synthesize()` implementations
-
-**Issue:**
-The comment on `retry_loop` states: `调用方负责在重试耗尽后清理可能残留的损坏输出文件`. However, none of the 6 engine `synthesize()` implementations that call `retry_loop` perform any cleanup on `TTSError::RetryExhausted`. If a previous retry attempt wrote partial data to the output file before failing, the corrupted file remains. Downstream consumers (video processing pipeline) may read this partial file and fail with cryptic errors.
-
-By contrast, the `edge_tts` engine's internal `synthesize_with_retry` method (in `edge_tts.rs:402`) correctly cleans up:
+The TC3-HMAC-SHA256 signature canonical request hardcodes `host:tts.tencentcloudapi.com` at line 92:
 ```rust
-let _ = tokio::fs::remove_file(output_path).await;
+let canonical_headers = format!(
+    "content-type:application/json; charset=utf-8\nhost:tts.tencentcloudapi.com\n"
+);
 ```
 
-**Fix:** Either (a) add cleanup inside `retry_loop` after exhausting retries (before returning `RetryExhausted`), or (b) update all callers to clean up the output file on retry exhaustion:
-```rust
-common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await.map_err(|e| {
-    let _ = std::fs::remove_file(output_path);
-    e
-})
-```
+When `endpoint_override` is set (for wiremock tests, line 301), the request is sent to a different URL than what the signature covers. The wiremock test passes because it only checks `method("POST")` and ignores the `Authorization` header. This means the test does NOT verify that the production signing path would work -- if the production host changes, or if there's a signing bug, the test would still pass.
+
+Additionally, the canonical `Host` header line (92-93) and the actual HTTP `Host` header (line 155) must match. If `endpoint_override` disagrees with the hardcoded host, the actual request has a different Host header than what was signed, which would cause a 401 from a real Tencent Cloud server. The test never catches this mismatch.
+
+This is a **test validity** concern, not a production bug (production uses the correct host). However, it means the TC3 signing implementation has zero automated coverage.
+
+**Fix:** Either:
+- (a) Make the canonical host configurable alongside `endpoint_override` so the test validates the full signing path with a correct signature + host match; or
+- (b) Add a dedicated unit test that verifies the signing computation against a known test vector (Tencent Cloud publishes TC3 signing examples in their SDK documentation).
+
+---
+
+### WR-07: Edge-TTS `synthesize_with_retry` duplicates `common::retry_loop` logic
+
+**File:** `src/tts/edge_tts.rs:375-408`
+
+**Issue:**
+The `synthesize_with_retry` method in `edge_tts.rs` implements the exact same retry pattern as `common::retry_loop`: 4 total attempts (1 initial + 3 retries), immediate bail on `AuthenticationFailed`, 1-second delay between retries, and a `RetryExhausted` error on exhaustion.
+
+This duplication means any change to retry behavior (e.g., exponential backoff, configurable retry count, jitter) must be applied in two separate places. The edge_tts version was written before `common::retry_loop` existed, and was never refactored to use it.
+
+The edge_tts version differs from `common::retry_loop` in one beneficial way: it correctly uses `tokio::fs::remove_file` (async) for cleanup at line 402, while `common::retry_loop` delegates cleanup to callers who (as noted in WR-01) use blocking `std::fs::remove_file`.
+
+**Fix:** Refactor `EdgeTtsEngine::synthesize` to use `common::retry_loop` instead of its own `synthesize_with_retry`. Since edge_tts `synthesize_once` takes different parameters (pre-built SSML string vs raw text/voice_name/rate/pitch), either:
+- (a) Add a wrapper closure that matches the `retry_loop` signature; or
+- (b) Keep the `synthesize_with_retry` but have it delegate to `retry_loop` for the retry logic, extracting only the sleep/schedule decisions.
 
 ---
 
 ## Info
 
-### IN-01: Tencent TTS sends empty `X-TC-Token` header
+### IN-01: `duration: 0.0` returned as placeholder by 4 engines
 
-**File:** `src/tts/tencent_tts.rs:160`
+**Files:**
+- `src/tts/azure_speech.rs:307`
+- `src/tts/doubaotts.rs:112`
+- `src/tts/indextts2.rs:96`
+- `src/tts/soulvoice.rs:88`
 
 **Issue:**
-The header `X-TC-Token: ""` is sent with an empty value. For CAM temporary token authentication, this header should be omitted entirely when not using temporary credentials — some API gateways or proxies may reject empty header values per RFC 7230 Section 3.2.6.
+Four engines return `duration: 0.0` in `TtsOutput` because their respective REST APIs do not provide audio duration in the response. By contrast, `qwen_tts` reads duration from the API response (`result["output"]["audio"]["duration"]`), and `tencent_tts` could potentially compute it from subtitle timestamps.
 
-**Fix:** Conditionally include the header only when a non-empty token is configured:
-```rust
-if !self.config.token.is_empty() {
-    builder = builder.header("X-TC-Token", &self.config.token);
-}
-```
-(Note: the `token` field in `TencentSection` does not exist currently, so this path would only activate if CAM support is added later.)
+Downstream code that consumes `duration` (e.g., for progress tracking, segment timing, or concatenation) will get `0.0` from these engines. This is documented in comments (e.g., `// REST API 不返回词边界`) but client code may not handle `0.0` as "unknown" rather than "zero-length."
+
+The `TencentTtsEngine` at line 220 also returns `0.0`, even though it has subtitle data (`word_boundaries`) from which the total duration could be derived as `max(end_offset) / 10000` ms.
+
+**Suggestion:** Consider computing duration from the last word boundary's `end_offset` when available (Tencent engine), and document in `TtsOutput::duration` docstring that `0.0` means "not provided by API."
 
 ---
 
-### IN-02: Tests bypass `retry_loop` by calling `synthesize_once` directly
+### IN-02: Doubao TTS hardcodes audio sample rate at 24000 Hz
 
-**Files:** `soulvoice.rs:155`, `doubaotts.rs:201`, `qwen_tts.rs:194`, `indextts2.rs:182`, `azure_speech.rs:397`, `tencent_tts.rs:303`
-
-**Issue:**
-All 6 engine test suites call `synthesize_once()` directly instead of going through the public `synthesize()` method, which means (a) the retry logic in `retry_loop` is never tested, and (b) the empty-text validation in `synthesize()` is not exercised by success-path tests (only by explicit empty-text test cases).
-
-The test for `soulvoice.rs:155` explicitly notes this: `// Override retry_loop by calling synthesize_once directly to avoid retry complexity`.
-
-**Fix:** Add integration tests that exercise the full `synthesize()` path (with mock servers returning transient errors to exercise retry logic), even if they exist as separate test functions.
-
----
-
-### IN-03: Proxy extraction code duplication in `mod.rs`
-
-**File:** `src/tts/mod.rs:91-94` and `132-135`
+**File:** `src/tts/doubaotts.rs:52`
 
 **Issue:**
-The same 3-line proxy extraction block (`(proxy_enabled, proxy_http, proxy_https) = match proxy {...}`) is duplicated verbatim in both the `"edge_tts"` and `"azure_speech"` fallback branches. This creates a maintenance hazard — if the proxy extraction logic changes, both sites must be updated.
-
+The audio sample rate is hardcoded to 24000 Hz:
 ```rust
-let (proxy_enabled, proxy_http, proxy_https) = match proxy {
-    Some(p) => (p.enabled, p.http.clone(), p.https.clone()),
-    None => (false, String::new(), String::new()),
-};
+"rate": 24000,
 ```
 
-**Fix:** Extract to a helper function or use `common::ProxyConfig::from_proxy(proxy)` which already encapsulates this logic, and construct the `EdgeTtsEngine` from a `ProxyConfig` instead of three separate parameters. This would require adding a `From<&ProxyConfig>` or constructor overload on `EdgeTtsEngine`.
+This is consistent with the Python version behavior. However, unlike `azure_speech` or `tencent_tts` which allow the caller to determine output format, Doubao always uses 24kHz mp3. If downstream processing expects a different sample rate (e.g., 44100 Hz to match other engines), resampling would be required. This is a known limitation tracked in the Python codebase.
 
 ---
 
-_Reviewed: 2026-04-30T00:00:00Z_
+### IN-03: `Cargo.lock` included in review scope
+
+**File:** `Cargo.lock`
+
+**Issue:**
+`Cargo.lock` is an auto-generated file (resolved dependency tree). While it is a first-class artifact in Rust projects that must be committed, its inclusion in the code review file list adds noise without providing reviewable value. Changes to `Cargo.lock` are meaningful only as side effects of `Cargo.toml` changes or `cargo update` commands -- the file itself should not be manually reviewed for bugs.
+
+**Suggestion:** Exclude `Cargo.lock` from future review scopes unless the explicit goal is to audit dependency versions for known CVEs.
+
+---
+
+_Reviewed: 2026-05-01T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
