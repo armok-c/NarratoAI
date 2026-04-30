@@ -175,3 +175,44 @@
 
     # 视觉批处理最大并发批次数（OpenAI 兼容 provider）
     vision_max_concurrency = 2
+
+##########################################
+# 音频处理配置
+##########################################
+
+[audio]
+    # LUFS 响度标准化目标值（-23.0 符合 EBU R128 广播标准，-14.0 符合 YouTube 标准）
+    target_lufs = -23.0
+
+    # 最大峰值（dBFS）
+    max_peak = -1.0
+
+    # 是否启用音频标准化
+    enable_audio_normalization = false
+
+    # 是否启用智能音量调整
+    enable_smart_volume = false
+
+    # TTS 解说音量（0.0-2.0）
+    tts_volume = 0.8
+
+    # 原声音量（0.0-2.0）
+    original_volume = 1.3
+
+    # BGM 背景音乐音量（0.0-2.0）
+    bgm_volume = 0.3
+
+    # 采样率
+    sample_rate = 44100
+
+    # 声道数
+    channels = 2
+
+    # 比特率
+    bitrate = 192000
+
+    # 交叉淡化时长（秒，Phase 6 使用）
+    crossfade_duration = 0.1
+
+    # BGM 淡出时长（秒，Phase 6 使用）
+    bgm_fade_out = 3.0
