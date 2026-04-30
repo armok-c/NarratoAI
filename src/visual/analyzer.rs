@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::ffmpeg::command::ProgressCallback;
 use crate::llm::provider::LlmProvider;
@@ -44,7 +44,7 @@ pub async fn analyze_video_frames(
     output_dir: &Path,
     llm_provider: &dyn LlmProvider,
     prompt_template: &str,
-    context: &HashMap<&str, &str>,
+    _context: &HashMap<&str, &str>,
     batch_size: usize,
     max_concurrency: usize,
     progress: Option<ProgressCallback>,
@@ -157,6 +157,7 @@ pub async fn analyze_video_frames(
 
     Ok(BatchAnalysisResult {
         observations,
+        overall_activity_summary: None,
         total_frames: frame_count as usize,
         analyzed_batches: raw_results.len(),
         errors,
