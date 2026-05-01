@@ -1,6 +1,6 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-04-30T12:00:00Z
+reviewed: 2026-05-02T00:00:00Z
 depth: standard
 files_reviewed: 20
 files_reviewed_list:
@@ -26,161 +26,176 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 3
-  info: 3
-  total: 6
+  info: 4
+  total: 7
 status: issues_found
 ---
 
-# Phase 04: Code Review Report (Iteration 10)
+# Phase 04: Code Review Report (Iteration 13)
 
-**Reviewed:** 2026-04-30T12:00:00Z
+**Reviewed:** 2026-05-02T00:00:00Z
 **Depth:** standard
 **Files Reviewed:** 20
 **Status:** issues_found
 
 ## Summary
 
-对 Phase 04 (prompt-system-visual-analyzer) 进行第 10 次迭代审查。上次审查（迭代 9）发现的 3 个 WARNING（WR-01: 未校验 quality 范围、WR-02: extract_frames_fast_path 公开可见性、WR-03: analyzed_count 始终为 0）已在 commits b14a6a7、96e788c、7256b6a 中修复。本次审查确认所有历史修复均保持有效，并发现 3 个新 WARNING 和 3 个 INFO 级别问题。
+对 Phase 04 (prompt-system-visual-analyzer) 进行第 13 次迭代审查（re-review #12）。上一轮修复的 3 个 WARNING（WR-12-01: FrameObservation deny_unknown_fields 移除、WR-12-02: truncate 测试字节切片改字符级别、WR-12-03: 7 个 clippy lint）均已验证正确修复，无回归。`cargo clippy -- -D warnings` 确认 Phase 04 范围内 0 个 clippy 警告（全项目 9 个警告均在 Phase 04 之外的 config/watcher.rs、tts/edge_tts.rs、llm/、jianying/ 文件中）。273 个测试全部通过。
 
-整体代码质量良好：类型系统完整、错误处理规范、测试覆盖充分。新发现的问题集中在临时文件清理、边界验证和 LLM 响应兼容性三个方面。
+发现 3 个新 WARNING 和 4 个 INFO 级别问题。最关键的发现是 WR-13-01：`manager.rs` 的 `render_prompt()` 从未校验 `ParameterDef.required` 字段——当 required=true 且无 default 时，如果调用方未提供该参数，模板渲染器会产生一个空字符串替换而不是报错，导致 LLM 收到不完整的 prompt。这是一个影响生产正确性的逻辑缺陷。
+
+## Build Verification
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| `cargo check` | PASS | No errors |
+| `cargo clippy -- -D warnings` | FAIL | 9 lints project-wide, 0 in Phase 04 scope |
+| `cargo test --lib` | PASS | 273 tests passed, 0 failed, 1 ignored |
 
 ## Previous Fix Verification
 
-以下验证上次审查（迭代 9）的 3 个 WARNING 修复是否保持有效：
+| ID | Fix Commit | Status | Detail |
+|----|-----------|--------|--------|
+| WR-12-01 | 47b312e | PASS | `FrameObservation` 移除 `deny_unknown_fields`，测试 `test_unknown_fields_silently_ignored` 验证 camelCase 字段被静默忽略。 |
+| WR-12-02 | 8ee2a54 | PASS | truncate 测试使用 `result.chars().take(97).collect::<String>()` 字符级别比较。 |
+| WR-12-03 | 556106f | PASS | Phase 04 范围内 7 个 clippy lint 全部修复。`cargo clippy` 确认 Phase 04 文件 0 警告。 |
 
-| 旧编号 | 问题 | 修复 Commit | 状态 |
-|--------|------|-------------|------|
-| WR-01 | 未校验 JPEG quality 范围 | b14a6a7 | 已验证：`frame_extractor.rs:42-46` 添加了 `quality_val < 2 \|\| quality_val > 31` 校验 |
-| WR-02 | `extract_frames_fast_path` 公开可见性 | 96e788c | 已验证：`frame_extractor.rs:102` 标记为 `pub(crate)` |
-| WR-03 | `BatchPartial` 的 `analyzed_count` 始终为 0 | 7256b6a | 已验证：`analyzer.rs:162` 使用 `raw_results.len() - errors.len()` 计算成功数 |
-
-所有三个历史修复均已验证有效。
+All three fixes verified correct with no regression.
 
 ## Warnings
 
-### WR-01: Level 3/4 回退路径失败时临时文件未清理
+### WR-13-01: render_prompt 忽略 ParameterDef.required 字段，required=true 的参数缺失时静默替换为空字符串
 
-**File:** `src/visual/frame_extractor.rs:316-375`
-**Issue:** `extract_single_frame` 的 Level 3 和 Level 4 回退会创建 PNG/BMP 临时文件。当 FFmpeg 生成文件成功但后续 `convert_image_to_jpeg` 失败时（第 340-343 行和 369-373 行），临时 PNG/BMP 文件不会被删除。虽然最终 `extract_frames_fallback` 会报告错误并继续处理下一帧，但这些残留文件会留在 `output_dir` 中。
+**File:** `src/prompt/manager.rs:57-66`
+**Issue:** `render_prompt()` 方法（第 57-66 行）合并默认值和调用方变量时，只填充了 `param.default` 不为 None 的参数（第 59-62 行），然后覆盖调用方变量（第 64-66 行）。但从未检查 `param.required == true && default.is_none() && !vars.contains_key(&param.name)` 的情况。
 
-更关键的场景：当 Level 3 PNG 写入成功但转换失败，然后进入 Level 4 时，Level 3 的 PNG 文件仍然残留。同理 Level 4 BMP 转换失败时 BMP 也残留。此外，Level 1/2 写入的无效 `output_path` 文件在最终所有级别均失败时也不会清理。
+这意味着当一个参数声明为 `required: true, default: None`（如 `video_title`、`frame_analysis_json`、`subtitle_content`、`plot_analysis`），且调用方未在 `vars` 中提供时，该参数不会出现在 `merged` HashMap 中。后续 `template::render()` 虽然会报告"缺少必需参数"错误（如果模板中有 `${variable}` 语法），但这依赖于模板实现细节而非参数定义——更重要的是，如果模板恰好不引用某个 required 参数（比如参数名拼写错误），就会完全绕过校验。
 
-**Fix:**
-
-```rust
-// Level 3: PNG -> JPEG conversion
-// ... (existing code) ...
-if level3_ok && file_is_valid(&png_path) {
-    match convert_image_to_jpeg(&png_path, output_path, quality) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&png_path);
-            return Ok(());
-        }
-        Err(e) => {
-            tracing::warn!("PNG 转 JPEG 失败: {}", e);
-            let _ = std::fs::remove_file(&png_path); // 清理失败的 PNG
-        }
-    }
-}
-
-// Level 4: BMP -> JPEG conversion
-// ... (existing code) ...
-if level4_ok && file_is_valid(&bmp_path) {
-    match convert_image_to_jpeg(&bmp_path, output_path, quality) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&bmp_path);
-            return Ok(());
-        }
-        Err(e) => {
-            tracing::warn!("BMP 转 JPEG 失败: {}", e);
-            let _ = std::fs::remove_file(&bmp_path); // 清理失败的 BMP
-        }
-    }
-}
-
-// 最终所有级别均失败时清理残留的 output_path
-let _ = std::fs::remove_file(output_path);
-Err(VisualError::FrameExtraction(...))
-```
-
-### WR-02: `validate_narration_script` 按 `\n\n` 分割不验证空段落
-
-**File:** `src/prompt/validators.rs:64-70`
-**Issue:** 验证解说文案时按 `"\n\n"` 分割并检查段落数 >= 3。但分割不排除空段落——例如输入以 `"\n\n"` 开头会产生一个空字符串作为第一个段落。虽然长度检查 `>= 50` 会阻止极端情况，但 `"a\n\nb\n\nc"` 这样总长超过 50 字符、每段仅含 1 字符的输入也能通过验证，显然不满足"解说文案"的语义要求。空段落不构成有效内容，应在计数前过滤。
+此外，`ParameterDef.required` 字段（types.rs 第 28 行）在代码中从未被读取过（除测试中的构造），属于死数据。
 
 **Fix:**
 
 ```rust
-let paragraphs: Vec<&str> = trimmed
-    .split("\n\n")
-    .filter(|p| !p.trim().is_empty())
-    .collect();
-if paragraphs.len() < 3 {
-    return Err(PromptError::Validation(format!(
-        "解说文案段落数不足: {} 段（需要 >= 3）",
-        paragraphs.len()
-    )));
-}
+// 在 manager.rs render_prompt() 中，合并 defaults 之前添加校验：
+pub fn render_prompt(
+    &self,
+    category: &str,
+    name: &str,
+    version: Option<&str>,
+    vars: &HashMap<&str, &str>,
+) -> Result<String, PromptError> {
+    let prompt = self.get_prompt(category, name, version)?;
+
+    // Validate required parameters
+    let mut missing: Vec<String> = Vec::new();
+    for param in &prompt.metadata.parameters {
+        if param.required && param.default.is_none() && !vars.contains_key(param.name.as_str()) {
+            missing.push(param.name.clone());
+        }
+    }
+    if !missing.is_empty() {
+        return Err(PromptError::Validation(format!(
+            "缺少必需参数: {}", missing.join(", ")
+        )));
+    }
+
+    // Merge defaults: caller vars take precedence over parameter defaults
+    let mut merged: HashMap<String, String> = HashMap::new();
+    // ... rest unchanged
 ```
 
-### WR-03: `BatchResponse` 的 `deny_unknown_fields` 与 LLM 响应兼容性风险
+### WR-13-02: Level 3/4 回退路径中，ffmpeg 成功但文件无效时未清理 PNG/BMP 残留文件
 
-**File:** `src/visual/analyzer.rs:28-34`
-**Issue:** `BatchResponse` 结构体使用了 `#[serde(deny_unknown_fields)]`。当 LLM 返回的 JSON 中包含除 `observations`/`frame_observations` 和 `overall_activity_summary` 之外的任何额外字段时，整个批次解析会失败。某些 LLM 可能在响应中额外返回 `frame_number`、`total_frames` 等元数据字段，导致整个批次的解析结果被丢弃。
+**File:** `src/visual/frame_extractor.rs:334-345, 366-377`
+**Issue:** 在 `extract_single_frame()` 的 Level 3 回退中（第 334-345 行），条件 `if level3_ok && file_is_valid(&png_path)` 只在两个条件都为真时进入。但当 `level3_ok == true && file_is_valid(&png_path) == false` 时（ffmpeg 命令返回成功退出码但生成了零字节或无效 PNG 文件），PNG 文件不会被清理。
 
-虽然 `parse_and_retry` 存在回退到单帧 `FrameObservation` 解析的逻辑，但该回退只能处理单帧响应。如果 LLM 返回多帧数组附带额外字段，整个批次将丢失。
+具体场景：
+- 第 320-333 行：ffmpeg 输出到 `png_path`（成功返回 true）
+- 第 334 行：`file_is_valid(&png_path)` 返回 false（文件为空）
+- 条件不满足，跳过整个 if 块，`png_path` 残留
+- 继续到 Level 4，`output_path.with_extension("bmp")` 创建 `bmp_path`
+- Level 4 同理，如果 ffmpeg 成功但 BMP 文件无效，BMP 残留
 
-`FrameObservation`（`types.rs`）同样使用了 `deny_unknown_fields`，但那是对已知 schema 的严格校验。`BatchResponse` 作为 LLM 输出的外层包装，应更宽松。
+最终第 379 行 `let _ = std::fs::remove_file(output_path)` 只清理 `.jpg` 目标文件，不清理 `.png` 和 `.bmp` 中间文件。
 
-**Fix:** 移除 `BatchResponse` 上的 `deny_unknown_fields`：
+**Fix:**
 
 ```rust
-#[derive(serde::Deserialize)]
-struct BatchResponse {
-    #[serde(alias = "frame_observations")]
-    observations: Vec<FrameObservation>,
-    overall_activity_summary: Option<String>,
+// 在第 345 行 if 块结束后添加 else 分支清理 PNG：
+    if level3_ok && file_is_valid(&png_path) {
+        match convert_image_to_jpeg(&png_path, output_path, quality) {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&png_path);
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!("PNG 转 JPEG 失败: {}", e);
+                let _ = std::fs::remove_file(&png_path);
+            }
+        }
+    } else if level3_ok {
+        // ffmpeg 成功但 PNG 文件无效，清理残留
+        let _ = std::fs::remove_file(&png_path);
+    }
+
+// 同理在第 377 行后添加 else 分支清理 BMP：
+    } else if level4_ok {
+        let _ = std::fs::remove_file(&bmp_path);
+    }
+```
+
+### WR-13-03: cleanup_fast_path_files 仅匹配 fastframe_ 前缀但不限制扩展名
+
+**File:** `src/visual/frame_extractor.rs:466-479`
+**Issue:** `cleanup_fast_path_files()`（第 474 行）使用 `name.starts_with("fastframe_")` 匹配文件，不检查扩展名。虽然 FFmpeg 快路径总是输出 `.jpg`，但如果有其他进程在同目录下创建了以 `fastframe_` 开头的非帧文件（如 `fastframe_log.txt`），它们也会被误删。
+
+与 `rename_fast_path_frames()`（第 409 行）和 `collect_frame_paths()`（analyzer.rs 第 255 行）均同时检查 `starts_with` 和 `ends_with(".jpg")` 的模式不一致。
+
+**Fix:**
+
+```rust
+// 第 474 行，添加扩展名检查：
+if name.starts_with("fastframe_") && name.ends_with(".jpg") {
+    let _ = std::fs::remove_file(&path);
 }
 ```
 
 ## Info
 
-### IN-01: `template.rs` json 过滤器使用 `expect` 代替错误传播
+### IN-13-01: template.rs 中 missing 变量去重使用 Vec::contains 导致 O(n^2) 复杂度
 
-**File:** `src/prompt/template.rs:54`
-**Issue:** `serde_json::to_string(s).expect("serde_json cannot fail serializing &str")` 使用 `expect` 而非 `Result`。虽然对于 `&str` 输入 `serde_json::to_string` 不会失败，但这是一个硬编码的不可恢复假设。代码中已有注释说明，无需修改。
+**File:** `src/prompt/template.rs:89, 120`
+**Issue:** 第 89 行 `!missing.contains(&name.to_string())` 和第 120 行 `!missing_filter_vars.contains(&var_name.to_string())` 对 Vec 做线性查找。当模板中变量很多时（实际场景中不太可能超过几十个），性能不是问题。但使用 `HashSet` 是更惯用的去重方式，代码也更清晰。与上一轮 IN-12-03（Regex 每次编译）类似，属于低优先级改进。
 
-**Fix:** 无需修改。现有注释已足够说明。
+**Fix:** 建议将来统一使用 `HashSet<String>` 替代 `Vec<String>` + `contains()`。
 
-### IN-02: `file_is_valid` 存在 TOCTOU 竞态窗口
+### IN-13-02: filter_re 对同一字符串迭代 3 次（变量存在校验 + 过滤器名校验 + 实际替换）
 
-**File:** `src/visual/frame_extractor.rs:510-512`
-**Issue:** `file_is_valid` 先检查 `path.exists()` 再读取 `path.metadata()`，两步之间存在理论上的 TOCTOU（Time-of-check to time-of-use）窗口。在此代码的上下文中（单线程帧提取）不存在实际风险，但可简化为单步操作。
+**File:** `src/prompt/template.rs:118-139`
+**Issue:** 第 118-123 行（校验变量存在）、第 132-139 行（校验过滤器名）、第 141-150 行（实际替换）分别对 `filter_re.captures_iter(&result)` 迭代一次，共 3 次。可以合并为单次迭代，在替换时同时校验。但当前逻辑清晰、模板变量少，属于维护性建议。
 
-**Fix:**
+**Fix:** 建议在单次 `replace_all` 闭包内同时做校验和替换，减少重复迭代。
 
-```rust
-fn file_is_valid(path: &Path) -> bool {
-    std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false)
-}
-```
+### IN-13-03: BatchResponse 的 observations 字段名与 prompt schema 中声明的 frame_observations 不一致
 
-### IN-03: `interval_seconds` 缺少 `is_infinite()` 检查
+**File:** `src/visual/analyzer.rs:29-31, 110`
+**Issue:** `BatchResponse` 使用 `#[serde(alias = "frame_observations")]` 和字段名 `observations`（第 30-31 行）。prompt schema（第 110 行）向 LLM 声明的字段名是 `frame_observations`。虽然 `serde(alias)` 保证两种 JSON 键名都能反序列化，但 Rust 结构体的字段名 `observations` 与 prompt 中声明的 `frame_observations` 不同，增加了维护时的认知负担。
 
-**File:** `src/visual/frame_extractor.rs:48`
-**Issue:** 验证检查了 `is_nan() || <= 0.0` 但未检查 `is_infinite()`。如果 `interval_seconds` 为 `f64::INFINITY`，会通过验证。快速路径将生成 `fps=1/inf`，FFmpeg 会拒绝，静默回退到逐帧路径。在回退路径中 `(duration / f64::INFINITY).ceil()` 产生 0.0，函数返回 `Ok(0)` 静默无操作。不会崩溃，但行为令人困惑。
+这不是 bug——`#[serde(alias)]` 正确处理了两种键名——但如果未来有人只看结构体不看 `alias`，可能误以为 LLM 返回 `observations` 键名。
 
-**Fix:**
+**Fix:** 可考虑将 Rust 字段名改为 `frame_observations`，使用 `#[serde(alias = "observations")]` 作为回退，使代码与 prompt schema 更直观对齐。低优先级。
 
-```rust
-if interval_seconds.is_nan() || interval_seconds.is_infinite() || interval_seconds <= 0.0 {
-    return Err(VisualError::FrameExtraction("帧提取间隔必须为有限正数".into()));
-}
-```
+### IN-13-04: parse_and_retry 静默吞掉 BatchResponse 解析错误
+
+**File:** `src/visual/analyzer.rs:199-227`
+**Issue:** `parse_and_retry()` 在第 203 行尝试 `BatchResponse` 解析失败时，不记录错误日志就回退到 `FrameObservation` 单对象解析。如果 LLM 返回的 JSON 结构接近 BatchResponse 但有轻微格式问题（如缺少一个逗号），错误信息会被吞掉，只报告最终 `FrameObservation` 解析失败的错误。这使得调试 LLM 响应格式问题变得困难。
+
+上一轮 IN-12-02 已指出 JSON schema 硬编码与结构分离的问题，此问题是同一区域的补充观察。
+
+**Fix:** 建议在 BatchResponse 解析失败时添加 `tracing::debug!` 级别日志，记录第一次解析的错误原因。
 
 ---
-
-_Reviewed: 2026-04-30T12:00:00Z_
-_Reviewer: Claude (gsd-code-reviewer)_
+_Reviewed: 2026-05-02T00:00:00Z_
+_Reviewer: Claude (rust-reviewer, gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 10_
+_Iteration: 13_
