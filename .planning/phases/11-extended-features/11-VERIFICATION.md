@@ -1,13 +1,13 @@
 ---
 phase: 11-extended-features
 verified: 2026-04-30T15:00:00Z
-status: gaps_found
+status: passed
 score: 35/35 must-haves verified
 overrides_applied: 0
 overrides: []
 gaps:
   - truth: "RMS 回退 fallback 路径中 get_audio_rms() 计算 dB 值时使用 i16::MAX (32767) 作为 f32 采样参考电平，导致 RMS 值偏低约 90 dB，回退时产生巨量增益放大"
-    status: failed
+    status: fixed
     reason: "src/audio/normalizer.rs:288 使用 20.0 * (rms / (i16::MAX as f64)).log10()，但 f32 采样范围是 [-1.0, 1.0]，参考电平应为 1.0。当 loudnorm 两遍标准化失败触发 RMS 回退时，gain_db = target_lufs - rms_db 会产生约 +90 dB 的过放大，导致音频削波/失真"
     artifacts:
       - path: "src/audio/normalizer.rs"
