@@ -267,7 +267,13 @@ impl AzureSpeechEngine {
         let escaped_text: String = text
             .replace('&', "&amp;")
             .replace('<', "&lt;")
-            .replace('>', "&gt;");
+            .replace('>', "&gt;")
+            .chars()
+            .filter(|&c| {
+                c == '\t' || c == '\n' || c == '\r'
+                    || (c as u32 >= 0x20 && !(0x7F..=0x9F).contains(&(c as u32)))
+            })
+            .collect();
         let ssml = format!(
             r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
             lang, processed_voice_name, rate_str, pitch_str, escaped_text
