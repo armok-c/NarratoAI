@@ -170,9 +170,25 @@ pub(crate) fn build_client(
 // URL encoding helper
 // ---------------------------------------------------------------------------
 
-/// 简单 URL 编码（仅编码空格和特殊字符）
+/// URL 查询编码
+///
+/// application/x-www-form-urlencoded 编码。
+/// 保留字母数字和 `-`、`_`、`.`、`~`，空格编码为 `+`，
+/// 其他字符编码为 `%XX`（UTF-8 逐字节编码）。
 fn urlencoding(s: &str) -> String {
-    s.replace(' ', "+")
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            ' ' => result.push('+'),
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => result.push(c),
+            _ => {
+                for b in c.to_string().bytes() {
+                    result.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -423,8 +439,14 @@ mod tests {
 
     #[test]
     fn test_urlencoding() {
-        assert_eq!(urlencoding("nature"), "nature");
-        assert_eq!(urlencoding("mountain river"), "mountain+river");
+        assert_eq!(urlencoding("hello world"), "hello+world");
+        assert_eq!(urlencoding("AT&T"), "AT%26T");
+        assert_eq!(urlencoding("C++"), "C%2B%2B");
+        assert_eq!(urlencoding("100%"), "100%25");
+        assert_eq!(urlencoding("tag#1"), "tag%231");
+        assert_eq!(urlencoding("normal"), "normal");
+        assert_eq!(urlencoding("a=b"), "a%3Db");
+        assert_eq!(urlencoding("你好"), "%E4%BD%A0%E5%A5%BD");
     }
 
     #[test]

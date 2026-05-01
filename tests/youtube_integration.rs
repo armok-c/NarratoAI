@@ -11,23 +11,6 @@ fn find_ytdlp() -> String {
             return "yt-dlp".to_string();
         }
     }
-    // macOS/Linux: `which yt-dlp`, Windows: `where yt-dlp`
-    #[cfg(windows)]
-    {
-        if let Ok(output) = Command::new("where").arg("yt-dlp").output() {
-            if output.status.success() {
-                return "yt-dlp".to_string();
-            }
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        if let Ok(output) = Command::new("which").arg("yt-dlp").output() {
-            if output.status.success() {
-                return "yt-dlp".to_string();
-            }
-        }
-    }
     panic!("yt-dlp 不可用。请访问 https://github.com/yt-dlp/yt-dlp/releases 下载安装。");
 }
 

@@ -51,7 +51,7 @@ pub struct VideoFormat {
 pub struct DownloadResult {
     /// 下载到本地的文件路径
     pub output_path: PathBuf,
-    /// 视频标题（从 yt-dlp --get-title 提取）
+    /// 视频标题（从 yt-dlp --dump-json 提取）
     pub title: String,
 }
 
@@ -72,14 +72,29 @@ pub fn validate_format(output_format: &str) -> Result<(), YoutubeError> {
     }
 }
 
+/// 标准化分辨率字符串
+///
+/// "1080p60" → "1080p", "720p" → "720p", "N/A" → "N/A"
+fn normalize_resolution(resolution: &str) -> String {
+    if resolution.contains('p') {
+        let parts: Vec<&str> = resolution.split('p').collect();
+        format!("{}p", parts[0])
+    } else {
+        resolution.to_string()
+    }
+}
+
 /// 获取视频可用格式列表
 ///
-/// 使用 yt-dlp --dump-json 获取视频元数据，从中提取格式列表。
+/// 使用 yt-dlp --dump-json 获取视频元数据，从中提取格式列表和视频标题。
 /// 包含分辨率标准化逻辑（如 "1080p60" → "1080p"）。
 ///
 /// # 参数
 /// - `url`: YouTube 视频 URL
 /// - `proxy_url`: 可选代理 URL（从 config.toml [proxy] 段读取）
+///
+/// # 返回
+/// 元组 `(Vec<VideoFormat>, String)`，第二个元素为视频标题。
 ///
 /// # 安全
 /// - URL 前缀校验（必须以 http:// 或 https:// 开头），防止协议注入（per T-11-01, T-11-02）
@@ -87,7 +102,7 @@ pub fn validate_format(output_format: &str) -> Result<(), YoutubeError> {
 async fn _get_video_formats(
     url: &str,
     proxy_url: Option<&str>,
-) -> Result<Vec<VideoFormat>, YoutubeError> {
+) -> Result<(Vec<VideoFormat>, String), YoutubeError> {
     // URL 前缀校验（防止参数注入，per T-11-02）
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(YoutubeError::InvalidUrl(url.to_string()));
@@ -123,13 +138,7 @@ async fn _get_video_formats(
         .iter()
         .map(|f| {
             let resolution = f["format_note"].as_str().unwrap_or("N/A").to_string();
-            // 标准化分辨率： "1080p60" → "1080p"
-            let base_res = if resolution.contains('p') {
-                let parts: Vec<&str> = resolution.split('p').collect();
-                format!("{}p", parts[0])
-            } else {
-                resolution.clone()
-            };
+            let base_res = normalize_resolution(&resolution);
 
             VideoFormat {
                 format_id: f["format_id"].as_str().unwrap_or("").to_string(),
@@ -140,7 +149,12 @@ async fn _get_video_formats(
         })
         .collect();
 
-    Ok(result)
+    let title = info["title"]
+        .as_str()
+        .unwrap_or("unknown_title")
+        .to_string();
+
+    Ok((result, title))
 }
 
 /// 下载 YouTube 视频
@@ -149,9 +163,10 @@ async fn _get_video_formats(
 /// 1. URL 格式校验
 /// 2. 输出格式校验
 /// 3. 分辨率标准化（如 "1080p60" → "1080p"）
-/// 4. 获取格式列表，匹配目标分辨率
+/// 4. 获取格式列表和标题（--dump-json），匹配目标分辨率
 /// 5. 选择最佳格式（优先非 av01 编码）
 /// 6. 通过 yt-dlp 下载
+/// 7. 验证输出文件存在
 ///
 /// # 参数
 /// - `url`: YouTube 视频 URL
@@ -183,15 +198,10 @@ pub async fn download_video(
     validate_format(output_format)?;
 
     // 3. 标准化分辨率： "1080p60" → "1080p"
-    let base_resolution = if resolution.contains('p') {
-        let parts: Vec<&str> = resolution.split('p').collect();
-        format!("{}p", parts[0])
-    } else {
-        resolution.to_string()
-    };
+    let base_resolution = normalize_resolution(resolution);
 
     // 4. 获取格式列表，匹配目标分辨率
-    let formats = _get_video_formats(url, proxy_url).await?;
+    let (formats, title) = _get_video_formats(url, proxy_url).await?;
 
     // 5. 在匹配到目标分辨率的格式中，优先选非 av01 的
     let matched = formats
@@ -254,19 +264,15 @@ pub async fn download_video(
         return Err(YoutubeError::DownloadFailed(stderr.to_string()));
     }
 
-    // 7. 获取视频标题
-    let title_info = Command::new("yt-dlp")
-        .args(["--get-title", "--no-warnings", "--quiet", url])
-        .output()
-        .await
-        .ok();
-    let title = title_info
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown_title".to_string());
-
     let output_path = PathBuf::from(format!("{}.{}", output_template, output_ext));
+
+    // 验证输出文件实际存在
+    if !output_path.exists() {
+        return Err(YoutubeError::DownloadFailed(format!(
+            "下载完成后文件未找到: {}",
+            output_path.display()
+        )));
+    }
 
     Ok(DownloadResult { output_path, title })
 }
@@ -332,36 +338,12 @@ mod tests {
     }
 
     #[test]
-    fn test_resolution_normalization() {
-        // "1080p60" → "1080p"
-        let res = "1080p60";
-        let base_res = if res.contains('p') {
-            let parts: Vec<&str> = res.split('p').collect();
-            format!("{}p", parts[0])
-        } else {
-            res.to_string()
-        };
-        assert_eq!(base_res, "1080p");
-
-        // "720p" → "720p"
-        let res = "720p";
-        let base_res2 = if res.contains('p') {
-            let parts: Vec<&str> = res.split('p').collect();
-            format!("{}p", parts[0])
-        } else {
-            res.to_string()
-        };
-        assert_eq!(base_res2, "720p");
-
-        // "2160p60" → "2160p"
-        let res = "2160p60";
-        let base_res3 = if res.contains('p') {
-            let parts: Vec<&str> = res.split('p').collect();
-            format!("{}p", parts[0])
-        } else {
-            res.to_string()
-        };
-        assert_eq!(base_res3, "2160p");
+    fn test_normalize_resolution() {
+        assert_eq!(normalize_resolution("1080p60"), "1080p");
+        assert_eq!(normalize_resolution("720p"), "720p");
+        assert_eq!(normalize_resolution("2160p60"), "2160p");
+        assert_eq!(normalize_resolution("N/A"), "N/A");
+        assert_eq!(normalize_resolution(""), "");
     }
 
     #[test]
