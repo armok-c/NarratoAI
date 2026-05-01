@@ -98,25 +98,29 @@ pub async fn synthesize(
         "soulvoice" => {
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
-            let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config);
+            let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config)
+                .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         "doubaotts" => {
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
-            let engine = doubaotts::DoubaoTtsEngine::new(cfg.doubaotts.clone(), &proxy_config);
+            let engine = doubaotts::DoubaoTtsEngine::new(cfg.doubaotts.clone(), &proxy_config)
+                .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         "qwen_tts" => {
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
-            let engine = qwen_tts::QwenTtsEngine::new(cfg.tts_qwen.clone(), &proxy_config);
+            let engine = qwen_tts::QwenTtsEngine::new(cfg.tts_qwen.clone(), &proxy_config)
+                .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         "indextts2" => {
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
-            let engine = indextts2::IndexTts2Engine::new(cfg.indextts2.clone(), &proxy_config);
+            let engine = indextts2::IndexTts2Engine::new(cfg.indextts2.clone(), &proxy_config)
+                .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         "azure_speech" => {
@@ -125,7 +129,8 @@ pub async fn synthesize(
                 // V2: Azure Speech REST API
                 let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
                 let proxy_config = common::ProxyConfig::from_proxy(proxy);
-                let engine = azure_speech::AzureSpeechEngine::new(cfg.azure.clone(), &proxy_config);
+                let engine = azure_speech::AzureSpeechEngine::new(cfg.azure.clone(), &proxy_config)
+                    .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
                 engine.synthesize(text, voice_name, rate, pitch, output_path).await
             } else {
                 // V1: 回退 Edge-TTS
@@ -140,7 +145,8 @@ pub async fn synthesize(
         "tencent_tts" => {
             let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
-            let engine = tencent_tts::TencentTtsEngine::new(cfg.tencent.clone(), &proxy_config);
+            let engine = tencent_tts::TencentTtsEngine::new(cfg.tencent.clone(), &proxy_config)
+                .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
             engine.synthesize(text, voice_name, rate, pitch, output_path).await
         }
         _ => Err(TTSError::UnknownEngine {

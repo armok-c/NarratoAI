@@ -22,10 +22,9 @@ pub(super) struct QwenTtsEngine {
 }
 
 impl QwenTtsEngine {
-    pub(super) fn new(config: TtsQwenSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config)
-            .expect("构建 Qwen TTS HTTP 客户端失败");
-        Self { client, config }
+    pub(super) fn new(config: TtsQwenSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+        let client = common::build_client(proxy_config)?;
+        Ok(Self { client, config })
     }
 
     /// 单次合成（无重试）
@@ -158,7 +157,7 @@ mod tests {
             model_name: String::new(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = QwenTtsEngine::new(config, &proxy_config);
+        let engine = QwenTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         assert_eq!(engine.config.api_key, "test-key");
     }
 
@@ -196,7 +195,7 @@ mod tests {
             model_name: "qwen3-tts-flash".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = QwenTtsEngine::new(config, &proxy_config);
+        let engine = QwenTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -217,7 +216,7 @@ mod tests {
             model_name: String::new(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = QwenTtsEngine::new(config, &proxy_config);
+        let engine = QwenTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -249,7 +248,7 @@ mod tests {
             model_name: String::new(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = QwenTtsEngine::new(config, &proxy_config);
+        let engine = QwenTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 

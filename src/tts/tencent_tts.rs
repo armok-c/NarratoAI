@@ -30,10 +30,9 @@ pub(super) struct TencentTtsEngine {
 }
 
 impl TencentTtsEngine {
-    pub(super) fn new(config: TencentSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config)
-            .expect("构建 Tencent TTS HTTP 客户端失败");
-        Self { client, config, endpoint_override: None }
+    pub(super) fn new(config: TencentSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+        let client = common::build_client(proxy_config)?;
+        Ok(Self { client, config, endpoint_override: None })
     }
 
     /// 实际执行一次 TTS 合成的内部方法
@@ -211,9 +210,11 @@ impl TencentTtsEngine {
                     sub["EndTime"].as_i64().or_else(|| sub["EndTime"].as_f64().map(|f| f as i64)),
                     sub["Text"].as_str(),
                 ) {
+                    let start_offset = if start_ms >= 0 { (start_ms as u64) * 10000 } else { 0 };
+                    let end_offset = if end_ms >= 0 { (end_ms as u64) * 10000 } else { 0 };
                     word_boundaries.push(WordBoundary {
-                        start_offset: (start_ms as u64) * 10000,
-                        end_offset: (end_ms as u64) * 10000,
+                        start_offset,
+                        end_offset,
                         text: text_val.to_string(),
                     });
                 }
@@ -279,7 +280,7 @@ mod tests {
             region: "ap-beijing".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = TencentTtsEngine::new(config, &proxy_config);
+        let engine = TencentTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         assert_eq!(engine.config.secret_id, "test-id");
         assert!(engine.endpoint_override.is_none());
     }
@@ -309,7 +310,7 @@ mod tests {
             region: "ap-beijing".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let mut engine = TencentTtsEngine::new(config, &proxy_config);
+        let mut engine = TencentTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         engine.endpoint_override = Some(mock_server.uri());
 
         let dir = TempDir::new().expect("创建临时目录失败");
@@ -335,7 +336,7 @@ mod tests {
             region: "ap-beijing".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = TencentTtsEngine::new(config, &proxy_config);
+        let engine = TencentTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -366,7 +367,7 @@ mod tests {
             region: "ap-beijing".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let mut engine = TencentTtsEngine::new(config, &proxy_config);
+        let mut engine = TencentTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         engine.endpoint_override = Some(mock_server.uri());
 
         let dir = TempDir::new().expect("创建临时目录失败");
@@ -399,7 +400,7 @@ mod tests {
             region: "ap-beijing".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let mut engine = TencentTtsEngine::new(config, &proxy_config);
+        let mut engine = TencentTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         engine.endpoint_override = Some(mock_server.uri());
 
         let dir = TempDir::new().expect("创建临时目录失败");

@@ -22,10 +22,9 @@ pub(super) struct IndexTts2Engine {
 }
 
 impl IndexTts2Engine {
-    pub(super) fn new(config: IndexTTS2Section, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config)
-            .expect("构建 IndexTTS2 HTTP 客户端失败");
-        Self { client, config }
+    pub(super) fn new(config: IndexTTS2Section, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+        let client = common::build_client(proxy_config)?;
+        Ok(Self { client, config })
     }
 
     async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
@@ -152,7 +151,7 @@ mod tests {
             repetition_penalty: 10.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = IndexTts2Engine::new(config, &proxy_config);
+        let engine = IndexTts2Engine::new(config, &proxy_config).expect("构建引擎失败");
         assert_eq!(engine.config.api_url, "http://127.0.0.1:8081/tts");
         assert_eq!(engine.config.reference_audio, "/path/to/ref.wav");
     }
@@ -184,7 +183,7 @@ mod tests {
             repetition_penalty: 10.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = IndexTts2Engine::new(config, &proxy_config);
+        let engine = IndexTts2Engine::new(config, &proxy_config).expect("构建引擎失败");
         let output_path = dir.path().join("output.mp3");
 
         let ref_path_str = format!("indextts2:{}", ref_audio_path.to_str().unwrap());
@@ -212,7 +211,7 @@ mod tests {
             repetition_penalty: 10.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = IndexTts2Engine::new(config, &proxy_config);
+        let engine = IndexTts2Engine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -238,7 +237,7 @@ mod tests {
             repetition_penalty: 10.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = IndexTts2Engine::new(config, &proxy_config);
+        let engine = IndexTts2Engine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 

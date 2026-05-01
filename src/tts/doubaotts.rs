@@ -21,10 +21,9 @@ pub(super) struct DoubaoTtsEngine {
 }
 
 impl DoubaoTtsEngine {
-    pub(super) fn new(config: DoubaoTTSSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config)
-            .expect("构建 Doubao TTS HTTP 客户端失败");
-        Self { client, config }
+    pub(super) fn new(config: DoubaoTTSSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+        let client = common::build_client(proxy_config)?;
+        Ok(Self { client, config })
     }
 
     /// 单次合成（无重试）
@@ -156,7 +155,7 @@ mod tests {
             silence_duration: 0.125,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = DoubaoTtsEngine::new(config, &proxy_config);
+        let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         assert_eq!(engine.config.appid, "test-appid");
         assert_eq!(engine.config.cluster, "volcano_tts");
         assert_eq!(engine.config.silence_duration, 0.125);
@@ -173,7 +172,7 @@ mod tests {
             silence_duration: 0.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = DoubaoTtsEngine::new(config, &proxy_config);
+        let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -197,7 +196,7 @@ mod tests {
             silence_duration: 0.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = DoubaoTtsEngine::new(config, &proxy_config);
+        let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -221,7 +220,7 @@ mod tests {
             silence_duration: 0.0,
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = DoubaoTtsEngine::new(config, &proxy_config);
+        let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
 
         let header_value = format!("Bearer;{}", engine.config.token);
         assert_eq!(header_value, "Bearer;test-token");
@@ -297,7 +296,7 @@ mod tests {
                 "rate": 24000,
                 "speed_ratio": 1.0,
                 "volume_ratio": config.volume,
-                "pitch_ratio": config.pitch,
+                "pitch_ratio": 1.0,
             },
             "request": {
                 "reqid": uuid::Uuid::new_v4().to_string(),
@@ -320,7 +319,7 @@ mod tests {
         assert_eq!(payload["audio"]["encoding"], "mp3");
         assert_eq!(payload["audio"]["rate"], 24000);
         assert_eq!(payload["audio"]["volume_ratio"], 1.5);
-        assert_eq!(payload["audio"]["pitch_ratio"], 1.2);
+        assert_eq!(payload["audio"]["pitch_ratio"], 1.0);
         assert_eq!(payload["audio"]["silence_duration"], 0.2);
         assert_eq!(payload["request"]["text"], "你好世界");
         assert_eq!(payload["request"]["text_type"], "plain");

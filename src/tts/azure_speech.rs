@@ -202,10 +202,9 @@ pub(super) struct AzureSpeechEngine {
 }
 
 impl AzureSpeechEngine {
-    pub(super) fn new(config: AzureSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config)
-            .expect("构建 Azure Speech HTTP 客户端失败");
-        Self { client, config, endpoint_override: None }
+    pub(super) fn new(config: AzureSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+        let client = common::build_client(proxy_config)?;
+        Ok(Self { client, config, endpoint_override: None })
     }
 
     /// 将 rate 转换为 Azure SSML 百分比格式
@@ -413,7 +412,7 @@ mod tests {
     fn test_azure_engine_new() {
         let config = AzureSection::default();
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = AzureSpeechEngine::new(config, &proxy_config);
+        let engine = AzureSpeechEngine::new(config, &proxy_config).expect("构建引擎失败");
         assert!(engine.config.speech_key.is_empty());
         assert!(engine.endpoint_override.is_none());
     }
@@ -435,7 +434,7 @@ mod tests {
             speech_region: "MOCK".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let mut engine = AzureSpeechEngine::new(config, &proxy_config);
+        let mut engine = AzureSpeechEngine::new(config, &proxy_config).expect("构建引擎失败");
         engine.endpoint_override = Some(mock_server.uri());
 
         let dir = TempDir::new().expect("创建临时目录失败");
@@ -454,7 +453,7 @@ mod tests {
     async fn test_azure_speech_empty_text() {
         let config = AzureSection::default();
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = AzureSpeechEngine::new(config, &proxy_config);
+        let engine = AzureSpeechEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -473,7 +472,7 @@ mod tests {
             speech_region: "eastasia".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let engine = AzureSpeechEngine::new(config, &proxy_config);
+        let engine = AzureSpeechEngine::new(config, &proxy_config).expect("构建引擎失败");
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
@@ -500,7 +499,7 @@ mod tests {
             speech_region: "MOCK".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
-        let mut engine = AzureSpeechEngine::new(config, &proxy_config);
+        let mut engine = AzureSpeechEngine::new(config, &proxy_config).expect("构建引擎失败");
         engine.endpoint_override = Some(mock_server.uri());
 
         let dir = TempDir::new().expect("创建临时目录失败");
