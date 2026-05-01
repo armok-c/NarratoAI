@@ -1,53 +1,52 @@
 ---
 phase: 12-additional-tts-engines
-fixed_at: 2026-05-01T12:00:00Z
+fixed_at: 2026-05-01T22:00:00Z
 review_path: .planning/phases/12-additional-tts-engines/12-REVIEW.md
-iteration: 1
-findings_in_scope: 4
-fixed: 4
+iteration: 2
+findings_in_scope: 3
+fixed: 3
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 12: Code Review Fix Report
+# Phase 12: Code Review Fix Report (Iteration 2)
 
-**Fixed at:** 2026-05-01T12:00:00Z
+**Fixed at:** 2026-05-01T22:00:00Z
 **Source review:** .planning/phases/12-additional-tts-engines/12-REVIEW.md
-**Iteration:** 1
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope: 4
-- Fixed: 4
+- Findings in scope: 3 (Critical + Warning)
+- Fixed: 3
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: Doubao TTS passes `pitch` value directly as `pitch_ratio` without semantic conversion
+### WR-01: build_client returns Result but all callers use .expect() -- panics in production on TLS failure
 
-**Files modified:** `src/tts/doubaotts.rs`
-**Commit:** 145454b
-**Applied fix:** Changed `pitch: f64` to `_pitch: f64` in `synthesize_once` signature and hardcoded `"pitch_ratio": 1.0` in the request body. This follows the same pattern as SoulVoice/Qwen/IndexTTS2/Tencent which correctly ignore pitch (the Doubao/Volcengine API expects pitch_ratio as a multiplicative ratio where 1.0 = standard). Hardcoding 1.0 avoids sending out-of-range values when the trait contract provides pitch=0 (standard in Hz offset format).
+**Files modified:** `src/tts/soulvoice.rs`, `src/tts/doubaotts.rs`, `src/tts/qwen_tts.rs`, `src/tts/indextts2.rs`, `src/tts/azure_speech.rs`, `src/tts/tencent_tts.rs`, `src/tts/mod.rs`
+**Commit:** a4b0738
+**Applied fix:** Changed all 6 engine `new()` constructors from `fn new(...) -> Self` to `fn new(...) -> Result<Self, TTSError>`, replacing `.expect()` with `?` for error propagation. Updated `mod.rs` router to handle `Result` with `.map_err(|e| TTSError::ConnectionFailed(...))`. All test code updated to use `.expect()` on construction (acceptable in test context). Now TLS initialization failures return a graceful `TTSError::ConnectionFailed` to the caller instead of panicking.
 
-### WR-01: Azure Speech SSML does not filter XML 1.0 disallowed control characters
-
-**Files modified:** `src/tts/azure_speech.rs`
-**Commit:** a5d3c34
-**Applied fix:** Added the same `.chars().filter(...)` chain used in `edge_tts.rs:83-91` after the XML entity replacements (`&`, `<`, `>`). This filters out XML 1.0 disallowed control characters (U+0000-U+0008, U+000B-U+000C, U+000E-U+001F, U+007F-U+009F) that would otherwise cause the Azure Speech REST API to return a 400 Bad Request error.
-
-### WR-02: Tencent TTS sends empty `X-TC-Token` header instead of omitting it
+### WR-02: Tencent TTS subtitle timestamp cast from i64 to u64 silently wraps negative values
 
 **Files modified:** `src/tts/tencent_tts.rs`
-**Commit:** e99a572
-**Applied fix:** Removed the `.header("X-TC-Token", "")` line from the TC3-HMAC-SHA256 signed request. Per the Tencent Cloud API specification, this header is only required for STS temporary credentials. For permanent credentials (SecretId + SecretKey), the header must be omitted entirely. Sending an empty string may cause some API gateway versions to reject the request.
+**Commit:** a4b0738
+**Applied fix:** Added guard clauses before the `as u64` cast: `if start_ms >= 0 { (start_ms as u64) * 10000 } else { 0 }` and same for `end_ms`. Negative timestamps from the Tencent API (which should never occur in practice) now clamp to 0 instead of wrapping to near-u64::MAX.
 
-### WR-03: `build_client` silently falls back to proxy-less client on builder failure
+### WR-03: Doubao TTS test test_doubaotts_payload_structure asserts pitch_ratio == 1.2 but production code hardcodes 1.0
 
-**Files modified:** `src/tts/common.rs`, `src/tts/doubaotts.rs`, `src/tts/azure_speech.rs`, `src/tts/tencent_tts.rs`, `src/tts/soulvoice.rs`, `src/tts/indextts2.rs`, `src/tts/qwen_tts.rs`
-**Commit:** c6e5991
-**Applied fix:** Changed `build_client()` to return `Result<reqwest::Client, TTSError>` instead of silently falling back to `reqwest::Client::new()`. Previously, a `Client::builder().build()` failure would discard the proxy configuration with only a `warn!`-level log. Now the function returns `Err(TTSError::ConnectionFailed(...))` with a descriptive message. All 6 engine constructors use `.expect()` with engine-specific messages to fail explicitly during startup if the HTTP client cannot be built.
+**Files modified:** `src/tts/doubaotts.rs`
+**Commit:** a4b0738
+**Applied fix:** Updated test payload construction to use `"pitch_ratio": 1.0` (matching production code hardcoded in `synthesize_once` after the prior CR-01 fix) and changed assertion from `assert_eq!(payload["audio"]["pitch_ratio"], 1.2)` to `assert_eq!(payload["audio"]["pitch_ratio"], 1.0)`.
+
+## Verification
+
+- `cargo check` passes (only pre-existing dead_code warning for `get_azure_voices`)
+- `cargo test --lib`: 367 passed, 1 failed (pre-existing `ffmpeg::hwaccel::tests::test_detect_encoders_format` unrelated to this fix)
+- All 36 TTS-related tests pass
 
 ---
-
-*Fixed: 2026-05-01T12:00:00Z*
+*Fixed: 2026-05-01T22:00:00Z*
 *Fixer: Claude (gsd-code-fixer)*
-*Iteration: 1*
+*Iteration: 2*
