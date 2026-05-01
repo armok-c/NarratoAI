@@ -246,7 +246,7 @@ pub fn search_videos_pexels(
         .flat_map(|v| {
             v.video_files
                 .into_iter()
-                .filter(|f| f.width == target_width && f.height == target_height)
+                .filter(|f| f.width >= target_width && f.height >= target_height)
                 .map(move |f| MaterialInfo {
                     id: v.id,
                     duration: v.duration,

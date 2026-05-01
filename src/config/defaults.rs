@@ -4,7 +4,7 @@ use crate::config::types::*;
 impl Default for AppSection {
     fn default() -> Self {
         Self {
-            project_version: "0.1.0".to_string(),
+            project_version: "0.7.8".to_string(),
             vision_llm_provider: "openai".to_string(),
             vision_openai_model_name: "Qwen/Qwen3.5-122B-A10B".to_string(),
             vision_openai_api_key: String::new(),

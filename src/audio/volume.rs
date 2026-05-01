@@ -30,7 +30,7 @@ impl VolumeConfig {
             ("original_volume", self.original_volume),
             ("bgm_volume", self.bgm_volume),
         ] {
-            if val < 0.0 || val > 2.0 {
+            if val.is_nan() || val < 0.0 || val > 2.0 {
                 return Err(super::normalizer::AudioError::InvalidVolume(
                     format!("{}={} 不在 [0.0, 2.0] 范围内", name, val),
                 ));
@@ -201,6 +201,10 @@ pub fn get_recommended_volumes_for_content(content_type: &str) -> VolumeConfig {
 ///
 /// 超出范围时记录 warning 并 clamp。
 pub fn validate_volume(volume: f64, name: &str) -> f64 {
+    if volume.is_nan() {
+        tracing::warn!("{} 音量值为 NaN，已调整为 0.0", name);
+        return 0.0;
+    }
     let min = 0.0;
     let max = 2.0;
     if volume < min {

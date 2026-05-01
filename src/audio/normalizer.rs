@@ -71,27 +71,42 @@ pub struct LoudnormData {
 impl LoudnormData {
     /// 解析 measured_I 为 f64
     pub fn measured_I(&self) -> f64 {
-        self.input_i.parse().unwrap_or(0.0)
+        self.input_i.parse().unwrap_or_else(|e| {
+            tracing::warn!("measured_I 解析失败 ('{}'): {}", self.input_i, e);
+            0.0
+        })
     }
 
     /// 解析 measured_LRA 为 f64
     pub fn measured_LRA(&self) -> f64 {
-        self.input_lra.parse().unwrap_or(0.0)
+        self.input_lra.parse().unwrap_or_else(|e| {
+            tracing::warn!("measured_LRA 解析失败 ('{}'): {}", self.input_lra, e);
+            0.0
+        })
     }
 
     /// 解析 measured_TP 为 f64
     pub fn measured_TP(&self) -> f64 {
-        self.input_tp.parse().unwrap_or(0.0)
+        self.input_tp.parse().unwrap_or_else(|e| {
+            tracing::warn!("measured_TP 解析失败 ('{}'): {}", self.input_tp, e);
+            0.0
+        })
     }
 
     /// 解析 measured_thresh 为 f64
     pub fn measured_thresh(&self) -> f64 {
-        self.input_thresh.parse().unwrap_or(0.0)
+        self.input_thresh.parse().unwrap_or_else(|e| {
+            tracing::warn!("measured_thresh 解析失败 ('{}'): {}", self.input_thresh, e);
+            0.0
+        })
     }
 
     /// 解析 target_offset 为 f64
     pub fn offset(&self) -> f64 {
-        self.target_offset.parse().unwrap_or(0.0)
+        self.target_offset.parse().unwrap_or_else(|e| {
+            tracing::warn!("target_offset 解析失败 ('{}'): {}", self.target_offset, e);
+            0.0
+        })
     }
 }
 
@@ -106,12 +121,26 @@ impl LoudnormData {
 /// ```
 fn extract_json_from_stderr(stderr: &[u8]) -> Result<String, AudioError> {
     let text = String::from_utf8_lossy(stderr);
-    let start = text.find('{').ok_or_else(|| {
-        AudioError::LoudnormAnalysisFailed("未在 FFmpeg stderr 中找到 JSON 输出".into())
-    })?;
-    let end = text.rfind('}').ok_or_else(|| {
+
+    // 优先在 loudnorm 标记之后查找 JSON 起始位置，避免误匹配前缀中的花括号
+    let search_start = text
+        .rfind("Parsed_loudnorm_")
+        .map(|pos| pos + "Parsed_loudnorm_".len())
+        .unwrap_or(0);
+    let start = text[search_start..]
+        .find('{')
+        .map(|i| search_start + i)
+        .ok_or_else(|| {
+            AudioError::LoudnormAnalysisFailed("未在 FFmpeg stderr 中找到 JSON 输出".into())
+        })?;
+    let end = text[start..].rfind('}').map(|i| start + i).ok_or_else(|| {
         AudioError::LoudnormAnalysisFailed("未在 FFmpeg stderr 中找到 JSON 结束符".into())
     })?;
+    if end <= start {
+        return Err(AudioError::LoudnormAnalysisFailed(
+            "JSON 边界异常：结束位置早于起始位置".into(),
+        ));
+    }
     Ok(text[start..=end].to_string())
 }
 
@@ -159,15 +188,23 @@ pub fn analyze_lufs(input: &Path) -> Result<LoudnormData, AudioError> {
 /// 两遍 loudnorm 标准化
 ///
 /// 第一遍 `analyze_lufs` 获取 measured 值，第二遍 loudnorm 应用标准化。
-/// 输出为 44100Hz / 双声道。
+/// 输出采样率和声道数由参数控制（通常来自 `AudioSection` 配置）。
 pub fn normalize_lufs(
     input: &Path,
     output: &Path,
     target_lufs: f64,
     max_peak: f64,
+    sample_rate: u32,
+    channels: u32,
 ) -> Result<(), AudioError> {
     if !input.exists() {
         return Err(AudioError::FileNotFound(input.display().to_string()));
+    }
+
+    if sample_rate == 0 || channels == 0 {
+        return Err(AudioError::InvalidVolume(
+            format!("sample_rate={} channels={} 不能为 0", sample_rate, channels),
+        ));
     }
 
     // 第一遍：分析
@@ -191,7 +228,7 @@ pub fn normalize_lufs(
         .args(["-y", "-hide_banner", "-i"])
         .arg(input.as_os_str())
         .args(["-af", &filter])
-        .args(["-ar", "44100", "-ac", "2"])
+        .args(["-ar", &sample_rate.to_string(), "-ac", &channels.to_string()])
         .arg(output.as_os_str())
         .output()
         .map_err(|e| {
@@ -225,8 +262,13 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
 
-    let file = std::fs::File::open(input)
-        .map_err(|e| AudioError::FileNotFound(format!("{}: {}", input.display(), e)))?;
+    let file = std::fs::File::open(input).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            AudioError::FileNotFound(input.display().to_string())
+        } else {
+            AudioError::IoError(format!("{}: {}", input.display(), e))
+        }
+    })?;
     let mss = symphonia::core::io::MediaSourceStream::new(Box::new(file), Default::default());
 
     let probed = symphonia::default::get_probe()
@@ -251,7 +293,6 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
         .make(codec_params, &DecoderOptions::default())
         .map_err(|e| AudioError::RmsFallbackFailed(format!("解码器初始化失败: {}", e)))?;
 
-    let mut sample_buf: Option<SampleBuffer<f32>> = None;
     let mut all_samples: Vec<f32> = Vec::new();
 
     loop {
@@ -268,7 +309,7 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
         if let Ok(audio_buf) = decoder.decode(&packet) {
             let spec = *audio_buf.spec();
             let cap = audio_buf.capacity() as u64;
-            let buf = sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(cap, spec));
+            let mut buf = SampleBuffer::<f32>::new(cap, spec);
             buf.copy_interleaved_ref(audio_buf);
             all_samples.extend_from_slice(buf.samples());
         }
@@ -297,6 +338,11 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
 /// 纯函数，无文件 I/O。目标响度 -20.0 LUFS。
 /// - TTS 调整系数 clamp 到 [0.1, 2.0]
 /// - 原声调整系数 clamp 到 [0.1, 3.0]
+///
+/// 注意：此处的 clamp 范围与 `validate_volume()` 的 [0.0, 2.0] 不同。
+/// 这里计算的是增益系数（LUFS 差值转换的线性增益），极端安静的原声
+/// 需要更大的增益倍数，因此上限为 3.0。`validate_volume()` 校验的是
+/// 用户配置的音量百分比，上限 2.0 即 200%。
 pub fn calculate_volume_adjustment(tts_lufs: f64, original_lufs: f64) -> (f64, f64) {
     let target_lufs = -20.0;
 
@@ -317,6 +363,8 @@ pub fn normalize_audio_for_mixing(
     audio_path: &Path,
     output_dir: &Path,
     target_lufs: f64,
+    sample_rate: u32,
+    channels: u32,
 ) -> Result<PathBuf, AudioError> {
     if !audio_path.exists() {
         return Err(AudioError::FileNotFound(audio_path.display().to_string()));
@@ -329,7 +377,7 @@ pub fn normalize_audio_for_mixing(
     let output_path = output_dir.join(format!("{}_normalized.mp3", stem));
 
     // 优先 loudnorm 两遍标准化
-    match normalize_lufs(audio_path, &output_path, target_lufs, -1.0) {
+    match normalize_lufs(audio_path, &output_path, target_lufs, -1.0, sample_rate, channels) {
         Ok(()) => return Ok(output_path),
         Err(e) => tracing::warn!("loudnorm 两遍标准化失败，回退到 RMS 标准化: {}", e),
     }
@@ -343,7 +391,7 @@ pub fn normalize_audio_for_mixing(
         .args(["-y", "-hide_banner", "-i"])
         .arg(audio_path.as_os_str())
         .args(["-af", &format!("volume={}dB", gain_db)])
-        .args(["-ar", "44100", "-ac", "2"])
+        .args(["-ar", &sample_rate.to_string(), "-ac", &channels.to_string()])
         .arg(&output_path)
         .output()
         .map_err(|e| AudioError::LoudnormNormalizeFailed(e.to_string()))?;
@@ -430,6 +478,8 @@ mod tests {
             &tmp.join("output.wav"),
             -23.0,
             -1.0,
+            44100,
+            2,
         );
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -445,6 +495,8 @@ mod tests {
             &tmp.join("nonexistent_test.wav"),
             &tmp,
             -20.0,
+            44100,
+            2,
         );
         assert!(result.is_err());
     }

@@ -38,7 +38,7 @@ pub struct AppSection {
     pub vision_llm_provider: String,
     #[serde(default)]
     pub vision_openai_model_name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub vision_openai_api_key: String,
     #[serde(default)]
     pub vision_openai_base_url: String,
@@ -46,7 +46,7 @@ pub struct AppSection {
     pub text_llm_provider: String,
     #[serde(default)]
     pub text_openai_model_name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub text_openai_api_key: String,
     #[serde(default)]
     pub text_openai_base_url: String,
@@ -58,9 +58,9 @@ pub struct AppSection {
     pub llm_max_retries: u32,
     #[serde(default)]
     pub hide_config: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub pexels_api_keys: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub pixabay_api_keys: Vec<String>,
 }
 
@@ -96,7 +96,7 @@ pub struct UiSection {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AzureSection {
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub speech_key: String,
     #[serde(default)]
     pub speech_region: String,
@@ -106,9 +106,9 @@ pub struct AzureSection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TencentSection {
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub secret_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub secret_key: String,
     #[serde(default)]
     pub region: String,
@@ -118,7 +118,7 @@ pub struct TencentSection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SoulVoiceSection {
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub api_key: String,
     #[serde(default)]
     pub voice_uri: String,
@@ -132,7 +132,7 @@ pub struct SoulVoiceSection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TtsQwenSection {
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub api_key: String,
     #[serde(default)]
     pub api_url: String,
@@ -168,13 +168,13 @@ pub struct IndexTTS2Section {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub ak: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub sk: String,
     #[serde(default)]
     pub appid: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub token: String,
     #[serde(default)]
     pub cluster: String,
@@ -399,7 +399,7 @@ project_version = "0.7.8"
         let config = AppConfig::default();
 
         // AppSection defaults
-        assert_eq!(config.app.project_version, "0.1.0");
+        assert_eq!(config.app.project_version, "0.7.8");
         assert_eq!(config.app.vision_llm_provider, "openai");
         assert_eq!(config.app.llm_vision_timeout, 120);
         assert_eq!(config.app.llm_text_timeout, 180);

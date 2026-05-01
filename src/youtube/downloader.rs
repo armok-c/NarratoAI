@@ -107,12 +107,22 @@ async fn get_video_formats(
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(YoutubeError::InvalidUrl(url.to_string()));
     }
+    if url.contains('\n') || url.contains('\r') {
+        return Err(YoutubeError::InvalidUrl("URL 包含非法换行符".into()));
+    }
 
     let mut cmd = Command::new("yt-dlp");
     cmd.args(["--dump-json", "--no-warnings", "--quiet", url]);
 
     if let Some(proxy) = proxy_url {
         if !proxy.is_empty() {
+            if !proxy.starts_with("http://") && !proxy.starts_with("https://")
+                && !proxy.starts_with("socks5://") && !proxy.starts_with("socks5h://")
+            {
+                return Err(YoutubeError::InvalidUrl(
+                    format!("代理 URL 协议无效: {}（支持 http/https/socks5）", proxy),
+                ));
+            }
             cmd.args(["--proxy", proxy]);
         }
     }
@@ -193,6 +203,9 @@ pub async fn download_video(
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(YoutubeError::InvalidUrl(url.to_string()));
     }
+    if url.contains('\n') || url.contains('\r') {
+        return Err(YoutubeError::InvalidUrl("URL 包含非法换行符".into()));
+    }
 
     // 2. 校验输出格式
     validate_format(output_format)?;
@@ -223,13 +236,26 @@ pub async fn download_video(
                         base_resolution
                     ))
                 })?;
+            if let Some(fb) = formats.iter().find(|f| f.format_id == fallback) {
+                tracing::warn!(
+                    "目标分辨率 {} 无匹配格式，回退到: {} ({})",
+                    base_resolution,
+                    fb.format_id,
+                    fb.resolution
+                );
+            }
             fallback
         }
     };
 
     // 6. 下载（使用 tokio::process::Command，无进度回调 per D-10）
     let output_template = match rename {
-        Some(name) => name.to_string(),
+        Some(name) => {
+            if name.contains('/') || name.contains('\\') || name.contains("..") {
+                return Err(YoutubeError::InvalidUrl("rename 参数包含非法路径字符".into()));
+            }
+            name.to_string()
+        }
         None => format!("{}_video", base_resolution),
     };
 
@@ -250,6 +276,13 @@ pub async fn download_video(
 
     if let Some(proxy) = proxy_url {
         if !proxy.is_empty() {
+            if !proxy.starts_with("http://") && !proxy.starts_with("https://")
+                && !proxy.starts_with("socks5://") && !proxy.starts_with("socks5h://")
+            {
+                return Err(YoutubeError::InvalidUrl(
+                    format!("代理 URL 协议无效: {}（支持 http/https/socks5）", proxy),
+                ));
+            }
             cmd.args(["--proxy", proxy]);
         }
     }
