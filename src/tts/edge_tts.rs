@@ -598,10 +598,10 @@ impl TtsProvider for EdgeTtsEngine {
         pitch: f64,
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("text 不能为空".to_string()));
         }
-        if voice_name.is_empty() {
+        if voice_name.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
         if !rate.is_finite() || rate < 0.0 {
