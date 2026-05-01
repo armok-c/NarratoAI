@@ -1,6 +1,6 @@
 ---
 phase: 12-additional-tts-engines
-reviewed: 2026-05-02T02:30:00Z
+reviewed: 2026-05-01T22:45:00Z
 depth: standard
 files_reviewed: 12
 files_reviewed_list:
@@ -24,23 +24,23 @@ findings:
 status: clean
 ---
 
-# Phase 12: Code Review Report -- Additional TTS Engines (Iteration 6)
+# Phase 12: Code Review Report — Additional TTS Engines (Iteration 7)
 
-**Reviewed:** 2026-05-02T02:30:00Z
+**Reviewed:** 2026-05-01T22:45:00Z
 **Depth:** standard
 **Files Reviewed:** 12
 **Status:** clean
 
 ## Summary
 
-对 Phase 12 的 12 个源文件进行第六次审查。前五次迭代的所有修复均已确认正确应用，未发现回归。
+对 Phase 12 的 12 个源文件进行第七次标准深度审查。自第六次审查以来无源码变更，所有先前修复均已确认正确应用，未发现回归。
 
-**前次修复验证（全部正确）：**
-- WR-01（pitch_ratio）：`doubaotts.rs:55` 现使用 `self.config.pitch`，不再硬编码 `1.0`
-- WR-01（SSML XML 转义）：`common.rs` 中 `escape_xml_attr()` 已添加，`azure_speech.rs:279-280` 和 `edge_tts.rs:95-96` 均已使用
-- WR-01（edge_tts trim）：`edge_tts.rs:601,604` 现使用 `.trim().is_empty()`，与其他 6 个引擎一致
+**前次修复验证（全部确认）：**
+- WR-01（pitch_ratio）：`doubaotts.rs:55` 使用 `self.config.pitch`
+- WR-01（SSML XML 转义）：`common.rs` `escape_xml_attr()` 已就位，`azure_speech.rs:279-280` 和 `edge_tts.rs:95-96` 均使用
+- WR-01（edge_tts trim）：`edge_tts.rs:601,604` 使用 `.trim().is_empty()`
 - WR-02（SSRF）：`qwen_tts.rs:90-97` URL scheme 校验允许 `https://`、`http://127.0.0.1`、`http://localhost`
-- WR-03（文件检查）：`indextts2.rs:43-51` 添加 `tokio::fs::metadata()` 前置验证
+- WR-03（文件检查）：`indextts2.rs:43-51` `tokio::fs::metadata()` 前置验证
 
 **本轮新增发现：** 0 个严重、0 个警告、5 个信息（均为历史遗留）。
 
@@ -51,7 +51,7 @@ status: clean
 ## File-by-File Analysis
 
 ### common.rs (197 lines)
-- `ProxyConfig` — `from_proxy()`/`apply_to_client()` 处理 None 和无效 URL 均正确
+- `ProxyConfig` — `from_proxy()`/`apply_to_client()` 正确处理 None 和无效 URL
 - `build_client()` — 简洁封装 reqwest ClientBuilder
 - `retry_loop()` — 4 次尝试，`AuthenticationFailed` 短路不重试，`RetryExhausted` 带最后错误信息
 - `escape_xml_attr()` — 覆盖全部 5 个 XML 特殊字符（`& < > " '`）
@@ -96,6 +96,8 @@ status: clean
 - `build_ssml()` — 使用 `escape_xml_attr()` 转义属性值，XML 转义文本内容 + 控制字符过滤
 - `TtsProvider::synthesize()` — `text.trim().is_empty()` 和 `voice_name.trim().is_empty()` 验证（WR-01 iteration 5 修复已确认，lines 601, 604）
 - WebSocket 连接支持 HTTP CONNECT 代理隧道：IPv6 地址、SOCKS5 拒绝、1xx 中间响应处理、TLS 升级
+- CONNECT 响应使用固定缓冲区（避免 BufReader 数据丢失问题）
+- 凭据提取使用 `rsplitn(2, '@')` 正确处理密码中的 @ 字符
 - 20+ 个测试（含二进制解析、代理逻辑），全部通过
 
 ### mod.rs (236 lines)
@@ -106,11 +108,17 @@ status: clean
 ### config/types.rs (426 lines)
 - 10 个配置 section，全部 `#[serde(deny_unknown_fields)]` + `#[serde(default)]`
 - `DoubaoTTSSection.ak/.sk` 字段声明但 Rust 引擎未读取（保留用于未来 OAuth 流程或 Python 兼容）
+- API 密钥字段均使用 `#[serde(skip_serializing)]` 防止序列化泄露
 - 5 个测试（完整配置、空配置、缺失 section、默认值、validate），全部通过
 
 ### config/defaults.rs (135 lines)
 - 所有 section 的 Default 实现值与 `config.example.toml` 对齐
 - `SoulVoiceSection` 默认 voice_uri 对齐 Python 版默认值
+- `IndexTTS2Section` 默认 repetition_penalty 为 1.5（与 Python 版一致）
+
+### Cargo.toml
+- 所有 TTS 相关依赖正确声明：reqwest（json + multipart）、hmac 0.13、sha2 0.11（与 hmac 兼容）、hex 0.4、chrono 0.4
+- 开发依赖：wiremock 0.6 用于 HTTP mock 测试
 
 ## Info
 
@@ -119,33 +127,37 @@ status: clean
 **File:** `src/config/types.rs:171-174`
 **Issue:** `DoubaoTTSSection` 中的 `ak` 和 `sk` 字段在 Rust 引擎中从未被读取。引擎使用 `appid`/`token` 直接认证。这两个字段为 Python 版 OAuth 流程或未来功能预留。保持现状合理，仅作为信息记录。
 
+（历史遗留，前六次审查均记录，保持不变。）
+
 ### IN-02: Qwen 和 IndexTTS2 引擎忽略 rate/pitch 参数
 
 **File:** `src/tts/qwen_tts.rs:138-139`, `src/tts/indextts2.rs:119-120`
 **Issue:** 两个引擎的 `TtsProvider::synthesize` 实现中 `_rate` 和 `_pitch` 参数以下划线标记为未使用。这是 API 限制（DashScope 和 IndexTTS2 不支持语速/音调调整），属于设计决策，不需要修改。
+
+（历史遗留，前六次审查均记录，保持不变。）
 
 ### IN-03: edge_tts.rs hardcoded HeaderValue parse 使用 .unwrap()（已有 SAFETY 注释）
 
 **File:** `src/tts/edge_tts.rs:142-152`
 **Issue:** `.unwrap()` 调用在硬编码 ASCII 头字符串上。已有 SAFETY 注释说明这些是编译时常量，`parse()` 不会失败。
 
-（历史遗留，前五次审查均记录，保持不变。）
+（历史遗留，前六次审查均记录，保持不变。）
 
 ### IN-04: Doubao TTS token 在请求中传输两次（Header + Body）
 
 **File:** `src/tts/doubaotts.rs:44,75`
 **Issue:** `Authorization` 头使用 `Bearer;{token}` 格式，同时请求体 JSON 的 `app.token` 字段也包含同一 token。token 在 HTTP 请求中传输了两次。这不是安全漏洞（HTTPS 传输），且对齐 Python 版行为以保持 API 兼容性。
 
-（历史遗留，前五次审查均记录，保持不变。）
+（历史遗留，前六次审查均记录，保持不变。）
 
 ### IN-05: get_azure_voices() 函数声明但未引用（dead_code 警告）
 
 **File:** `src/tts/azure_speech.rs:42`
 **Issue:** `get_azure_voices()` 函数目前未在任何调用方使用，产生 `dead_code` 编译警告。该函数为 UI/调试工具预留，保留合理。
 
-（历史遗留，前四次审查均记录，保持不变。）
+（历史遗留，前六次审查均记录，保持不变。）
 
 ---
-_Reviewed: 2026-05-02T02:30:00Z_
+_Reviewed: 2026-05-01T22:45:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
