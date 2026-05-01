@@ -52,7 +52,7 @@ impl DoubaoTtsEngine {
                 "rate": 24000,
                 "speed_ratio": speed_ratio,
                 "volume_ratio": self.config.volume,
-                "pitch_ratio": 1.0,
+                "pitch_ratio": self.config.pitch,
             },
             "request": {
                 "reqid": uuid::Uuid::new_v4().to_string(),
@@ -301,7 +301,7 @@ mod tests {
                 "rate": 24000,
                 "speed_ratio": 1.0,
                 "volume_ratio": config.volume,
-                "pitch_ratio": 1.0,
+                "pitch_ratio": config.pitch,
             },
             "request": {
                 "reqid": uuid::Uuid::new_v4().to_string(),
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(payload["audio"]["encoding"], "mp3");
         assert_eq!(payload["audio"]["rate"], 24000);
         assert_eq!(payload["audio"]["volume_ratio"], 1.5);
-        assert_eq!(payload["audio"]["pitch_ratio"], 1.0);
+        assert_eq!(payload["audio"]["pitch_ratio"], config.pitch);
         assert_eq!(payload["audio"]["silence_duration"], 0.2);
         assert_eq!(payload["request"]["text"], "你好世界");
         assert_eq!(payload["request"]["text_type"], "plain");
