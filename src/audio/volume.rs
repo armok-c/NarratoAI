@@ -50,9 +50,8 @@ pub struct ProcessingConfig {
     pub max_peak: f64,
 }
 
-impl ProcessingConfig {
-    /// 返回默认处理配置
-    pub fn default() -> Self {
+impl Default for ProcessingConfig {
+    fn default() -> Self {
         Self {
             enable_smart_volume: true,
             enable_audio_normalization: true,
@@ -60,7 +59,9 @@ impl ProcessingConfig {
             max_peak: -1.0,
         }
     }
+}
 
+impl ProcessingConfig {
     /// 从配置段构建处理配置
     pub fn from_section(section: &AudioSection) -> Self {
         Self {
@@ -81,16 +82,17 @@ pub struct MixingConfig {
     pub dynamic_range_compression: bool,
 }
 
-impl MixingConfig {
-    /// 返回默认混合配置
-    pub fn default() -> Self {
+impl Default for MixingConfig {
+    fn default() -> Self {
         Self {
             crossfade_duration: 0.1,
             bgm_fade_out: 3.0,
             dynamic_range_compression: false,
         }
     }
+}
 
+impl MixingConfig {
     /// 从配置段构建混合配置
     pub fn from_section(section: &AudioSection) -> Self {
         Self {

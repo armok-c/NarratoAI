@@ -99,7 +99,7 @@ fn normalize_resolution(resolution: &str) -> String {
 /// # 安全
 /// - URL 前缀校验（必须以 http:// 或 https:// 开头），防止协议注入（per T-11-01, T-11-02）
 /// - 所有 CLI 参数通过 args 数组传递，禁止 shell 字符串拼接（per T-11-01）
-async fn _get_video_formats(
+async fn get_video_formats(
     url: &str,
     proxy_url: Option<&str>,
 ) -> Result<(Vec<VideoFormat>, String), YoutubeError> {
@@ -201,7 +201,7 @@ pub async fn download_video(
     let base_resolution = normalize_resolution(resolution);
 
     // 4. 获取格式列表，匹配目标分辨率
-    let (formats, title) = _get_video_formats(url, proxy_url).await?;
+    let (formats, title) = get_video_formats(url, proxy_url).await?;
 
     // 5. 在匹配到目标分辨率的格式中，优先选非 av01 的
     let matched = formats

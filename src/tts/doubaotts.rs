@@ -153,6 +153,7 @@ mod tests {
             volume: 1.0,
             pitch: 1.0,
             silence_duration: 0.125,
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -170,6 +171,7 @@ mod tests {
             volume: 1.0,
             pitch: 1.0,
             silence_duration: 0.0,
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -194,6 +196,7 @@ mod tests {
             volume: 1.0,
             pitch: 1.0,
             silence_duration: 0.0,
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -218,6 +221,7 @@ mod tests {
             volume: 1.0,
             pitch: 1.0,
             silence_duration: 0.0,
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -276,6 +280,7 @@ mod tests {
             volume: 1.5,
             pitch: 1.2,
             silence_duration: 0.2,
+            ..Default::default()
         };
 
         let voice_name = "BV700_V2_streaming";

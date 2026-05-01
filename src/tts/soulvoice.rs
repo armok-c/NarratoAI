@@ -127,6 +127,7 @@ mod tests {
             api_key: "test-key".to_string(),
             api_url: String::new(),
             model: String::new(),
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = SoulVoiceEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -150,6 +151,7 @@ mod tests {
             api_key: "test-key".to_string(),
             api_url: mock_server.uri() + "/tts",
             model: "test-model".to_string(),
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = SoulVoiceEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -170,6 +172,7 @@ mod tests {
             api_key: "test-key".to_string(),
             api_url: String::new(),
             model: String::new(),
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = SoulVoiceEngine::new(config, &proxy_config).expect("构建引擎失败");
@@ -198,6 +201,7 @@ mod tests {
             api_key: "bad-key".to_string(),
             api_url: mock_server.uri() + "/tts",
             model: String::new(),
+            ..Default::default()
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
         let engine = SoulVoiceEngine::new(config, &proxy_config).expect("构建引擎失败");

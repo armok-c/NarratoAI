@@ -274,6 +274,8 @@ pub fn search_videos_pixabay(
     proxy_section: &crate::config::types::ProxySection,
 ) -> Result<Vec<MaterialInfo>, MaterialError> {
     let api_key = get_api_key(api_keys, key_counter)?;
+    // Pixabay API 要求 key 放在 URL 查询字符串中（其 API 设计限制）。
+    // 确保此处 URL 不被日志输出（API key 已在 tracing::info 中排除）。
     let api_url = format!(
         "https://pixabay.com/api/videos/?q={}&video_type=all&per_page=50&key={}",
         urlencoding(search_term),

@@ -86,6 +86,10 @@ pub struct UiSection {
     pub azure_rate: f64,
     #[serde(default)]
     pub azure_pitch: i32,
+    #[serde(default)]
+    pub doubaotts_voice_type: String,
+    #[serde(default)]
+    pub doubaotts_rate: f64,
 }
 
 /// [azure] 配置段
@@ -116,6 +120,8 @@ pub struct TencentSection {
 pub struct SoulVoiceSection {
     #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
+    pub voice_uri: String,
     #[serde(default)]
     pub api_url: String,
     #[serde(default)]
@@ -162,6 +168,10 @@ pub struct IndexTTS2Section {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
+    #[serde(default)]
+    pub ak: String,
+    #[serde(default)]
+    pub sk: String,
     #[serde(default)]
     pub appid: String,
     #[serde(default)]
@@ -263,6 +273,8 @@ azure_voice_name = "zh-CN-XiaoyiNeural-Female"
 azure_volume = 80
 azure_rate = 1.0
 azure_pitch = 0
+doubaotts_voice_type = "BV700_V2_streaming"
+doubaotts_rate = 1.0
 
 [azure]
 speech_key = "az-key"
@@ -275,6 +287,7 @@ region = "ap-beijing"
 
 [soulvoice]
 api_key = "sv-key"
+voice_uri = "speech:test"
 api_url = "https://tts.scsmtech.cn/tts"
 model = "FunAudioLLM/CosyVoice2-0.5B"
 
@@ -294,6 +307,8 @@ num_beams = 3
 repetition_penalty = 10.0
 
 [doubaotts]
+ak = "test-ak"
+sk = "test-sk"
 appid = "db-appid"
 token = "db-token"
 cluster = "volcano_tts"
@@ -332,13 +347,18 @@ bgm_fade_out = 3.0
         assert_eq!(config.app.llm_vision_timeout, 120);
         assert_eq!(config.ui.tts_engine, "edge_tts");
         assert_eq!(config.ui.edge_volume, 80);
+        assert_eq!(config.ui.doubaotts_voice_type, "BV700_V2_streaming");
+        assert_eq!(config.ui.doubaotts_rate, 1.0);
         assert_eq!(config.azure.speech_key, "az-key");
         assert_eq!(config.tencent.region, "ap-beijing");
         assert_eq!(config.soulvoice.model, "FunAudioLLM/CosyVoice2-0.5B");
+        assert_eq!(config.soulvoice.voice_uri, "speech:test");
         assert_eq!(config.tts_qwen.model_name, "qwen3-tts-flash");
         assert_eq!(config.indextts2.temperature, 1.0);
         assert_eq!(config.doubaotts.cluster, "volcano_tts");
         assert_eq!(config.doubaotts.volume, 1.0);
+        assert_eq!(config.doubaotts.ak, "test-ak");
+        assert_eq!(config.doubaotts.sk, "test-sk");
         assert!(config.proxy.enabled);
         assert_eq!(config.frames.frame_interval_input, 3);
         assert_eq!(config.audio.target_lufs, -23.0);

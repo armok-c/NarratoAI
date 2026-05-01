@@ -329,8 +329,9 @@ pub fn normalize_audio_for_mixing(
     let output_path = output_dir.join(format!("{}_normalized.mp3", stem));
 
     // 优先 loudnorm 两遍标准化
-    if normalize_lufs(audio_path, &output_path, target_lufs, -1.0).is_ok() {
-        return Ok(output_path);
+    match normalize_lufs(audio_path, &output_path, target_lufs, -1.0) {
+        Ok(()) => return Ok(output_path),
+        Err(e) => tracing::warn!("loudnorm 两遍标准化失败，回退到 RMS 标准化: {}", e),
     }
 
     // 回退：RMS 标准化

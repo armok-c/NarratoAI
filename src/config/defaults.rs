@@ -35,6 +35,8 @@ impl Default for UiSection {
             azure_volume: 80,
             azure_rate: 1.0,
             azure_pitch: 0,
+            doubaotts_voice_type: "BV700_V2_streaming".to_string(),
+            doubaotts_rate: 1.0,
         }
     }
 }
@@ -53,6 +55,7 @@ impl Default for SoulVoiceSection {
     fn default() -> Self {
         Self {
             api_key: String::new(),
+            voice_uri: "speech:mcg3fdnx:clzkyf4vy00e5qr6hywum4u84:bzznlkuhcjzpbosexitr".to_string(),
             api_url: "https://tts.scsmtech.cn/tts".to_string(),
             model: "FunAudioLLM/CosyVoice2-0.5B".to_string(),
         }
@@ -88,6 +91,8 @@ impl Default for IndexTTS2Section {
 impl Default for DoubaoTTSSection {
     fn default() -> Self {
         Self {
+            ak: String::new(),
+            sk: String::new(),
             appid: String::new(),
             token: String::new(),
             cluster: "volcano_tts".to_string(),

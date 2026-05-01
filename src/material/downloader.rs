@@ -198,6 +198,7 @@ pub fn download_videos(
 
         match save_video(&item.video_url, &save_dir, proxy_section) {
             Ok(path) => {
+                // 使用搜索 API 返回的时长而非 ffprobe 实际时长（与 Python 版行为一致）
                 total_duration += item.duration as f64;
                 downloaded_paths.push(path);
             }
