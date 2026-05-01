@@ -1,6 +1,6 @@
 ---
 phase: 11-extended-features
-reviewed: 2026-05-01T17:30:00Z
+reviewed: 2026-05-01
 depth: standard
 files_reviewed: 16
 files_reviewed_list:
@@ -21,14 +21,14 @@ files_reviewed_list:
   - tests/material_integration.rs
   - tests/youtube_integration.rs
 findings:
-  critical: 0
-  warning: 5
-  info: 5
-  total: 10
+  critical: 4
+  warning: 12
+  info: 8
+  total: 24
 status: issues_found
 ---
 
-# Phase 11: Code Review Report (Post-fix Verification)
+# Phase 11: Code Review Report (Fresh Review, Iteration 6)
 
 **Reviewed:** 2026-05-01
 **Depth:** standard
@@ -37,162 +37,278 @@ status: issues_found
 
 ## Summary
 
-前一轮审查的 6 个问题（CR-02, WR-11–15）全部验证修复完成。本轮未发现新的 Critical 问题，发现 5 个 WARNING 和 5 个 INFO 级别问题。主要关注点：音频标准化函数硬编码采样率/声道数（忽略配置字段）、音量 clamp 范围不一致、以及下载路径硬编码。
+5 个审查子代理并行审查了全部 16 个文件。发现 4 个 Critical、12 个 Warning、8 个 Info 级别问题。主要关注点：YouTube 下载的 rename 路径遍历漏洞、音量验证的 NaN 绕过、symphonia 解码器 spec 变化时的 panic 风险、以及 API 密钥序列化泄露。
 
 ## Verification
 
 - `cargo check` — 零 error（1 个预存 dead_code warning，无关）
 - `cargo test --lib` — 367/368 通过（1 个预存 hwaccel 失败，无关）
-- `config.example.toml` ↔ Rust 结构体完全对齐（test_load_full_config 通过）
 
-## Previously Fixed Issues — Verified
+---
 
-| Issue | Status | Verification |
-|-------|--------|-------------|
-| CR-02: `deny_unknown_fields` config 不匹配 | FIXED | `SoulVoiceSection` 增加 `voice_uri`，`DoubaoTTSSection` 增加 `ak`/`sk`，`UiSection` 增加 `doubaotts_voice_type`/`doubaotts_rate`；`test_load_full_config` 全字段断言通过 |
-| WR-11: Pixabay API key 在 URL 中 | FIXED | 行 277-278 添加注释说明 Pixabay API 设计限制，确认无 URL 日志输出 |
-| WR-12: ProcessingConfig/MixingConfig 未实现 Default | FIXED | `impl Default for ProcessingConfig`（volume.rs:53-62）和 `impl Default for MixingConfig`（volume.rs:85-93）已存在 |
-| WR-13: loudnorm 失败时无日志 | FIXED | normalizer.rs:334 添加 `tracing::warn!("loudnorm 两遍标准化失败，回退到 RMS 标准化: {}", e)` |
-| WR-14: download_videos 使用 API 元数据 duration | FIXED | downloader.rs:201 添加注释说明与 Python 版行为一致 |
-| WR-15: `_get_video_formats` 下划线前缀误导 | FIXED | 重命名为 `get_video_formats`（downloader.rs:102） |
+## Critical
+
+### CR-01: `rename` 参数路径遍历
+
+**File:** `src/youtube/downloader.rs:239-255`
+
+```rust
+let output_template = match rename {
+    Some(name) => name.to_string(),
+    None => format!("{}_video", base_resolution),
+};
+// ...
+"-o",
+&format!("{}.{}", output_template, output_ext),
+```
+
+**Description:** `rename` 参数未经任何路径分隔符过滤，直接拼入 yt-dlp `-o` 输出模板。传入 `"../../../tmp/evil"` 可将视频写入 CWD 之外的任意位置。第 278 行的文件存在性检查会确认写入成功后正常返回。
+
+**Recommended fix:** 拒绝包含 `/`、`\` 或 `..` 的 rename 值：
+
+```rust
+let output_template = match rename {
+    Some(name) => {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(YoutubeError::InvalidUrl("rename 参数包含非法路径字符".into()));
+        }
+        name.to_string()
+    }
+    None => format!("{}_video", base_resolution),
+};
+```
+
+### CR-02: NaN 绕过音量验证
+
+**Files:** `src/audio/volume.rs:33`, `src/audio/volume.rs:206-213`
+
+```rust
+// volume.rs:33 — VolumeConfig::validate()
+if val < 0.0 || val > 2.0 {
+
+// volume.rs:206-213 — validate_volume()
+if volume < min {       // NaN < 0.0 → false
+} else if volume > max { // NaN > 2.0 → false
+} else {
+    volume              // NaN 直接通过
+}
+```
+
+**Description:** IEEE 754 中 `NaN < 0.0` 和 `NaN > 2.0` 均为 false，NaN 会绕过所有验证直接传入 FFmpeg filter 参数，导致未定义行为。
+
+**Recommended fix:** 两处均添加 `is_nan()` 检查：
+
+```rust
+if val.is_nan() || val < 0.0 || val > 2.0 {
+```
+
+### CR-03: symphonia SampleBuffer spec 变化时 panic
+
+**File:** `src/audio/normalizer.rs:287-288`
+
+```rust
+let buf = sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(cap, spec));
+buf.copy_interleaved_ref(audio_buf);
+```
+
+**Description:** `get_or_insert_with` 仅首次创建 `SampleBuffer`。后续 packet 若 capacity 或 spec 变化（多段音频、VBR 编码），`copy_interleaved_ref` 因 spec 不匹配会 panic。
+
+**Recommended fix:** 每次 decode 后检查 spec 是否一致，不一致时重建 buffer：
+
+```rust
+let spec = *audio_buf.spec();
+let cap = audio_buf.capacity() as u64;
+let need_rebuild = sample_buf.as_ref().map_or(true, |b| b.spec() != spec);
+if need_rebuild {
+    sample_buf = Some(SampleBuffer::<f32>::new(cap, spec));
+}
+let buf = sample_buf.as_mut().unwrap();
+```
+
+### CR-04: API 密钥字段未标记 `skip_serializing`
+
+**File:** `src/config/types.rs` (12 个字段)
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppConfig {
+    pub vision_openai_api_key: String,  // 无 #[serde(skip_serializing)]
+    pub text_openai_api_key: String,
+    // ... 共 12 个密钥字段
+}
+```
+
+**Description:** `AppConfig` 派生了 `Serialize`，但所有密钥字段（`vision_openai_api_key`、`text_openai_api_key`、`secret_id`、`secret_key`、`api_key`×4、`ak`、`sk`、`token`）没有 `#[serde(skip_serializing)]`。任何序列化操作都会将明文 API 密钥写入输出目标。
+
+**Recommended fix:** 对所有密钥字段添加 `#[serde(skip_serializing)]`：
+
+```rust
+#[serde(skip_serializing)]
+pub vision_openai_api_key: String,
+```
 
 ---
 
 ## Warnings
 
-### WR-16: `normalize_lufs` / `normalize_audio_for_mixing` 硬编码 44100Hz / 双声道，忽略配置
+### WR-01: LoudnormData 解析错误静默吞没为 0.0
 
-**Files:** `src/audio/normalizer.rs:194,345-346`
-
-```rust
-// normalize_lufs (line 194)
-.args(["-ar", "44100", "-ac", "2"])
-
-// normalize_audio_for_mixing (line 345-346, RMS 回退路径)
-.args(["-ar", "44100", "-ac", "2"])
-```
-
-**Description:** `AudioSection` 配置定义了 `sample_rate`（默认 44100）和 `channels`（默认 2）两个字段，用户可在 `config.toml` 中调整。但 `normalize_lufs()` 和 `normalize_audio_for_mixing()` 两个函数将输出格式硬编码为 44100Hz / 双声道，配置字段无实际效果。
-
-**Impact:** 用户修改 `[audio]` 段的 `sample_rate` 或 `channels` 无效，产生错误预期。
-
-**Recommended fix:** 将采样率和声道数作为函数参数，或提供从 `AudioSection` 构建参数的封装函数。
-
-### WR-17: 音量 clamp 范围不一致
-
-**Files:** `src/audio/normalizer.rs:307`, `src/audio/volume.rs:205`
+**File:** `src/audio/normalizer.rs:73-95`
 
 ```rust
-// normalizer.rs:307 — 原声调整系数允许到 3.0
-let orig_adj = original_adjustment.clamp(0.1, 3.0);
-
-// volume.rs:205 — 音量验证上限为 2.0
-let max = 2.0;
+fn parse_measured_i(&self) -> f64 {
+    self.measured_i.parse().unwrap_or(0.0)
+}
 ```
 
-**Description:** `calculate_volume_adjustment()` 将原声音量调整系数 clamp 到 `[0.1, 3.0]`，但 `validate_volume()` 限制为 `[0.0, 2.0]`。两个函数处理同一概念（音量增益）但上限不同。当增益系数超过 2.0 时，normalizer 允许但 volume 验证器会拒绝。
+**Description:** 5 个解析方法均用 `unwrap_or(0.0)` 静默吞没解析错误。0.0 作为 `measured_I` 传入两遍 loudnorm 会产生错误增益（将音频推到极响）。
 
-**Impact:** 中。不同模块的音量限制不一致可能导致混淆。
+**Recommended fix:** 返回 `Result<f64, AudioError>` 或至少用 `tracing::warn!` 记录解析失败。
 
-**Recommended fix:** 统一 clamp 范围，或在 `calculate_volume_adjustment` 的文档注释中说明使用 `[0.1, 3.0]` 的原因（它计算的是增益系数而非音量百分比）。
+### WR-02: `extract_json_from_stderr` rfind('}') 匹配范围过广
 
-### WR-18: `download_video` 分辨率回退忽略目标分辨率
+**File:** `src/audio/normalizer.rs:121`
 
-**File:** `src/youtube/downloader.rs:216-227`
+**Description:** `rfind('}')` 搜索整个 stderr 文本而非 loudnorm 标记之后的部分，可能匹配到 JSON 块之外的 `}`。与上一轮 WR-20 相同，仍未修复。
+
+### WR-03: IO 错误误报为 FileNotFound
+
+**File:** `src/audio/normalizer.rs:244-245`
+
+**Description:** `get_audio_rms` 将所有 IO 错误（含权限不足等）误报为 `AudioError::FileNotFound`，误导调试方向。
+
+**Recommended fix:** 添加 `AudioError::IoError` 变体或在错误消息中包含原始 IO 错误信息。
+
+### WR-04: sample_rate/channels 为 0 无检查
+
+**File:** `src/audio/normalizer.rs:177-184`
+
+**Description:** `normalize_lufs` 和 `normalize_audio_for_mixing` 不验证 `sample_rate`/`channels` 为 0，传入 FFmpeg `-ar 0 -ac 0` 会导致未定义行为。
+
+### WR-05: URL 验证不防御空白字符和换行符
+
+**File:** `src/youtube/downloader.rs:107-109`
+
+**Description:** `starts_with` 校验可通过含换行符的 URL（如 `"http://evil.com\n--some-flag"`），可能被 yt-dlp 误解析。
+
+**Recommended fix:** 增加 `url.trim().contains(['\n', '\r'])` 检查。
+
+### WR-06: proxy_url 无格式校验
+
+**File:** `src/youtube/downloader.rs:114-117`
+
+**Description:** 任意字符串均可作为代理 URL 传入 yt-dlp `--proxy` 参数，不校验协议前缀（http/https/socks5）。
+
+### WR-07: Pexels 精确匹配分辨率导致空结果
+
+**File:** `src/material/searcher.rs:249`
+
+**Description:** Pexels 搜索用 `==` 精确匹配分辨率，API 返回的固定分辨率列表（如 1920x1080, 3840x2160）与目标值（如 "1080p"）格式不同，容易空结果。
+
+### WR-08: 缓存命中不验证文件完整性
+
+**File:** `src/material/downloader.rs:59-67`
+
+**Description:** 缓存命中仅检查 `exists()` + 文件大小，不验证内容完整性。损坏文件（如下载中断）会永远命中缓存。
+
+**Recommended fix:** 对 0 字节文件跳过缓存，或在加载时用 ffprobe 验证。
+
+### WR-09: project_version 默认值不一致
+
+**Files:** `src/config/defaults.rs:7` vs `config.example.toml:2`
 
 ```rust
-let fallback = formats
-    .iter()
-    .find(|f| f.vcodec != "none")  // 任何有视频的格式
-    .map(|f| f.format_id.clone())
+// defaults.rs
+project_version: "0.1.0".to_string(),
+// config.example.toml
+project_version = "0.7.8"
 ```
 
-**Description:** 当目标分辨率无匹配格式时，fallback 选取任何有视频轨道的格式，可能是 144p 或 360p。此时用户请求 1080p 但实际下载最低分辨率视频，无任何提示。
+**Description:** Rust 默认值 `"0.1.0"` 与示例配置 `"0.7.8"` 不匹配。
 
-**Impact:** 低-中。与 Python 版行为可能一致，但静默降级可能导致输出质量不符合预期。
+### WR-10: validate() 空实现
 
-**Recommended fix:** 在 fallback 时添加 `tracing::warn!` 记录实际选用的分辨率。
+**File:** `src/config/mod.rs`
 
-### WR-19: `download_videos` 使用硬编码相对路径
+**Description:** `AppConfig::validate()` 为空实现，timeout、batch_size、volume 等字段无范围校验。配置中的非法值（如负数超时）不会在启动时报错。
 
-**File:** `src/material/downloader.rs:148`
+### WR-11: normalize_lufs 硬编码 44100Hz/2ch，忽略配置
 
-```rust
-let save_dir = PathBuf::from("storage").join("temp").join(task_id);
-```
+**File:** `src/audio/normalizer.rs:194,345-346`
 
-**Description:** 下载目录固定为 `storage/temp/{task_id}`（相对于进程 CWD）。无法通过配置指定基础路径，且不同 CWD 的调用会产生不同的下载位置。
+**Description:** `AudioSection` 定义了 `sample_rate`（默认 44100）和 `channels`（默认 2）配置字段，但函数硬编码输出格式。用户修改 `[audio]` 段无效。与上一轮 WR-16 相同，仍未修复。
 
-**Impact:** 低。与 Python 版行为一致（Python 使用 `os.path.join`），但在库模式下调用者无法控制存储路径。
+### WR-12: 音量 clamp 范围不一致
 
-### WR-20: `extract_json_from_stderr` 使用脆弱的首尾花括号匹配
+**Files:** `src/audio/normalizer.rs:307` vs `src/audio/volume.rs:205`
 
-**File:** `src/audio/normalizer.rs:109-115`
-
-```rust
-let start = text.find('{').ok_or_else(|| ...)?;
-let end = text.rfind('}').ok_or_else(|| ...)?;
-```
-
-**Description:** 通过查找第一个 `{` 和最后一个 `}` 来提取 JSON 块。如果 FFmpeg stderr 在 JSON 之前或之后包含其他含花括号的文本（如错误消息），将匹配到错误的边界，导致 JSON 解析失败。
-
-**Impact:** 低。实际 FFmpeg loudnorm 输出格式稳定（JSON 在末尾，前缀无花括号），但在非标准 FFmpeg 版本或异常输出时可能触发。
-
-**Recommended fix:** 使用更精确的匹配（如查找 `[Parsed_loudnorm_` 后的 `{`），或在现有逻辑外添加 JSON 解析错误时的 fallback 提示。
+**Description:** `calculate_volume_adjustment()` 原声调整系数 clamp 到 `[0.1, 3.0]`，`validate_volume()` 限制为 `[0.0, 2.0]`。同一概念的不同上限可能导致混淆。与上一轮 WR-17 相同，仍未修复。
 
 ---
 
 ## Info
 
-### IR-14: `notify` crate 使用 RC 版本（预存）
+### IR-01: notify crate 使用 RC 版本（预存）
 
-**File:** `Cargo.toml:19`
+**File:** `Cargo.toml:19` — `notify = "9.0.0-rc.3"`
 
-```toml
-notify = "9.0.0-rc.3"
-```
+RC 版本 API 不稳定，稳定版发布后应升级。与上一轮 IR-14 相同。
 
-RC 版本 API 不稳定。稳定版发布后应升级。
+### IR-02: lib.rs 所有模块 pub，部分可降为 pub(crate)
 
-### IR-15: `VolumeConfig` 未实现 `Default` trait
+**File:** `src/lib.rs`
 
-**File:** `src/audio/volume.rs:18-23`
+12 个模块均为 `pub mod`，内部实现模块（如 `audio::normalizer`）可能更适合 `pub(crate)` 以限制 API 表面积。
 
-简单数据结构有明显的默认值（balanced profile 值），实现 `Default` 可提升易用性。
+### IR-03: deny_unknown_fields 限制前向兼容性
 
-### IR-16: `MixingConfig::from_section` 硬编码 `dynamic_range_compression: false`
+**File:** `src/config/types.rs` (12 处)
 
-**File:** `src/audio/volume.rs:101`
+全层级启用 `deny_unknown_fields`，新增配置字段会导致旧配置文件加载失败。
 
-`dynamic_range_compression` 不可从 `[audio]` 配置段配置。可能是有意推迟到 Phase 6 FFmpeg 实现阶段。
+### IR-04: reqwest::blocking::Client 未复用连接池
 
-### IR-17: `download_videos` 返回路径列表但无下载元数据
+**File:** `src/material/searcher.rs`
 
-**File:** `src/material/downloader.rs:191-212`
+每次搜索请求重新构建 `reqwest::blocking::Client`，无法复用 TCP 连接池和 TLS 会话。
 
-函数返回 `Vec<PathBuf>` 但不返回每个文件对应的搜索词、时长或来源信息。调用方无法区分哪些文件来自哪个搜索词。
+### IR-05: Pixabay 缺少 401 区分
 
-### IR-18: `save_video` 临时文件路径无并发保护
+**File:** `src/material/searcher.rs:292-294`
+
+Pixabay 未像 Pexels 那样区分 401 认证错误，用户难以判断 key 配置是否有误。
+
+### IR-06: 集成测试存根为设计意图
+
+**Files:** `tests/audio_integration.rs:23,31`, `tests/youtube_integration.rs:36`, `tests/material_integration.rs`
+
+所有集成测试为 `#[ignore]` 存根（`assert!(true)`），按设计推迟到后续阶段填充。
+
+### IR-07: download_videos 硬编码相对路径
+
+**File:** `src/material/downloader.rs:148` — `PathBuf::from("storage").join("temp").join(task_id)`
+
+下载目录固定为相对路径，库模式下调用者无法控制存储位置。与上一轮 WR-19 相同。
+
+### IR-08: save_video 临时文件无并发保护
 
 **File:** `src/material/downloader.rs:86`
 
-临时文件路径格式为 `{cache_key}.tmp`，并发调用相同 URL 时会冲突。虽然上游 `download_videos` 有 URL 去重，但 `save_video` 作为 `pub` 函数可能被直接调用。
+临时文件路径格式为 `{cache_key}.tmp`，并发调用相同 URL 时会冲突。与上一轮 IR-18 相同。
 
 ---
 
 ## Cross-File Analysis
 
-**配置对齐:** `config.example.toml` 与 `AppConfig` 所有 section 字段完全匹配。`test_load_full_config` 覆盖全部 section 和关键字段。
+**安全性:** 所有 FFmpeg/yt-dlp 子进程使用 `.args()` 数组模式（无 shell 注入）。YouTube 下载有 URL 前缀验证。但 rename 路径遍历（CR-01）和 NaN 绕过（CR-02）是新的安全风险。
 
-**错误类型:** `AudioError`、`MaterialError`、`YoutubeError` 定义规范，中文 Display 消息一致，thiserror 使用正确。
+**错误类型:** `AudioError`、`MaterialError`、`YoutubeError` 定义规范，中文 Display 消息一致，thiserror 使用正确。但部分错误路径有吞没/误报问题（WR-01、WR-03）。
 
-**安全性:** 非 test 生产代码无 `unwrap()`/`expect()` 调用。所有 FFmpeg/yt-dlp 子进程使用 `.args()` 数组模式。YouTube 下载有 URL 前缀验证。API key 未被日志输出。
+**配置对齐:** `config.example.toml` 与 `AppConfig` 字段结构匹配，但默认值存在不一致（WR-09）且验证为空（WR-10）。
 
-**死代码:** 审查文件中无死代码。所有 `pub` 项均被使用、测试或作为库 API。
-
-**模块结构:** `audio/`、`youtube/`、`material/` 三个模块结构清晰，`mod.rs` 仅做 re-export。`lib.rs` 导出正确。
+**模块结构:** `audio/`、`youtube/`、`material/` 三个模块结构清晰。`lib.rs` 导出完整。
 
 ---
 
 *Phase: 11-extended-features*
-*Reviewed: 2026-05-01 (post-fix verification)*
+*Reviewed: 2026-05-01 (fresh review, iteration 6)*
