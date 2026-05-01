@@ -165,7 +165,6 @@ impl TencentTtsEngine {
             .header("X-TC-Timestamp", &timestamp)
             .header("X-TC-Version", "2019-08-23")
             .header("X-TC-Region", region)
-            .header("X-TC-Token", "")
             .body(request_body_bytes)
             .timeout(Duration::from_secs(60))
             .send()
