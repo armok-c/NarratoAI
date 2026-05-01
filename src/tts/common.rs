@@ -50,12 +50,13 @@ impl ProxyConfig {
 /// 构建 reqwest HTTP 客户端
 ///
 /// 使用 ProxyConfig 配置代理，不设置全局超时（各引擎在具体请求上设置 timeout）
-pub fn build_client(proxy_config: &ProxyConfig) -> reqwest::Client {
+pub fn build_client(proxy_config: &ProxyConfig) -> Result<reqwest::Client, TTSError> {
     let builder = reqwest::Client::builder();
     let builder = proxy_config.apply_to_client(builder);
-    builder.build().unwrap_or_else(|e| {
-        tracing::warn!("Failed to build HTTP client with proxy config: {}. Falling back to default.", e);
-        reqwest::Client::new()
+    builder.build().map_err(|e| {
+        TTSError::ConnectionFailed(format!(
+            "构建 HTTP 客户端失败（代理配置可能已丢失）: {}", e
+        ))
     })
 }
 

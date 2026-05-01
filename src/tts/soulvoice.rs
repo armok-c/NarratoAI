@@ -21,7 +21,8 @@ pub(super) struct SoulVoiceEngine {
 
 impl SoulVoiceEngine {
     pub(super) fn new(config: SoulVoiceSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config);
+        let client = common::build_client(proxy_config)
+            .expect("构建 SoulVoice HTTP 客户端失败");
         Self { client, config }
     }
 

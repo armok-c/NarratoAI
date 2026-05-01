@@ -23,7 +23,8 @@ pub(super) struct IndexTts2Engine {
 
 impl IndexTts2Engine {
     pub(super) fn new(config: IndexTTS2Section, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config);
+        let client = common::build_client(proxy_config)
+            .expect("构建 IndexTTS2 HTTP 客户端失败");
         Self { client, config }
     }
 

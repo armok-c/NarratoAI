@@ -23,7 +23,8 @@ pub(super) struct QwenTtsEngine {
 
 impl QwenTtsEngine {
     pub(super) fn new(config: TtsQwenSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config);
+        let client = common::build_client(proxy_config)
+            .expect("构建 Qwen TTS HTTP 客户端失败");
         Self { client, config }
     }
 

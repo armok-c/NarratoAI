@@ -203,7 +203,8 @@ pub(super) struct AzureSpeechEngine {
 
 impl AzureSpeechEngine {
     pub(super) fn new(config: AzureSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config);
+        let client = common::build_client(proxy_config)
+            .expect("构建 Azure Speech HTTP 客户端失败");
         Self { client, config, endpoint_override: None }
     }
 

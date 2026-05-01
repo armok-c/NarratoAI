@@ -31,7 +31,8 @@ pub(super) struct TencentTtsEngine {
 
 impl TencentTtsEngine {
     pub(super) fn new(config: TencentSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config);
+        let client = common::build_client(proxy_config)
+            .expect("构建 Tencent TTS HTTP 客户端失败");
         Self { client, config, endpoint_override: None }
     }
 

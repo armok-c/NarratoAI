@@ -22,7 +22,8 @@ pub(super) struct DoubaoTtsEngine {
 
 impl DoubaoTtsEngine {
     pub(super) fn new(config: DoubaoTTSSection, proxy_config: &common::ProxyConfig) -> Self {
-        let client = common::build_client(proxy_config);
+        let client = common::build_client(proxy_config)
+            .expect("构建 Doubao TTS HTTP 客户端失败");
         Self { client, config }
     }
 
