@@ -250,7 +250,7 @@ mod tests {
         let result = render(template, &vars).expect("渲染应成功");
         assert!(result.ends_with("..."), "应包含省略号");
         assert_eq!(result.chars().count(), 100);
-        assert_eq!(&result[..97], &long_text[..97]);
+        assert_eq!(result.chars().take(97).collect::<String>(), long_text.chars().take(97).collect::<String>());
     }
 
     /// 中文截断测试——验证多字节 UTF-8 字符不会 panic
