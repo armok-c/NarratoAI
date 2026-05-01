@@ -86,6 +86,16 @@ impl QwenTtsEngine {
 
         let audio_url = result["output"]["audio"]["url"].as_str()
             .ok_or_else(|| TTSError::SynthesisFailed("Qwen 响应中无 output.audio.url".to_string()))?;
+
+        if !audio_url.starts_with("https://")
+            && !audio_url.starts_with("http://127.0.0.1")
+            && !audio_url.starts_with("http://localhost")
+        {
+            return Err(TTSError::SynthesisFailed(format!(
+                "Qwen audio_url 协议不合法（仅允许 https 或本地回环地址）: {}", audio_url
+            )));
+        }
+
         let duration = result["output"]["audio"]["duration"].as_f64().unwrap_or(0.0);
 
         // Step 3: 下载音频文件

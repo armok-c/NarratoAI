@@ -39,6 +39,17 @@ impl IndexTts2Engine {
             Path::new(ref_audio_path_str)
         };
 
+        // 验证参考音频文件存在且是文件（提供清晰的错误信息）
+        match tokio::fs::metadata(ref_audio_path).await {
+            Ok(meta) if meta.is_file() => {},
+            Ok(_) => return Err(TTSError::SynthesisFailed(format!(
+                "参考音频路径不是文件: {}", ref_audio_path.display()
+            ))),
+            Err(e) => return Err(TTSError::SynthesisFailed(format!(
+                "无法访问参考音频文件 '{}': {}", ref_audio_path.display(), e
+            ))),
+        }
+
         // 读取参考音频到内存（重试安全：每次重新读取，不持有文件句柄）
         // 对齐 Python 版: files={'prompt_audio': open(reference_audio_path, 'rb')}
         // Rust 版使用 Part::bytes() 避免路径编码问题 (Pitfall 4)

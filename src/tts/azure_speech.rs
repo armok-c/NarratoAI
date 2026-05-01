@@ -276,7 +276,9 @@ impl AzureSpeechEngine {
             .collect();
         let ssml = format!(
             r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
-            lang, processed_voice_name, rate_str, pitch_str, escaped_text
+            common::escape_xml_attr(&lang),
+            common::escape_xml_attr(processed_voice_name),
+            rate_str, pitch_str, escaped_text
         );
 
         let url = self.api_url();

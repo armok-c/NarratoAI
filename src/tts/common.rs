@@ -103,6 +103,18 @@ pub async fn write_audio_bytes(path: &Path, data: &[u8]) -> Result<(), TTSError>
         .map_err(|e| TTSError::SynthesisFailed(format!("写入音频文件失败: {}", e)))
 }
 
+/// XML 属性值转义（defense-in-depth）
+///
+/// 对插入 SSML XML 属性值中的外部字符串进行转义，
+/// 防止双引号或 XML 特殊字符破坏 SSML 结构。
+pub fn escape_xml_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+     .replace('\'', "&apos;")
+}
+
 /// 解析 TTS 引擎语音名前缀
 ///
 /// 检查 `voice_name` 是否以 `prefixes` 中的某个字符串开头。

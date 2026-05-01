@@ -92,7 +92,9 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
 
     format!(
         r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
-        voice_lang, voice_name, rate_str, pitch_str, escaped_text
+        common::escape_xml_attr(&voice_lang),
+        common::escape_xml_attr(voice_name),
+        rate_str, pitch_str, escaped_text
     )
 }
 
