@@ -18,10 +18,9 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 
     // title——单词首字母大写（对 ASCII 字母生效）
     m.insert("title", |s: &str| {
-        let mut chars = s.chars().peekable();
         let mut out = String::with_capacity(s.len());
         let mut new_word = true;
-        while let Some(c) = chars.next() {
+        for c in s.chars() {
             if c.is_whitespace() {
                 out.push(c);
                 new_word = true;

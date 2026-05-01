@@ -237,11 +237,11 @@ fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
 fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
     let mut paths: Vec<PathBuf> = Vec::new();
 
-    let mut dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
+    let dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
         VisualError::FrameExtraction(format!("读取帧目录失败: {}", e))
     })?;
 
-    while let Some(entry) = dir_reader.next() {
+    for entry in dir_reader {
         let entry = entry.map_err(|e| {
             VisualError::FrameExtraction(format!("读取目录项失败: {}", e))
         })?;

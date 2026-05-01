@@ -39,7 +39,7 @@ pub async fn extract_frames(
     cancel: Option<CancellationToken>,
 ) -> Result<usize, VisualError> {
     let quality_val = quality.unwrap_or(5);
-    if quality_val < 2 || quality_val > 31 {
+    if !(2..=31).contains(&quality_val) {
         return Err(VisualError::FrameExtraction(
             format!("JPEG quality 值 ({}) 超出有效范围 2-31", quality_val)
         ));
@@ -69,7 +69,7 @@ pub async fn extract_frames(
             if let Some(ref cb) = progress {
                 cb(Some(1.0), "帧提取完成");
             }
-            return Ok(count);
+            Ok(count)
         }
         _ => {
             // Clean up fast-path artifacts
@@ -108,7 +108,7 @@ pub(crate) async fn extract_frames_fast_path(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
-    let cancel = cancel.unwrap_or_else(CancellationToken::new);
+    let cancel = cancel.unwrap_or_default();
 
     tokio::task::spawn_blocking(move || -> Result<usize, VisualError> {
         let pattern = output.join("fastframe_%06d.jpg");
@@ -182,7 +182,7 @@ async fn extract_frames_fallback(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
-    let cancel = cancel.unwrap_or_else(CancellationToken::new);
+    let cancel = cancel.unwrap_or_default();
     let progress = progress.map(Arc::new);
 
     tokio::task::spawn_blocking(move || -> Result<usize, VisualError> {
@@ -395,10 +395,10 @@ fn rename_fast_path_frames(
     interval_seconds: f64,
 ) -> Result<usize, VisualError> {
     let mut entries: Vec<PathBuf> = Vec::new();
-    let mut dir_reader = std::fs::read_dir(output_dir)
+    let dir_reader = std::fs::read_dir(output_dir)
         .map_err(|e| VisualError::FrameExtraction(format!("读取帧目录失败: {}", e)))?;
 
-    while let Some(entry) = dir_reader.next() {
+    for entry in dir_reader {
         let entry = entry
             .map_err(|e| VisualError::FrameExtraction(format!("读取目录项失败: {}", e)))?;
         let path = entry.path();
