@@ -1,158 +1,189 @@
 ---
-status: issues_found
-phase: 12
-phase_name: additional-tts-engines
+phase: 12-additional-tts-engines
+reviewed: 2026-05-01T13:00:00Z
 depth: standard
-files_reviewed: 12
-reviewer: gsd-code-reviewer
-date: 2026-05-01
+files_reviewed: 11
+files_reviewed_list:
+  - src/tts/common.rs
+  - src/tts/soulvoice.rs
+  - src/tts/doubaotts.rs
+  - src/tts/qwen_tts.rs
+  - src/tts/indextts2.rs
+  - src/tts/azure_speech.rs
+  - src/tts/tencent_tts.rs
+  - src/tts/mod.rs
+  - src/config/types.rs
+  - src/config/defaults.rs
+  - Cargo.toml
 findings:
   critical: 0
   warning: 3
-  info: 3
-  total: 6
+  info: 4
+  total: 7
+status: issues_found
 ---
 
-# Phase 12: Code Review Report -- Additional TTS Engines (Rust, Post-fix Re-review)
+# Phase 12: Code Review Report -- Additional TTS Engines (Re-review Iteration 3)
 
-**Reviewed:** 2026-05-01
+**Reviewed:** 2026-05-01T13:00:00Z
 **Depth:** standard
-**Files Reviewed:** 12
+**Files Reviewed:** 11
 **Status:** issues_found
 
 ## Summary
 
-Re-review of 12 Phase 12 files after all previous review fixes (CR-01, WR-01 through WR-07) have been applied. All previously identified issues have been correctly resolved:
+对 Phase 12 的 11 个源文件进行第三次审查（前两次迭代发现的所有问题均已确认修复）。本轮审查确认所有历史修复（CR-01、WR-01~WR-07）均正确应用，同时发现了 3 个新的警告级别问题和 4 个信息级问题。
 
-- **CR-01 (Doubao pitch_ratio):** Fixed. synthesize_once now uses _pitch: f64 (ignored) and hardcodes pitch_ratio: 1.0 in the request body.
-- **WR-01 (Azure SSML control characters):** Fixed. azure_speech.rs now applies .chars().filter(...) after XML entity escaping, matching the edge_tts.rs pattern.
-- **WR-02 (Tencent empty X-TC-Token):** Fixed. The header is no longer sent.
-- **WR-03 (build_client silent fallback):** Fixed. build_client now returns Result<reqwest::Client, TTSError>.
-- **WR-04 (response body in errors):** Fixed in prior iteration.
-- **WR-05 (empty voice_name validation):** Fixed in prior iteration.
-- **WR-06 (Tencent hardcoded host):** Fixed. Host dynamically derived from api_url.
-- **WR-07 (Edge-TTS duplicate retry):** Fixed. Delegates to common::retry_loop.
-- **IN-01 (edge_tts unwrap):** Partially addressed with a SAFETY comment, but still uses unwrap(). Downgraded to informational.
+**历史修复验证：**
+- CR-01（Doubao pitch_ratio）：已修复，生产代码硬编码 `1.0`，测试断言同步更新
+- WR-01（build_client Result 传播）：已修复，全部 6 个引擎 `new()` 返回 `Result<Self, TTSError>`，mod.rs 路由器正确处理
+- WR-02（Tencent 时间戳负值）：已修复，添加 `if start_ms >= 0` / `if end_ms >= 0` 守卫子句
+- WR-03（Doubao 测试断言不同步）：已修复，测试 `pitch_ratio` 断言改为 `1.0`
 
-**3 warnings and 3 info-level findings remain.** No critical issues found.
-
-## Previous Findings -- Verification
-
-All 5 findings from the previous review have been correctly fixed. The codebase is in good shape overall. The new findings below are either residual issues from previous rounds or new observations.
+**本轮新增发现：** 0 个严重、3 个警告、4 个信息。
 
 ## Warnings
 
-### WR-01: build_client returns Result but all callers use .expect() -- panics in production on TLS failure
+### WR-01: Azure/Edge-TTS SSML 中 voice_name 和 lang 未转义直接插入 XML 属性
 
-**Severity:** Warning
-**File:** src/tts/common.rs:53 (and callers in all 6 engine new() constructors)
-**Summary:** Every engine constructor unwraps build_client with .expect(), which panics if the HTTP client builder fails.
-**Details:** The previous fix (WR-03) correctly changed build_client to return Result<reqwest::Client, TTSError>. However, every engine constructor calls it with .expect():
+**File:** `src/tts/azure_speech.rs:278-279` 和 `src/tts/edge_tts.rs:94-95`
+**Issue:** `voice_name` 和 `lang` 参数未经 XML 转义直接插入 SSML 模板的 XML 属性值中。虽然 `text` 参数经过 `&amp;` / `&lt;` / `&gt;` 转义，但 `voice_name` 和 `lang` 完全未转义。
 
-    // soulvoice.rs:24-25
-    let client = common::build_client(proxy_config)
-        .expect(“构建 SoulVoice HTTP 客户端失败”);
+Azure Speech 引擎（azure_speech.rs:278-279）：
+```rust
+let ssml = format!(
+    r#"<speak ... xml:lang="{}"><voice name="{}">..."#,
+    lang, processed_voice_name, rate_str, pitch_str, escaped_text
+);
+```
 
-The same pattern appears in all 6 engines: soulvoice.rs:25, doubaotts.rs:26, qwen_tts.rs:27, indextts2.rs:27, azure_speech.rs:207, tencent_tts.rs:35.
+Edge-TTS 引擎（edge_tts.rs:94-95）：
+```rust
+format!(
+    r#"<speak ... xml:lang="{}"><voice name="{}">..."#,
+    voice_lang, voice_name, rate_str, pitch_str, escaped_text
+);
+```
 
-If the TLS backend fails to initialize (e.g., missing native-tls certs on a minimal Docker image, or a system-level TLS configuration issue), the application will panic with an expect message rather than returning a graceful error to the caller. Since TtsProvider::synthesize returns Result<TtsOutput, TTSError>, the user would see an unrecoverable crash instead of an actionable error message.
+如果 `voice_name` 包含双引号 `"` 或其他 XML 特殊字符，SSML 结构将被破坏。例如 `voice_name = "zh-CN-\"Neural"` 将生成 `<voice name="zh-CN-"Neural">`，导致 Azure API 返回 400 错误。虽然本项目的 `voice_name` 通常来自配置文件（受控输入），但作为 defense-in-depth 措施，应对所有插入 XML 的外部值进行转义。
 
-**Fix:** Propagate the Result through the new() constructors and handle the error at the call site in mod.rs::synthesize(). For example:
+**Fix:** 对 `voice_name` 和 `lang` 进行 XML 属性值转义：
 
-    // In each engine:
-    pub(super) fn new(config: SoulVoiceSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
-        let client = common::build_client(proxy_config)?;
-        Ok(Self { client, config })
-    }
+```rust
+fn escape_xml_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+     .replace('\'', "&apos;")
+}
 
-    // In mod.rs router:
-    let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config)
-        .map_err(|e| TTSError::ConnectionFailed(format!(“引擎初始化失败: {}”, e)))?;
+// Azure Speech 使用:
+let ssml = format!(
+    r#"<speak ... xml:lang="{}"><voice name="{}">..."#,
+    escape_xml_attr(&lang),
+    escape_xml_attr(processed_voice_name),
+    rate_str, pitch_str, escaped_text
+);
 
-### WR-02: Tencent TTS subtitle timestamp cast from i64 to u64 silently wraps negative values
+// Edge-TTS 使用:
+let ssml = format!(
+    r#"<speak ... xml:lang="{}"><voice name="{}">..."#,
+    escape_xml_attr(&voice_lang),
+    escape_xml_attr(voice_name),
+    rate_str, pitch_str, escaped_text
+);
+```
 
-**Severity:** Warning
-**File:** src/tts/tencent_tts.rs:214-216
-**Summary:** Negative subtitle timestamps from the Tencent API would silently wrap to very large u64 values.
-**Details:** The subtitle parsing code casts i64 millisecond timestamps to u64:
+### WR-02: Qwen TTS audio_url 未验证，存在 SSRF 风险
 
-    start_offset: (start_ms as u64) * 10000,
-    end_offset: (end_ms as u64) * 10000,
+**File:** `src/tts/qwen_tts.rs:87-98`
+**Issue:** 从 DashScope API 响应中提取的 `audio_url` 未经验证直接用于 `self.client.get(audio_url)` 下载。如果 DashScope API 返回非预期 URL（如指向内网地址），客户端将跟随该请求。
 
-If the Tencent API ever returns a negative BeginTime or EndTime (e.g., due to a server bug, clock skew, or unexpected data), the as u64 cast would produce a wrapping value like 18446744073709551615 instead of the intended negative number. This would corrupt word boundary data used for subtitle generation, potentially producing garbled or missing subtitles downstream.
+```rust
+let audio_url = result["output"]["audio"]["url"].as_str()
+    .ok_or_else(|| ...)?;
+// 直接使用，无 URL 验证
+let audio_response = self.client.get(audio_url).timeout(...).send().await...;
+```
 
-While the Tencent API should never return negative timestamps in practice, the cast is not defensive.
+DashScope 是阿里云官方 API，信任度较高，但 defense-in-depth 原则要求验证外部返回的 URL scheme。
 
-**Fix:** Add a guard clause or use saturating_abs():
+**Fix:** 添加 URL scheme 校验，确保仅允许 `https://` 协议：
 
-    let start_offset = if start_ms >= 0 { (start_ms as u64) * 10000 } else { 0 };
-    let end_offset = if end_ms >= 0 { (end_ms as u64) * 10000 } else { 0 };
+```rust
+let audio_url = result["output"]["audio"]["url"].as_str()
+    .ok_or_else(|| TTSError::SynthesisFailed("Qwen 响应中无 output.audio.url".to_string()))?;
 
-### WR-03: Doubao TTS test test_doubaotts_payload_structure asserts pitch_ratio == 1.2 but production code hardcodes 1.0
+if !audio_url.starts_with("https://") {
+    return Err(TTSError::SynthesisFailed(format!(
+        "Qwen audio_url 协议不合法（仅允许 https）: {}", audio_url
+    )));
+}
+```
 
-**Severity:** Warning
-**File:** src/tts/doubaotts.rs:300,323
-**Summary:** The payload structure test is out of sync with the production code after the CR-01 fix.
-**Details:** The test at line 270 builds a local payload JSON object that uses config.pitch (1.2) as pitch_ratio:
+### WR-03: IndexTTS2 参考音频路径来自用户输入，缺少基本的文件存在性检查
 
-    // Test code (line 300):
-    "pitch_ratio": config.pitch,
-    // ...
-    assert_eq!(payload["audio"]["pitch_ratio"], 1.2);
+**File:** `src/tts/indextts2.rs:33-46`
+**Issue:** `voice_name` 中 `indextts2:` 前缀后的内容直接作为文件路径读取。未做任何路径验证或文件存在性检查。如果路径不存在，错误将在 `tokio::fs::read()` 时以一个不太友好的 IO 错误信息暴露。
 
-However, the actual production code in synthesize_once (line 56) now hardcodes "pitch_ratio": 1.0 (after the CR-01 fix). The test is testing a standalone JSON construction that no longer matches production behavior. This means the test would still pass even if someone inadvertently changed the production pitch_ratio back to use the pitch parameter incorrectly.
+```rust
+let ref_audio_path_str = common::parse_engine_prefix(voice_name, &["indextts2:"]);
+let ref_audio_path = Path::new(ref_audio_path_str);
+// 直接读取，无前置验证
+let reference_audio_bytes = tokio::fs::read(ref_audio_path).await
+    .map_err(|e| TTSError::SynthesisFailed(format!("读取参考音频失败: {}", e)))?;
+```
 
-**Fix:** Update the test payload to match production behavior:
+虽然 `tokio::fs::read` 的错误最终会被捕获并包装为 `TTSError::SynthesisFailed`，但提前验证文件存在性可以提供更清晰的错误信息，并避免在 `read` 阶段出现意外行为。
 
-    // In test_doubaotts_payload_structure:
-    "pitch_ratio": 1.0,  // hardcoded standard, matching production code
-    // ...
-    assert_eq!(payload["audio"]["pitch_ratio"], 1.0);
+**Fix:** 在读取前添加文件存在性和类型检查：
 
-## Informational
+```rust
+let ref_audio_path = Path::new(ref_audio_path_str);
+match tokio::fs::metadata(ref_audio_path).await {
+    Ok(meta) if meta.is_file() => {},
+    Ok(_) => return Err(TTSError::SynthesisFailed(format!(
+        "参考音频路径不是文件: {}", ref_audio_path.display()
+    ))),
+    Err(e) => return Err(TTSError::SynthesisFailed(format!(
+        "无法访问参考音频文件 '{}': {}", ref_audio_path.display(), e
+    ))),
+}
+```
 
-### IR-01: edge_tts.rs hardcoded HeaderValue parse uses .unwrap() with deliberate SAFETY comment
+## Info
 
-**Severity:** Info
-**File:** src/tts/edge_tts.rs:142-152
-**Summary:** The .unwrap() calls on hardcoded ASCII header strings now have a SAFETY comment explaining the rationale.
-**Details:** A SAFETY comment was added (line 140-141) explaining that the hardcoded strings are ASCII-only and parse() will never fail. This is a reasonable engineering choice -- the strings are compile-time constants that will never change in a way that would introduce non-ASCII characters.
+### IN-01: edge_tts.rs hardcoded HeaderValue parse 使用 .unwrap()（已有 SAFETY 注释）
 
-While .expect("hardcoded ASCII header") would be marginally more informative in a panic trace, the current code is acceptable given the safety argument in the comment. No action required.
+**File:** `src/tts/edge_tts.rs:142-152`
+**Issue:** `.unwrap()` 调用在硬编码 ASCII 头字符串上。已有 SAFETY 注释说明这些是编译时常量，`parse()` 不会失败。这是合理的工程选择，不需要修改。
 
-### IR-02: parse_edge_tts_binary allocates Vec<u8> for every binary message including large audio chunks
+（历史遗留，前两次审查均记录，保持不变。）
 
-**Severity:** Info
-**File:** src/tts/edge_tts.rs:577
-**Summary:** Every Edge-TTS binary message (including audio data chunks) allocates a new Vec<u8> via data[sep_pos + 4..].to_vec().
-**Details:** The parse_edge_tts_binary function always copies the payload into an owned Vec<u8>:
+### IN-02: parse_edge_tts_binary 为每个二进制消息分配 Vec<u8>
 
-    let payload = data[sep_pos + 4..].to_vec();
+**File:** `src/tts/edge_tts.rs:577`
+**Issue:** `data[sep_pos + 4..].to_vec()` 对每个二进制消息（包括大量音频块）都创建新的 `Vec<u8>` 分配，音频数据随后又被 `extend_from_slice` 复制一次。
 
-For audio messages (which are the majority of binary messages), the payload is then copied again into audio_data via extend_from_slice(&content.payload). This means each audio chunk is allocated twice. For a typical TTS response generating several hundred kilobytes of audio, this creates unnecessary memory pressure and allocation overhead.
+（历史遗留，前两次审查均记录，保持不变。）
 
-**Fix:** Consider returning a (&str, &[u8]) tuple (borrowing from the input) or using a lifetime-parameterized return type. For audio messages specifically, the header parsing could be separated from payload handling to avoid the intermediate allocation.
+### IN-03: extract_azure_lang 与 voice_name_to_lang 逻辑重复
 
-### IR-03: extract_azure_lang duplicates voice_name_to_lang logic from edge_tts.rs
+**File:** `src/tts/azure_speech.rs:321-330` 和 `src/tts/edge_tts.rs:62-72`
+**Issue:** 两个模块各自实现了从 voice name 提取语言标签的逻辑，方法略有不同（`splitn(3, '-')` vs `char_indices().filter().nth(1)`）。对格式良好的 voice name 结果一致，但存在维护风险。
 
-**Severity:** Info
-**File:** src/tts/azure_speech.rs:322-331 and src/tts/edge_tts.rs:62-72
-**Summary:** Both modules independently implement extract language from voice name with slightly different approaches.
-**Details:** azure_speech.rs uses splitn(3, '-') to extract the first two components, while edge_tts.rs uses char_indices().filter(|(_, c)| *c == '-').nth(1) to find the byte offset of the second hyphen. Both produce the same result for well-formed voice names like zh-CN-XiaoyiNeural, but the duplicated logic creates a maintenance risk if the voice name format changes.
+（历史遗留，前两次审查均记录，保持不变。）
 
-**Fix:** Consider extracting this into a shared utility function in common.rs:
+### IN-04: Doubao TTS token 在请求中传输两次（Header + Body）
 
-    pub fn extract_lang_from_voice_name(voice_name: &str) -> String {
-        let parts: Vec<&str> = voice_name.splitn(3, '-').collect();
-        if parts.len() >= 2 {
-            format!("{}-{}", parts[0], parts[1])
-        } else {
-            "en-US".to_string()
-        }
-    }
+**File:** `src/tts/doubaotts.rs:44,75`
+**Issue:** `Authorization` 头使用 `Bearer;{token}` 格式（带分号，对齐 Python 版），同时请求体 JSON 的 `app.token` 字段也包含同一 token。token 在 HTTP 请求中传输了两次（一次在 header，一次在 body）。
+
+这不是安全漏洞（token 已通过 HTTPS 传输），且这是对齐 Python 版行为以保持 API 兼容性，不建议修改。仅作为信息记录。
 
 ---
 
-_Reviewed: 2026-05-01_
-_Reviewer: gsd-code-reviewer_
+_Reviewed: 2026-05-01T13:00:00Z_
+_Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
