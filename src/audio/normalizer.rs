@@ -69,44 +69,34 @@ pub struct LoudnormData {
 
 #[allow(non_snake_case)]
 impl LoudnormData {
-    /// 解析 measured_I 为 f64
+    fn safe_parse(field_name: &str, value: &str, fallback: f64) -> f64 {
+        match value.parse::<f64>() {
+            Ok(v) if v.is_finite() => v,
+            _ => {
+                tracing::warn!("{} 解析失败 ('{}')，使用回退值 {}", field_name, value, fallback);
+                fallback
+            }
+        }
+    }
+
     pub fn measured_I(&self) -> f64 {
-        self.input_i.parse().unwrap_or_else(|e| {
-            tracing::warn!("measured_I 解析失败 ('{}'): {}", self.input_i, e);
-            0.0
-        })
+        Self::safe_parse("measured_I", &self.input_i, -23.0)
     }
 
-    /// 解析 measured_LRA 为 f64
     pub fn measured_LRA(&self) -> f64 {
-        self.input_lra.parse().unwrap_or_else(|e| {
-            tracing::warn!("measured_LRA 解析失败 ('{}'): {}", self.input_lra, e);
-            0.0
-        })
+        Self::safe_parse("measured_LRA", &self.input_lra, 7.0)
     }
 
-    /// 解析 measured_TP 为 f64
     pub fn measured_TP(&self) -> f64 {
-        self.input_tp.parse().unwrap_or_else(|e| {
-            tracing::warn!("measured_TP 解析失败 ('{}'): {}", self.input_tp, e);
-            0.0
-        })
+        Self::safe_parse("measured_TP", &self.input_tp, -1.0)
     }
 
-    /// 解析 measured_thresh 为 f64
     pub fn measured_thresh(&self) -> f64 {
-        self.input_thresh.parse().unwrap_or_else(|e| {
-            tracing::warn!("measured_thresh 解析失败 ('{}'): {}", self.input_thresh, e);
-            0.0
-        })
+        Self::safe_parse("measured_thresh", &self.input_thresh, -34.0)
     }
 
-    /// 解析 target_offset 为 f64
     pub fn offset(&self) -> f64 {
-        self.target_offset.parse().unwrap_or_else(|e| {
-            tracing::warn!("target_offset 解析失败 ('{}'): {}", self.target_offset, e);
-            0.0
-        })
+        Self::safe_parse("target_offset", &self.target_offset, 0.0)
     }
 }
 

@@ -243,18 +243,18 @@ pub fn search_videos_pexels(
         .videos
         .into_iter()
         .filter(|v| v.duration >= minimum_duration)
-        .flat_map(|v| {
-            v.video_files
-                .into_iter()
+        .filter_map(|v| {
+            let best = v.video_files.into_iter()
                 .filter(|f| f.width >= target_width && f.height >= target_height)
-                .map(move |f| MaterialInfo {
-                    id: v.id,
-                    duration: v.duration,
-                    width: f.width,
-                    height: f.height,
-                    video_url: f.link,
-                    source: "pexels".into(),
-                })
+                .max_by_key(|f| f.width * f.height)?;
+            Some(MaterialInfo {
+                id: v.id,
+                duration: v.duration,
+                width: best.width,
+                height: best.height,
+                video_url: best.link,
+                source: "pexels".into(),
+            })
         })
         .collect();
 

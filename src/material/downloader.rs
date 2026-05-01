@@ -3,9 +3,10 @@
 //! 下载素材视频到本地缓存，使用 MD5 URL 去重（去掉 query string），
 //! 写入时使用 temp 文件 + 原子重命名，下载后通过 ffprobe 验证。
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
+
+use uuid::Uuid;
 
 use md5::{Md5, Digest};
 
@@ -69,7 +70,7 @@ pub fn save_video(
     // 4. HTTP 下载
     tracing::info!("下载素材: {}", video_url);
     let client = build_client(proxy_section)?;
-    let response = client
+    let mut response = client
         .get(video_url)
         .timeout(std::time::Duration::from_secs(300))
         .send()
@@ -82,16 +83,12 @@ pub fn save_video(
         )));
     }
 
-    // 5. 先写入临时文件，防止下载中断产生破损文件
-    let temp_path = save_dir.join(format!("{}.tmp", cache_key));
-    let bytes = response
-        .bytes()
-        .map_err(|e| MaterialError::DownloadFailed(e.to_string()))?;
-
+    // 5. 流式写入临时文件（唯一后缀防止并发冲突）
+    let temp_path = save_dir.join(format!("{}.{}.tmp", cache_key, Uuid::new_v4()));
     let mut file = std::fs::File::create(&temp_path)
         .map_err(|e| MaterialError::IoError(e.to_string()))?;
-    file.write_all(&bytes)
-        .map_err(|e| MaterialError::IoError(e.to_string()))?;
+    std::io::copy(&mut response, &mut file)
+        .map_err(|e| MaterialError::DownloadFailed(format!("流式写入失败: {}", e)))?;
     drop(file);
 
     // 6. 原子重命名
@@ -145,6 +142,7 @@ pub fn download_videos(
     key_counter_pixabay: &AtomicUsize,
     proxy_section: &ProxySection,
 ) -> Result<Vec<PathBuf>, MaterialError> {
+    // 使用固定相对路径（与 Python 版行为一致）。库模式调用者应确保 CWD 正确。
     let save_dir = PathBuf::from("storage").join("temp").join(task_id);
 
     // 1. 收集所有搜索结果

@@ -287,9 +287,9 @@ pub async fn download_video(
         }
     }
 
-    let output = cmd
-        .output()
+    let output = tokio::time::timeout(std::time::Duration::from_secs(600), cmd.output())
         .await
+        .map_err(|_| YoutubeError::DownloadFailed("下载超时（600 秒）".into()))?
         .map_err(|e| YoutubeError::SubprocessError(e.to_string()))?;
 
     if !output.status.success() {
