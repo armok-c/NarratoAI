@@ -142,6 +142,13 @@ pub fn download_videos(
     key_counter_pixabay: &AtomicUsize,
     proxy_section: &ProxySection,
 ) -> Result<Vec<PathBuf>, MaterialError> {
+    // 路径遍历校验（防止 task_id 包含 ../ 导致写入预期目录之外）
+    if task_id.contains('/') || task_id.contains('\\') || task_id.contains("..") {
+        return Err(MaterialError::IoError(
+            "task_id 包含非法路径字符".into(),
+        ));
+    }
+
     // 使用固定相对路径（与 Python 版行为一致）。库模式调用者应确保 CWD 正确。
     let save_dir = PathBuf::from("storage").join("temp").join(task_id);
 

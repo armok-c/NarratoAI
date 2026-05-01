@@ -127,9 +127,9 @@ async fn get_video_formats(
         }
     }
 
-    let output = cmd
-        .output()
+    let output = tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output())
         .await
+        .map_err(|_| YoutubeError::SubprocessError("元数据查询超时（120 秒）".into()))?
         .map_err(|e| YoutubeError::SubprocessError(e.to_string()))?;
 
     if !output.status.success() {
