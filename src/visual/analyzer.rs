@@ -27,7 +27,7 @@ use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
 /// 需要先反序列化为该类型再提取内部的观察列表。
 #[derive(serde::Deserialize)]
 struct BatchResponse {
-    #[serde(alias = "frame_observations")]
+    #[serde(rename = "frame_observations")]
     observations: Vec<FrameObservation>,
     overall_activity_summary: Option<String>,
 }
