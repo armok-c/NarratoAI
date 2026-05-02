@@ -10,6 +10,7 @@ pub mod visual;
 pub mod audio;
 pub mod youtube;
 pub mod material;
+pub mod documentary;
 
 /// 库版本号，编译时从 Cargo.toml 注入
 pub fn version() -> &'static str {

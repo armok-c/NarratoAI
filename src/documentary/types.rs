@@ -1,0 +1,75 @@
+use std::path::PathBuf;
+
+use crate::tts::WordBoundary;
+
+/// 纪录片流水线请求参数
+#[derive(Debug, Clone)]
+pub struct DocumentaryRequest {
+    pub video_path: PathBuf,
+    pub script_path: PathBuf,
+    pub tts_engine: String,
+    pub voice_name: String,
+    pub voice_rate: f64,
+    pub voice_pitch: f64,
+    pub tts_volume: f64,
+    pub original_volume: f64,
+    pub bgm_volume: f64,
+    pub bgm_path: Option<PathBuf>,
+    pub subtitle_enabled: bool,
+    pub subtitle_font: Option<String>,
+    pub subtitle_font_size: u32,
+    pub subtitle_color: String,
+    pub subtitle_position: String,
+    pub video_aspect: String,
+    pub output_dir: Option<PathBuf>,
+    pub threads: u32,
+}
+
+impl Default for DocumentaryRequest {
+    fn default() -> Self {
+        Self {
+            video_path: PathBuf::new(),
+            script_path: PathBuf::new(),
+            tts_engine: "edge_tts".to_string(),
+            voice_name: String::new(),
+            voice_rate: 1.0,
+            voice_pitch: 0.0,
+            tts_volume: 1.0,
+            original_volume: 0.7,
+            bgm_volume: 0.3,
+            bgm_path: None,
+            subtitle_enabled: true,
+            subtitle_font: None,
+            subtitle_font_size: 40,
+            subtitle_color: "#FFFFFF".to_string(),
+            subtitle_position: "bottom".to_string(),
+            video_aspect: "9:16".to_string(),
+            output_dir: None,
+            threads: 4,
+        }
+    }
+}
+
+/// 流水线进度步骤
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressStep {
+    LoadScript,
+    Tts,
+    Clip,
+    MergeAudio,
+    Concat,
+    Composite,
+}
+
+/// 进度回调类型
+pub type ProgressCallback = Box<dyn Fn(ProgressStep, f32, &str) + Send + Sync>;
+
+/// TTS 合成结果——关联到具体脚本片段
+#[derive(Debug, Clone)]
+pub struct TtsResult {
+    pub clip_id: i64,
+    pub audio_path: PathBuf,
+    pub subtitle_path: PathBuf,
+    pub duration: f64,
+    pub word_boundaries: Vec<WordBoundary>,
+}
