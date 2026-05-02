@@ -415,6 +415,12 @@ fn rename_fast_path_frames(
             .and_then(|n| n.to_str())
             .unwrap_or("");
         if file_name.starts_with("fastframe_") && file_name.ends_with(".jpg") {
+            if let Ok(meta) = path.metadata() {
+                if meta.len() < 100 {
+                    let _ = std::fs::remove_file(&path);
+                    continue;
+                }
+            }
             entries.push(path);
         }
     }
