@@ -2,10 +2,9 @@ use serde::{Deserialize, Serialize};
 
 /// 单帧观察结果（对齐 Python 版 frame_observation 字典）
 ///
-/// 所有字段通过 serde 反序列化 LLM JSON 响应
-/// `#[serde(deny_unknown_fields)]` 拒绝 LLM 输出的非约定字段（D-15）
+/// 所有字段通过 serde 反序列化 LLM JSON 响应。
+/// 未知字段被静默忽略，兼容 LLM 返回额外字段的场景（D-15）。
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct FrameObservation {
     /// 帧序号（从 0 开始）
     pub frame_number: u64,
@@ -128,9 +127,9 @@ mod tests {
         );
     }
 
-    /// Test 6: camelCase 字段名 → 应失败（deny_unknown_fields + 非 snake_case 字段名）
+    /// Test 6: camelCase 未知字段名 → 应被静默忽略（无 deny_unknown_fields）
     #[test]
-    fn test_camel_case_field_fails_with_deny_unknown() {
+    fn test_unknown_fields_silently_ignored() {
         let json = r#"{
             "frame_number": 5,
             "timestamp": "00:00:15.000",
@@ -141,9 +140,11 @@ mod tests {
         }"#;
         let result: Result<FrameObservation, _> = serde_json::from_str(json);
         assert!(
-            result.is_err(),
-            "camelCase 字段 sceneDescription 因 deny_unknown_fields 应被拒绝"
+            result.is_ok(),
+            "未知字段（如 camelCase sceneDescription）应被静默忽略"
         );
+        let obs = result.unwrap();
+        assert_eq!(obs.scene_description, "海滩");
     }
 
     /// Test 7: 空 objects 列表

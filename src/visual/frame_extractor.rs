@@ -39,6 +39,11 @@ pub async fn extract_frames(
     cancel: Option<CancellationToken>,
 ) -> Result<usize, VisualError> {
     let quality_val = quality.unwrap_or(5);
+    if !(2..=31).contains(&quality_val) {
+        return Err(VisualError::FrameExtraction(
+            format!("JPEG quality 值 ({}) 超出有效范围 2-31", quality_val)
+        ));
+    }
 
     if interval_seconds.is_nan() || interval_seconds <= 0.0 {
         return Err(VisualError::FrameExtraction("帧提取间隔必须 > 0".into()));
@@ -64,7 +69,7 @@ pub async fn extract_frames(
             if let Some(ref cb) = progress {
                 cb(Some(1.0), "帧提取完成");
             }
-            return Ok(count);
+            Ok(count)
         }
         _ => {
             // Clean up fast-path artifacts
@@ -94,7 +99,7 @@ pub async fn extract_frames(
 ///
 /// 帧输出到 output_dir，命名格式 `fastframe_%06d.jpg`，提取完成后
 /// 由 `rename_fast_path_frames` 重命名为 `keyframe_{frame_number:06}_{HHMMSSmmm}.jpg`。
-pub async fn extract_frames_fast_path(
+pub(crate) async fn extract_frames_fast_path(
     video_path: &Path,
     output_dir: &Path,
     interval_seconds: f64,
@@ -103,7 +108,7 @@ pub async fn extract_frames_fast_path(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
-    let cancel = cancel.unwrap_or_else(CancellationToken::new);
+    let cancel = cancel.unwrap_or_default();
 
     tokio::task::spawn_blocking(move || -> Result<usize, VisualError> {
         let pattern = output.join("fastframe_%06d.jpg");
@@ -177,7 +182,7 @@ async fn extract_frames_fallback(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
-    let cancel = cancel.unwrap_or_else(CancellationToken::new);
+    let cancel = cancel.unwrap_or_default();
     let progress = progress.map(Arc::new);
 
     tokio::task::spawn_blocking(move || -> Result<usize, VisualError> {
@@ -334,8 +339,12 @@ fn extract_single_frame(
             }
             Err(e) => {
                 tracing::warn!("PNG 转 JPEG 失败: {}", e);
+                let _ = std::fs::remove_file(&png_path);
             }
         }
+    } else if level3_ok {
+        // ffmpeg 成功但 PNG 文件无效，清理残留
+        let _ = std::fs::remove_file(&png_path);
     }
 
     // Level 4: BMP -> JPEG conversion
@@ -365,10 +374,15 @@ fn extract_single_frame(
             }
             Err(e) => {
                 tracing::warn!("BMP 转 JPEG 失败: {}", e);
+                let _ = std::fs::remove_file(&bmp_path);
             }
         }
+    } else if level4_ok {
+        // ffmpeg 成功但 BMP 文件无效，清理残留
+        let _ = std::fs::remove_file(&bmp_path);
     }
 
+    let _ = std::fs::remove_file(output_path);
     Err(VisualError::FrameExtraction(format!(
         "所有 4 级回退均失败 (timestamp={}s)",
         timestamp_secs
@@ -387,10 +401,10 @@ fn rename_fast_path_frames(
     interval_seconds: f64,
 ) -> Result<usize, VisualError> {
     let mut entries: Vec<PathBuf> = Vec::new();
-    let mut dir_reader = std::fs::read_dir(output_dir)
+    let dir_reader = std::fs::read_dir(output_dir)
         .map_err(|e| VisualError::FrameExtraction(format!("读取帧目录失败: {}", e)))?;
 
-    while let Some(entry) = dir_reader.next() {
+    for entry in dir_reader {
         let entry = entry
             .map_err(|e| VisualError::FrameExtraction(format!("读取目录项失败: {}", e)))?;
         let path = entry.path();
@@ -463,7 +477,7 @@ fn cleanup_fast_path_files(output_dir: &Path) {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
-            if name.starts_with("fastframe_") {
+            if name.starts_with("fastframe_") && name.ends_with(".jpg") {
                 let _ = std::fs::remove_file(&path);
             }
         }
@@ -698,14 +712,18 @@ mod tests {
         std::fs::write(temp_dir.join("fastframe_000000.jpg"), b"data").unwrap();
         std::fs::write(temp_dir.join("fastframe_000001.jpg"), b"data").unwrap();
         std::fs::write(temp_dir.join("normal_file.txt"), b"keep me").unwrap();
+        // 非 .jpg 扩展名的 fastframe_ 文件应保留
+        std::fs::write(temp_dir.join("fastframe_log.txt"), b"log data").unwrap();
 
         cleanup_fast_path_files(&temp_dir);
 
-        // fastframe files should be deleted
+        // fastframe .jpg files should be deleted
         assert!(!temp_dir.join("fastframe_000000.jpg").exists());
         assert!(!temp_dir.join("fastframe_000001.jpg").exists());
         // normal file should remain
         assert!(temp_dir.join("normal_file.txt").exists());
+        // 非 .jpg 的 fastframe_ 文件应保留
+        assert!(temp_dir.join("fastframe_log.txt").exists());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

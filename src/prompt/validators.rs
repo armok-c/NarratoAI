@@ -61,7 +61,10 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         )));
     }
 
-    let paragraphs: Vec<&str> = trimmed.split("\n\n").collect();
+    let paragraphs: Vec<&str> = trimmed
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
     if paragraphs.len() < 3 {
         return Err(PromptError::Validation(format!(
             "解说文案段落数不足: {} 段（需要 >= 3）",
@@ -92,9 +95,9 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
 
     // 检查是否包含中文字符（覆盖 CJK Unified Ideographs、Extension A、Compatibility Ideographs）
     let has_chinese = trimmed.chars().any(|c| {
-        (c >= '\u{4E00}' && c <= '\u{9FFF}')
-            || (c >= '\u{3400}' && c <= '\u{4DBF}')
-            || (c >= '\u{F900}' && c <= '\u{FAFF}')
+        ('\u{4E00}'..='\u{9FFF}').contains(&c)
+            || ('\u{3400}'..='\u{4DBF}').contains(&c)
+            || ('\u{F900}'..='\u{FAFF}').contains(&c)
     });
     if !has_chinese {
         return Err(PromptError::Validation(

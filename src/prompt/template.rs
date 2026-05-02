@@ -18,10 +18,9 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 
     // title——单词首字母大写（对 ASCII 字母生效）
     m.insert("title", |s: &str| {
-        let mut chars = s.chars().peekable();
         let mut out = String::with_capacity(s.len());
         let mut new_word = true;
-        while let Some(c) = chars.next() {
+        for c in s.chars() {
             if c.is_whitespace() {
                 out.push(c);
                 new_word = true;
@@ -51,7 +50,7 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 
     // json——JSON 转义字符串
     m.insert("json", |s: &str| {
-        serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s))
+        serde_json::to_string(s).expect("serde_json cannot fail serializing &str")
     });
 
     m
@@ -250,7 +249,7 @@ mod tests {
         let result = render(template, &vars).expect("渲染应成功");
         assert!(result.ends_with("..."), "应包含省略号");
         assert_eq!(result.chars().count(), 100);
-        assert_eq!(&result[..97], &long_text[..97]);
+        assert_eq!(result.chars().take(97).collect::<String>(), long_text.chars().take(97).collect::<String>());
     }
 
     /// 中文截断测试——验证多字节 UTF-8 字符不会 panic

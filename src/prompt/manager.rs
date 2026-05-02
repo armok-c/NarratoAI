@@ -54,6 +54,19 @@ impl PromptManager {
     ) -> Result<String, PromptError> {
         let prompt = self.get_prompt(category, name, version)?;
 
+        // 校验必需参数
+        let mut missing: Vec<String> = Vec::new();
+        for param in &prompt.metadata.parameters {
+            if param.required && param.default.is_none() && !vars.contains_key(param.name.as_str()) {
+                missing.push(param.name.clone());
+            }
+        }
+        if !missing.is_empty() {
+            return Err(PromptError::Validation(format!(
+                "缺少必需参数: {}", missing.join(", ")
+            )));
+        }
+
         // Merge defaults: caller vars take precedence over parameter defaults
         let mut merged: HashMap<String, String> = HashMap::new();
         for param in &prompt.metadata.parameters {
@@ -128,7 +141,7 @@ impl PromptManager {
 mod tests {
     use super::*;
     use crate::prompt::registry::PromptRegistry;
-    use crate::prompt::types::{ModelType, OutputFormat, PromptMetadata};
+    use crate::prompt::types::{ModelType, OutputFormat, ParameterDef, PromptMetadata};
     use std::sync::{Arc, RwLock};
 
     fn make_test_prompt(category: &str, name: &str, version: &str, content: &str) -> Prompt {
@@ -300,5 +313,34 @@ mod tests {
 
         let prompts = manager.list_prompts("doc").unwrap();
         assert_eq!(prompts.len(), 2);
+    }
+
+    #[test]
+    fn test_render_prompt_missing_required_param() {
+        let manager = make_manager();
+        let prompt = Prompt {
+            metadata: PromptMetadata {
+                category: "test".to_string(),
+                name: "required_test".to_string(),
+                version: "v1.0".to_string(),
+                model_type: ModelType::Text,
+                output_format: OutputFormat::Json,
+                tags: vec![],
+                parameters: vec![ParameterDef {
+                    name: "video_title".to_string(),
+                    required: true,
+                    default: None,
+                    description: "视频标题".to_string(),
+                }],
+            },
+            content: "分析视频: ${video_title}".to_string(),
+        };
+        manager.register_prompt(prompt, true).unwrap();
+
+        let vars: HashMap<&str, &str> = HashMap::new();
+        let result = manager.render_prompt("test", "required_test", None, &vars);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("video_title"), "错误应提及缺失的参数名: {}", err_msg);
     }
 }

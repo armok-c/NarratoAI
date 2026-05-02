@@ -26,7 +26,6 @@ use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
 /// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
 /// 需要先反序列化为该类型再提取内部的观察列表。
 #[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BatchResponse {
     #[serde(alias = "frame_observations")]
     observations: Vec<FrameObservation>,
@@ -159,8 +158,9 @@ pub async fn analyze_video_frames(
 
     // Step 8 — 空结果屏障（在线护栏，AI-SPEC Section 6）
     if observations.is_empty() && !errors.is_empty() {
+        let success_count = raw_results.len() - errors.len();
         return Err(VisualError::BatchPartial {
-            analyzed_count: 0,
+            analyzed_count: success_count,
             total_count: raw_results.len(),
             errors,
         });
@@ -182,7 +182,7 @@ pub async fn analyze_video_frames(
     Ok(BatchAnalysisResult {
         observations,
         overall_activity_summary: last_summary,
-        total_frames: frame_count as usize,
+        total_frames: frame_paths.len(),
         analyzed_batches: raw_results.len(),
         errors,
     })
@@ -237,11 +237,11 @@ fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
 fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
     let mut paths: Vec<PathBuf> = Vec::new();
 
-    let mut dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
+    let dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
         VisualError::FrameExtraction(format!("读取帧目录失败: {}", e))
     })?;
 
-    while let Some(entry) = dir_reader.next() {
+    for entry in dir_reader {
         let entry = entry.map_err(|e| {
             VisualError::FrameExtraction(format!("读取目录项失败: {}", e))
         })?;
