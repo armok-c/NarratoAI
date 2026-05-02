@@ -342,6 +342,9 @@ fn extract_single_frame(
                 let _ = std::fs::remove_file(&png_path);
             }
         }
+    } else if level3_ok {
+        // ffmpeg 成功但 PNG 文件无效，清理残留
+        let _ = std::fs::remove_file(&png_path);
     }
 
     // Level 4: BMP -> JPEG conversion
@@ -374,6 +377,9 @@ fn extract_single_frame(
                 let _ = std::fs::remove_file(&bmp_path);
             }
         }
+    } else if level4_ok {
+        // ffmpeg 成功但 BMP 文件无效，清理残留
+        let _ = std::fs::remove_file(&bmp_path);
     }
 
     let _ = std::fs::remove_file(output_path);
@@ -471,7 +477,7 @@ fn cleanup_fast_path_files(output_dir: &Path) {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
-            if name.starts_with("fastframe_") {
+            if name.starts_with("fastframe_") && name.ends_with(".jpg") {
                 let _ = std::fs::remove_file(&path);
             }
         }
@@ -706,14 +712,18 @@ mod tests {
         std::fs::write(temp_dir.join("fastframe_000000.jpg"), b"data").unwrap();
         std::fs::write(temp_dir.join("fastframe_000001.jpg"), b"data").unwrap();
         std::fs::write(temp_dir.join("normal_file.txt"), b"keep me").unwrap();
+        // 非 .jpg 扩展名的 fastframe_ 文件应保留
+        std::fs::write(temp_dir.join("fastframe_log.txt"), b"log data").unwrap();
 
         cleanup_fast_path_files(&temp_dir);
 
-        // fastframe files should be deleted
+        // fastframe .jpg files should be deleted
         assert!(!temp_dir.join("fastframe_000000.jpg").exists());
         assert!(!temp_dir.join("fastframe_000001.jpg").exists());
         // normal file should remain
         assert!(temp_dir.join("normal_file.txt").exists());
+        // 非 .jpg 的 fastframe_ 文件应保留
+        assert!(temp_dir.join("fastframe_log.txt").exists());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
