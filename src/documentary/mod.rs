@@ -8,4 +8,5 @@ pub mod timestamp;
 pub mod types;
 
 pub use error::PipelineError;
+pub use pipeline::{run_documentary, PipelineState};
 pub use types::{DocumentaryRequest, ProgressCallback, ProgressStep, TtsResult};
