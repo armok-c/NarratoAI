@@ -586,7 +586,7 @@ mod tests {
         for i in 0..3 {
             let name = format!("fastframe_{:06}.jpg", i);
             let path = temp_dir.join(&name);
-            std::fs::write(&path, b"mock frame data").expect("应能写入测试文件");
+            std::fs::write(&path, [0xFFu8; 200]).expect("应能写入测试文件");
         }
 
         let result = rename_fast_path_frames(&temp_dir, 3.0).expect("应重命名成功");
