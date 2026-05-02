@@ -240,9 +240,11 @@ async fn extract_frames_fallback(
         }
 
         if extracted_count == 0 && !errors.is_empty() {
+            let detail = errors.iter().take(5).cloned().collect::<Vec<_>>().join("; ");
             return Err(VisualError::FrameExtraction(format!(
-                "所有帧提取均失败 ({} 个错误)",
-                errors.len()
+                "所有帧提取均失败 ({} 个错误): {}",
+                errors.len(),
+                detail
             )));
         }
 
