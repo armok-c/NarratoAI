@@ -1,8 +1,8 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-02T00:00:00Z
+reviewed: 2026-05-02T20:00:00Z
 depth: standard
-files_reviewed: 20
+files_reviewed: 19
 files_reviewed_list:
   - Cargo.toml
   - src/lib.rs
@@ -26,176 +26,158 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 3
-  info: 4
-  total: 7
+  info: 5
+  total: 8
 status: issues_found
 ---
 
-# Phase 04: Code Review Report (Iteration 13)
+# Phase 04: Code Review Report (Iteration 14)
 
-**Reviewed:** 2026-05-02T00:00:00Z
+**Reviewed:** 2026-05-02T20:00:00Z
 **Depth:** standard
-**Files Reviewed:** 20
+**Files Reviewed:** 19
 **Status:** issues_found
 
 ## Summary
 
-对 Phase 04 (prompt-system-visual-analyzer) 进行第 13 次迭代审查（re-review #12）。上一轮修复的 3 个 WARNING（WR-12-01: FrameObservation deny_unknown_fields 移除、WR-12-02: truncate 测试字节切片改字符级别、WR-12-03: 7 个 clippy lint）均已验证正确修复，无回归。`cargo clippy -- -D warnings` 确认 Phase 04 范围内 0 个 clippy 警告（全项目 9 个警告均在 Phase 04 之外的 config/watcher.rs、tts/edge_tts.rs、llm/、jianying/ 文件中）。273 个测试全部通过。
+对 Phase 04 (prompt-system-visual-analyzer) 进行第 14 次迭代审查（re-review #13）。上一轮修复的 3 个 WARNING 均已验证正确修复，无回归：
 
-发现 3 个新 WARNING 和 4 个 INFO 级别问题。最关键的发现是 WR-13-01：`manager.rs` 的 `render_prompt()` 从未校验 `ParameterDef.required` 字段——当 required=true 且无 default 时，如果调用方未提供该参数，模板渲染器会产生一个空字符串替换而不是报错，导致 LLM 收到不完整的 prompt。这是一个影响生产正确性的逻辑缺陷。
+- WR-13-01（render_prompt required 参数校验）：验证通过，manager.rs:57-68 校验逻辑正确，双重防线完整
+- WR-13-02（Level 3/4 回退无效文件清理）：验证通过，frame_extractor.rs:347/382 else if 分支正确清理残留
+- WR-13-03（cleanup_fast_path_files 扩展名限制）：验证通过，frame_extractor.rs:480 同时检查 starts_with + ends_with(".jpg")
+
+发现 3 个新 WARNING 和 5 个 INFO 级别问题。无 CRITICAL。Prompt 系统（14 文件）审查结果为 clean，所有问题均在 Visual 系统（5 文件）中。
 
 ## Build Verification
 
 | Check | Result | Notes |
 |-------|--------|-------|
 | `cargo check` | PASS | No errors |
+| `cargo clippy --lib` (prompt scope) | PASS | 0 warnings in prompt module |
 | `cargo clippy -- -D warnings` | FAIL | 9 lints project-wide, 0 in Phase 04 scope |
-| `cargo test --lib` | PASS | 273 tests passed, 0 failed, 1 ignored |
+| `cargo test --lib` | PASS | 274 tests passed, 0 failed, 1 ignored |
 
 ## Previous Fix Verification
 
 | ID | Fix Commit | Status | Detail |
 |----|-----------|--------|--------|
-| WR-12-01 | 47b312e | PASS | `FrameObservation` 移除 `deny_unknown_fields`，测试 `test_unknown_fields_silently_ignored` 验证 camelCase 字段被静默忽略。 |
-| WR-12-02 | 8ee2a54 | PASS | truncate 测试使用 `result.chars().take(97).collect::<String>()` 字符级别比较。 |
-| WR-12-03 | 556106f | PASS | Phase 04 范围内 7 个 clippy lint 全部修复。`cargo clippy` 确认 Phase 04 文件 0 警告。 |
-
-All three fixes verified correct with no regression.
+| WR-13-01 | c05991f | PASS | `render_prompt()` 在合并 defaults 之前正确校验 required=true + default=None 的参数。测试 `test_render_prompt_missing_required_param` 覆盖该场景。 |
+| WR-13-02 | 14a3caf | PASS | `extract_single_frame()` Level 3/4 回退路径中无效 PNG/BMP 文件正确清理。 |
+| WR-13-03 | 14a3caf | PASS | `cleanup_fast_path_files()` 增加 `.jpg` 扩展名检查，测试验证非帧文件不被误删。 |
 
 ## Warnings
 
-### WR-13-01: render_prompt 忽略 ParameterDef.required 字段，required=true 的参数缺失时静默替换为空字符串
+### WR-14-01: 快路径不验证帧文件内容完整性，损坏帧可能被误报为成功
 
-**File:** `src/prompt/manager.rs:57-66`
-**Issue:** `render_prompt()` 方法（第 57-66 行）合并默认值和调用方变量时，只填充了 `param.default` 不为 None 的参数（第 59-62 行），然后覆盖调用方变量（第 64-66 行）。但从未检查 `param.required == true && default.is_none() && !vars.contains_key(&param.name)` 的情况。
+**File:** `src/visual/frame_extractor.rs:399-458`（`rename_fast_path_frames`）
+**Issue:** 快路径 `extract_frames_fast_path` 完成后调用 `rename_fast_path_frames`，该函数仅检查文件名模式（`fastframe_*.jpg`），不验证帧文件的实际内容完整性。如果 ffmpeg 退出成功但产出了损坏的 JPEG 文件（例如视频流损坏导致 ffmpeg 写入无效 JPEG 头），这些损坏文件会被重命名为 `keyframe_*` 并计入 `count`。
 
-这意味着当一个参数声明为 `required: true, default: None`（如 `video_title`、`frame_analysis_json`、`subtitle_content`、`plot_analysis`），且调用方未在 `vars` 中提供时，该参数不会出现在 `merged` HashMap 中。后续 `template::render()` 虽然会报告"缺少必需参数"错误（如果模板中有 `${variable}` 语法），但这依赖于模板实现细节而非参数定义——更重要的是，如果模板恰好不引用某个 required 参数（比如参数名拼写错误），就会完全绕过校验。
-
-此外，`ParameterDef.required` 字段（types.rs 第 28 行）在代码中从未被读取过（除测试中的构造），属于死数据。
+由于 `count > 0`，`extract_frames` 返回 `Ok(count)`，后续 `collect_frame_paths` 会收集这些损坏文件，`analyze_images` 发送给 LLM 时可能产生垃圾结果或编码失败。对比回退路径：`extract_single_frame` 逐帧提取失败不影响其他帧，且快路径完全无有效帧时仍会返回 `Ok(0)` 触发回退，所以最坏情况是部分损坏帧被传递到下游。
 
 **Fix:**
 
 ```rust
-// 在 manager.rs render_prompt() 中，合并 defaults 之前添加校验：
-pub fn render_prompt(
-    &self,
-    category: &str,
-    name: &str,
-    version: Option<&str>,
-    vars: &HashMap<&str, &str>,
-) -> Result<String, PromptError> {
-    let prompt = self.get_prompt(category, name, version)?;
-
-    // Validate required parameters
-    let mut missing: Vec<String> = Vec::new();
-    for param in &prompt.metadata.parameters {
-        if param.required && param.default.is_none() && !vars.contains_key(param.name.as_str()) {
-            missing.push(param.name.clone());
-        }
-    }
-    if !missing.is_empty() {
-        return Err(PromptError::Validation(format!(
-            "缺少必需参数: {}", missing.join(", ")
-        )));
-    }
-
-    // Merge defaults: caller vars take precedence over parameter defaults
-    let mut merged: HashMap<String, String> = HashMap::new();
-    // ... rest unchanged
-```
-
-### WR-13-02: Level 3/4 回退路径中，ffmpeg 成功但文件无效时未清理 PNG/BMP 残留文件
-
-**File:** `src/visual/frame_extractor.rs:334-345, 366-377`
-**Issue:** 在 `extract_single_frame()` 的 Level 3 回退中（第 334-345 行），条件 `if level3_ok && file_is_valid(&png_path)` 只在两个条件都为真时进入。但当 `level3_ok == true && file_is_valid(&png_path) == false` 时（ffmpeg 命令返回成功退出码但生成了零字节或无效 PNG 文件），PNG 文件不会被清理。
-
-具体场景：
-- 第 320-333 行：ffmpeg 输出到 `png_path`（成功返回 true）
-- 第 334 行：`file_is_valid(&png_path)` 返回 false（文件为空）
-- 条件不满足，跳过整个 if 块，`png_path` 残留
-- 继续到 Level 4，`output_path.with_extension("bmp")` 创建 `bmp_path`
-- Level 4 同理，如果 ffmpeg 成功但 BMP 文件无效，BMP 残留
-
-最终第 379 行 `let _ = std::fs::remove_file(output_path)` 只清理 `.jpg` 目标文件，不清理 `.png` 和 `.bmp` 中间文件。
-
-**Fix:**
-
-```rust
-// 在第 345 行 if 块结束后添加 else 分支清理 PNG：
-    if level3_ok && file_is_valid(&png_path) {
-        match convert_image_to_jpeg(&png_path, output_path, quality) {
-            Ok(_) => {
-                let _ = std::fs::remove_file(&png_path);
-                return Ok(());
-            }
-            Err(e) => {
-                tracing::warn!("PNG 转 JPEG 失败: {}", e);
-                let _ = std::fs::remove_file(&png_path);
+// 在 rename_fast_path_frames 的循环中，过滤掉过小的文件
+for entry in dir_reader {
+    let entry = entry.map_err(|e| VisualError::FrameExtraction(format!("读取目录项失败: {}", e)))?;
+    let path = entry.path();
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if file_name.starts_with("fastframe_") && file_name.ends_with(".jpg") {
+        if let Ok(meta) = path.metadata() {
+            if meta.len() < 100 {
+                let _ = std::fs::remove_file(&path);
+                continue;
             }
         }
-    } else if level3_ok {
-        // ffmpeg 成功但 PNG 文件无效，清理残留
-        let _ = std::fs::remove_file(&png_path);
+        entries.push(path);
     }
-
-// 同理在第 377 行后添加 else 分支清理 BMP：
-    } else if level4_ok {
-        let _ = std::fs::remove_file(&bmp_path);
-    }
+}
 ```
 
-### WR-13-03: cleanup_fast_path_files 仅匹配 fastframe_ 前缀但不限制扩展名
+### WR-14-02: `BatchResponse` 的 serde 字段名与 prompt 声明的 JSON schema 不一致
 
-**File:** `src/visual/frame_extractor.rs:466-479`
-**Issue:** `cleanup_fast_path_files()`（第 474 行）使用 `name.starts_with("fastframe_")` 匹配文件，不检查扩展名。虽然 FFmpeg 快路径总是输出 `.jpg`，但如果有其他进程在同目录下创建了以 `fastframe_` 开头的非帧文件（如 `fastframe_log.txt`），它们也会被误删。
-
-与 `rename_fast_path_frames()`（第 409 行）和 `collect_frame_paths()`（analyzer.rs 第 255 行）均同时检查 `starts_with` 和 `ends_with(".jpg")` 的模式不一致。
+**File:** `src/visual/analyzer.rs:28-33`
+**Issue:** `BatchResponse` 结构体的主字段名为 `observations`，通过 `#[serde(alias = "frame_observations")]` 接受 LLM 响应。但 `analyze_video_frames` 中的 prompt 明确要求 LLM 返回 `"frame_observations"` 作为键名。代码可读性降低——读者查看 prompt 会期望字段名为 `frame_observations`，但实际 Rust 字段名是 `observations`。如果将来需要序列化 `BatchResponse`，输出会使用 `observations` 而非 prompt 中声明的 `frame_observations`，造成不一致。
 
 **Fix:**
 
 ```rust
-// 第 474 行，添加扩展名检查：
-if name.starts_with("fastframe_") && name.ends_with(".jpg") {
-    let _ = std::fs::remove_file(&path);
+#[derive(serde::Deserialize)]
+struct BatchResponse {
+    #[serde(rename = "frame_observations")]
+    observations: Vec<FrameObservation>,
+    overall_activity_summary: Option<String>,
+}
+```
+
+### WR-14-03: `extract_frames_fallback` 错误路径丢弃了详细错误信息
+
+**File:** `src/visual/frame_extractor.rs:242-247`
+**Issue:** 当回退路径中所有帧提取均失败时，错误消息仅包含错误数量（`errors.len()`），但 `errors: Vec<String>` 向量中的详细错误信息被丢弃。调用者无法得知哪些帧失败以及失败原因。对比同文件中 `analyzer.rs` 的 `VisualError::BatchPartial`（保留了完整错误列表），处理不一致。
+
+**Fix:**
+
+```rust
+if extracted_count == 0 && !errors.is_empty() {
+    let detail = errors.iter().take(5).cloned().collect::<Vec<_>>().join("; ");
+    return Err(VisualError::FrameExtraction(format!(
+        "所有帧提取均失败 ({} 个错误): {}",
+        errors.len(),
+        detail
+    )));
 }
 ```
 
 ## Info
 
-### IN-13-01: template.rs 中 missing 变量去重使用 Vec::contains 导致 O(n^2) 复杂度
+### IN-14-01: template::render 中 filter_re 对同一字符串迭代 3 次
 
-**File:** `src/prompt/template.rs:89, 120`
-**Issue:** 第 89 行 `!missing.contains(&name.to_string())` 和第 120 行 `!missing_filter_vars.contains(&var_name.to_string())` 对 Vec 做线性查找。当模板中变量很多时（实际场景中不太可能超过几十个），性能不是问题。但使用 `HashSet` 是更惯用的去重方式，代码也更清晰。与上一轮 IN-12-03（Regex 每次编译）类似，属于低优先级改进。
+**File:** `src/prompt/template.rs:118, 132, 141`
+**Issue:** 第 118-129 行（校验过滤器引用的变量存在性）、第 132-139 行（校验过滤器名称合法性）、第 141-150 行（实际替换）分别对 `filter_re.captures_iter(&result)` 独立迭代一次，共 3 次遍历。可合并为单次 `replace_all` 调用。当前实现在正确性和可读性上没有问题，属于维护性建议。与 IN-13-02 指出的是同一问题，本轮确认仍未修改。
 
-**Fix:** 建议将来统一使用 `HashSet<String>` 替代 `Vec<String>` + `contains()`。
+**Fix:** 可合并为单次 `replace_all` 闭包内同时做校验和替换。
 
-### IN-13-02: filter_re 对同一字符串迭代 3 次（变量存在校验 + 过滤器名校验 + 实际替换）
+### IN-14-02: validate_output 方法签名接受 &self 但未使用 registry
 
-**File:** `src/prompt/template.rs:118-139`
-**Issue:** 第 118-123 行（校验变量存在）、第 132-139 行（校验过滤器名）、第 141-150 行（实际替换）分别对 `filter_re.captures_iter(&result)` 迭代一次，共 3 次。可以合并为单次迭代，在替换时同时校验。但当前逻辑清晰、模板变量少，属于维护性建议。
+**File:** `src/prompt/manager.rs:112-118`
+**Issue:** `PromptManager::validate_output()` 接收 `&self` 参数，但方法体只调用无状态的 `validators::validate_output(output, format)`，从未访问 `self.registry`。方法可改为关联函数。当前不影响正确性或安全性，仅是 API 设计风格问题。
 
-**Fix:** 建议在单次 `replace_all` 闭包内同时做校验和替换，减少重复迭代。
+**Fix:** 改为关联函数或添加 `#[allow(clippy::unused_self)]`。
 
-### IN-13-03: BatchResponse 的 observations 字段名与 prompt schema 中声明的 frame_observations 不一致
+### IN-14-03: `seconds_to_hhmmssmmm` 标记为 `#[allow(dead_code)]` 但被广泛使用
 
-**File:** `src/visual/analyzer.rs:29-31, 110`
-**Issue:** `BatchResponse` 使用 `#[serde(alias = "frame_observations")]` 和字段名 `observations`（第 30-31 行）。prompt schema（第 110 行）向 LLM 声明的字段名是 `frame_observations`。虽然 `serde(alias)` 保证两种 JSON 键名都能反序列化，但 Rust 结构体的字段名 `observations` 与 prompt 中声明的 `frame_observations` 不同，增加了维护时的认知负担。
+**File:** `src/visual/frame_extractor.rs:462-463`
+**Issue:** 函数标记了 `#[allow(dead_code)]`，但实际在 `rename_fast_path_frames`（第 444 行）、`extract_frames_fallback`（第 217 行）和多个测试中被使用。`dead_code` lint 抑制不再需要。
 
-这不是 bug——`#[serde(alias)]` 正确处理了两种键名——但如果未来有人只看结构体不看 `alias`，可能误以为 LLM 返回 `observations` 键名。
+**Fix:** 移除 `#[allow(dead_code)]`。
 
-**Fix:** 可考虑将 Rust 字段名改为 `frame_observations`，使用 `#[serde(alias = "observations")]` 作为回退，使代码与 prompt schema 更直观对齐。低优先级。
+### IN-14-04: `parse_frame_number_from_name` 标记为 `#[allow(dead_code)]` 但被测试引用
 
-### IN-13-04: parse_and_retry 静默吞掉 BatchResponse 解析错误
+**File:** `src/visual/frame_extractor.rs:554-555`
+**Issue:** 函数标记了 `#[allow(dead_code)]`，有对应测试 `test_parse_frame_number`。在 `cfg(test)` 编译时不会触发 dead_code 警告。
 
-**File:** `src/visual/analyzer.rs:199-227`
-**Issue:** `parse_and_retry()` 在第 203 行尝试 `BatchResponse` 解析失败时，不记录错误日志就回退到 `FrameObservation` 单对象解析。如果 LLM 返回的 JSON 结构接近 BatchResponse 但有轻微格式问题（如缺少一个逗号），错误信息会被吞掉，只报告最终 `FrameObservation` 解析失败的错误。这使得调试 LLM 响应格式问题变得困难。
+**Fix:** 移除 `#[allow(dead_code)]` 或删除函数和对应测试。
 
-上一轮 IN-12-02 已指出 JSON schema 硬编码与结构分离的问题，此问题是同一区域的补充观察。
+### IN-14-05: `strip_code_fence` 中 `text.trim()` 被冗余调用 3 次
 
-**Fix:** 建议在 BatchResponse 解析失败时添加 `tracing::debug!` 级别日志，记录第一次解析的错误原因。
+**File:** `src/visual/types.rs:44-49`
+**Issue:** `text.trim()` 在函数中被调用了多次，但结果未被复用。`trim()` 虽然廉价，但绑定到变量更清晰。
+
+**Fix:**
+
+```rust
+pub(crate) fn strip_code_fence(text: &str) -> &str {
+    let trimmed = text.trim();
+    trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(|s| s.trim().trim_end_matches("```").trim())
+        .unwrap_or(trimmed)
+}
+```
 
 ---
-_Reviewed: 2026-05-02T00:00:00Z_
-_Reviewer: Claude (rust-reviewer, gsd-code-reviewer)_
+_Reviewed: 2026-05-02T20:00:00Z_
+_Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 13_
+_Iteration: 14_
