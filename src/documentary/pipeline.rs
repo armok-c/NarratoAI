@@ -112,6 +112,11 @@ async fn step_clip(
         }
 
         let clip_duration = calculate_clip_duration(clip, &state.tts_results);
+        if clip_duration <= 0.0 {
+            return Err(PipelineError::Composite {
+                details: format!("片段 {} 时长计算为零", clip._id),
+            });
+        }
         let start_secs = parse_time_to_secs(
             clip.timestamp.split('-').next().unwrap_or(&clip.timestamp),
         )?;
@@ -166,7 +171,7 @@ async fn step_merge_audio_subtitle(
     .await?;
     state.merged_subtitle_path = merged_sub;
 
-    state.emit_progress(ProgressStep::MergeAudio, 60.0, "音频字幕合并完成");
+    state.emit_progress(ProgressStep::MergeAudio, 70.0, "音频字幕合并完成");
     Ok(())
 }
 
@@ -179,8 +184,12 @@ async fn step_concat(state: &mut PipelineState) -> Result<(), PipelineError> {
     for clip in &state.script {
         if let Some(ref video_path) = clip.video {
             // FFmpeg concat demuxer requires forward slashes
-            let path_str = video_path.to_string_lossy().replace('\\', "/");
+            let path_str = video_path.to_string_lossy().replace('\\', "/").replace("'", "'\\''");
             concat_content.push_str(&format!("file '{}'\n", path_str));
+        } else {
+            return Err(PipelineError::Concat {
+                details: format!("片段 {} 缺少视频文件", clip._id),
+            });
         }
     }
     std::fs::write(&concat_list_path, &concat_content)?;
@@ -414,6 +423,8 @@ pub async fn run_documentary(
     config: &crate::config::types::AppConfig,
     proxy: Option<&crate::config::types::ProxySection>,
 ) -> Result<PathBuf, PipelineError> {
+    request.validate().map_err(|e| PipelineError::Composite { details: e })?;
+
     // Create task directory
     let task_id = uuid::Uuid::new_v4().to_string();
     let task_dir = request

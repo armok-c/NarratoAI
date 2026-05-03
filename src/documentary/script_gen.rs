@@ -53,12 +53,12 @@ pub async fn analyze_video(
         None,
     )
     .await
-    .map_err(|e| PipelineError::VideoClip {
-        details: format!("帧提取失败: {}", e),
+    .map_err(|e| PipelineError::FrameExtraction {
+        details: e.to_string(),
     })?;
 
     if frame_count == 0 {
-        return Err(PipelineError::VideoClip {
+        return Err(PipelineError::FrameExtraction {
             details: "未提取到任何关键帧".to_string(),
         });
     }
@@ -98,6 +98,15 @@ pub async fn analyze_video(
 
         let pct = 40.0 + (i as f32 / batch_results.len().max(1) as f32) * 25.0;
         emit_progress(request, pct, &format!("分析批次 ({}/{})", i + 1, batch_results.len()));
+    }
+
+    let total_errors: usize = batches.iter().map(|b| b.errors.len()).sum();
+    if total_errors == batches.len() && !batches.is_empty() {
+        return Err(PipelineError::Llm {
+            source: crate::error::LLMError::Validation(
+                format!("所有批次分析均解析失败 ({} 个批次)", batches.len()),
+            ),
+        });
     }
 
     emit_progress(request, 75.0, "逐帧分析完成");

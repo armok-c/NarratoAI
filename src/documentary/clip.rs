@@ -48,6 +48,15 @@ pub async fn clip_ost1_original_sound(
     let end_secs = parse_time_to_secs(ts_parts[1])?;
     let duration = end_secs - start_secs;
 
+    if duration <= 0.0 {
+        return Err(PipelineError::VideoClip {
+            details: format!(
+                "OST=1 片段 {} 时长为零或负数 (start={:.3}, end={:.3})",
+                clip._id, start_secs, end_secs
+            ),
+        });
+    }
+
     let filename = format_clip_filename(OstType::OriginalSound, &secs_to_ffmpeg_time(start_secs), &secs_to_ffmpeg_time(end_secs));
     let output_path = task_dir.join(&filename);
 

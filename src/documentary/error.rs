@@ -40,6 +40,9 @@ pub enum PipelineError {
     #[error("字幕生成失败: {0}")]
     SrtGeneration(String),
 
+    #[error("帧提取失败: {details}")]
+    FrameExtraction { details: String },
+
     #[error("FFmpeg 操作失败: {source}")]
     FFmpeg {
         #[source]
@@ -160,6 +163,15 @@ mod tests {
         let err = PipelineError::SrtGeneration("parse error".into());
         let msg = err.to_string();
         assert!(msg.contains("字幕生成失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_pipeline_error_frame_extraction_chinese() {
+        let err = PipelineError::FrameExtraction {
+            details: "提取关键帧失败".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("帧提取失败"), "消息应包含中文: {}", msg);
     }
 
     #[test]

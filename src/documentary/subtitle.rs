@@ -67,6 +67,7 @@ pub fn write_srt_file(content: &str, path: &Path) -> Result<(), PipelineError> {
 
 /// 解析 SRT 文本为块列表: [(start_secs, end_secs, text)]
 fn parse_srt_blocks(content: &str) -> Vec<(f64, f64, String)> {
+    let content = content.replace("\r\n", "\n");
     let mut blocks = Vec::new();
 
     // Split by blank lines to get SRT blocks, then parse each block's lines
