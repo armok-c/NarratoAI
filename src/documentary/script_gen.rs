@@ -233,7 +233,7 @@ fn parse_batch_response(text: &str) -> BatchAnalysisResult {
                 overall_activity_summary: None,
                 total_frames: 0,
                 analyzed_batches: 1,
-                errors: vec![format!("无法解析批次响应: {}", &cleaned[..cleaned.len().min(200)])],
+                errors: vec![format!("无法解析批次响应: {}", cleaned.chars().take(200).collect::<String>())],
             }
         }
         Err(e) => BatchAnalysisResult {
