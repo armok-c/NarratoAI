@@ -304,34 +304,63 @@ fn strip_and_repair_json(input: &str) -> String {
         }
     }
 
-    // Try basic repairs
-    let mut repaired = text.to_string();
-    repaired = repaired.replace("{{", "{").replace("}}", "}");
-    repaired = repaired.replace(",}", "}").replace(",]", "]");
-
-    // Fix single quotes
-    if !repaired.contains('"') && repaired.contains('\'') {
-        repaired = repaired.replace('\'', "\"");
+    // Try trailing comma removal
+    let repaired = text.replace(",}", "}").replace(",]", "]");
+    if serde_json::from_str::<serde_json::Value>(&repaired).is_ok() {
+        return repaired;
     }
 
-    repaired
+    // Try stripping doubled outer braces {{...}} → {...}
+    if text.starts_with("{{") && text.ends_with("}}") && text.len() > 4 {
+        let stripped = &text[1..text.len() - 1];
+        if serde_json::from_str::<serde_json::Value>(stripped).is_ok() {
+            return stripped.to_string();
+        }
+    }
+
+    // Fix single quotes → double quotes (only when no double quotes present)
+    if !text.contains('"') && text.contains('\'') {
+        let repaired = text.replace('\'', "\"");
+        if serde_json::from_str::<serde_json::Value>(&repaired).is_ok() {
+            return repaired;
+        }
+    }
+
+    text.to_string()
 }
 
 /// 从文本中提取第一个完整的 JSON 对象
 fn extract_json_object(text: &str) -> Option<String> {
     let start = text.find('{')?;
     let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape_next = false;
     let chars: Vec<char> = text.chars().collect();
     for i in start..chars.len() {
-        match chars[i] {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(text[start..=i].to_string());
+        let c = chars[i];
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        if c == '\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+        if c == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if !in_string {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(text[start..=i].to_string());
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
     None

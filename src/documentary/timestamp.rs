@@ -48,6 +48,16 @@ pub fn parse_time_to_secs(input: &str) -> Result<f64, PipelineError> {
         .parse()
         .map_err(|_| PipelineError::Timestamp(format!("秒解析失败: {}", parts[2])))?;
 
+    if !(0.0..=23.0).contains(&h) {
+        return Err(PipelineError::Timestamp(format!("小时超出范围 (0-23): {}", h)));
+    }
+    if !(0.0..=59.0).contains(&m) {
+        return Err(PipelineError::Timestamp(format!("分钟超出范围 (0-59): {}", m)));
+    }
+    if !(0.0..=59.0).contains(&s) {
+        return Err(PipelineError::Timestamp(format!("秒超出范围 (0-59): {}", s)));
+    }
+
     let ms: f64 = if millis.is_empty() {
         0.0
     } else {
@@ -70,6 +80,9 @@ pub fn parse_time_to_secs(input: &str) -> Result<f64, PipelineError> {
 
 /// 将秒数转换为 SRT 时间格式 "HH:MM:SS,mmm"
 pub fn secs_to_srt_time(secs: f64) -> String {
+    if secs < 0.0 {
+        return "00:00:00,000".to_string();
+    }
     let total_ms = (secs * 1000.0).round() as u64;
     let ms = total_ms % 1000;
     let total_secs = total_ms / 1000;
@@ -82,6 +95,9 @@ pub fn secs_to_srt_time(secs: f64) -> String {
 
 /// 将秒数转换为 FFmpeg 时间格式 "HH:MM:SS.mmm"
 pub fn secs_to_ffmpeg_time(secs: f64) -> String {
+    if secs < 0.0 {
+        return "00:00:00.000".to_string();
+    }
     let total_ms = (secs * 1000.0).round() as u64;
     let ms = total_ms % 1000;
     let total_secs = total_ms / 1000;

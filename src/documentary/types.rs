@@ -50,6 +50,27 @@ impl Default for DocumentaryRequest {
     }
 }
 
+impl DocumentaryRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.voice_rate <= 0.0 || self.voice_rate > 5.0 {
+            return Err(format!("voice_rate 超出有效范围 (0, 5]: {}", self.voice_rate));
+        }
+        if self.tts_volume < 0.0 || self.tts_volume > 10.0 {
+            return Err(format!("tts_volume 超出有效范围 [0, 10]: {}", self.tts_volume));
+        }
+        if self.original_volume < 0.0 || self.original_volume > 10.0 {
+            return Err(format!("original_volume 超出有效范围 [0, 10]: {}", self.original_volume));
+        }
+        if self.bgm_volume < 0.0 || self.bgm_volume > 10.0 {
+            return Err(format!("bgm_volume 超出有效范围 [0, 10]: {}", self.bgm_volume));
+        }
+        if self.threads == 0 {
+            return Err("threads 必须大于 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// 流水线进度步骤
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressStep {

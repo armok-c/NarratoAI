@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::documentary::audio::{merge_audio_files, merge_subtitle_files};
+use crate::documentary::audio::{calculate_clip_duration, merge_audio_files, merge_subtitle_files};
 use crate::documentary::clip::clip_all_videos;
 use crate::documentary::error::PipelineError;
 use crate::documentary::subtitle::generate_srt_from_word_boundaries;
@@ -111,7 +111,7 @@ async fn step_clip(
             clip.video = Some(clip_path.clone());
         }
 
-        let clip_duration = compute_clip_duration(clip, &state.tts_results);
+        let clip_duration = calculate_clip_duration(clip, &state.tts_results);
         let start_secs = parse_time_to_secs(
             clip.timestamp.split('-').next().unwrap_or(&clip.timestamp),
         )?;
@@ -142,7 +142,7 @@ async fn step_clip(
 /// 步骤 4: 合并音频和字幕
 async fn step_merge_audio_subtitle(
     state: &mut PipelineState,
-    request: &DocumentaryRequest,
+    _request: &DocumentaryRequest,
 ) -> Result<(), PipelineError> {
     tracing::info!("## 4. 合并音频和字幕");
 
@@ -258,47 +258,15 @@ async fn step_composite(
 
     let output_path = state.task_dir.join("combined.mp4");
 
-    let mut input_idx = 0usize;
-
-    // Input 0: concatenated video
-    let video_str = merged_video.to_string_lossy().to_string();
-    let _ = &input_idx; // used later in closure
-
-    // Build filter chains
-    let mut filter_parts = Vec::new();
-    let mut audio_mix_inputs = Vec::new();
-
-    // Add merged TTS audio
-    if let Some(ref audio_path) = state.merged_audio_path {
-        let audio_str = audio_path.to_string_lossy().to_string();
-        let vol = request.tts_volume;
-        filter_parts.push(format!(
-            "[{}:a]volume={:.2}[tts]",
-            input_idx, vol
-        ));
-        audio_mix_inputs.push("[tts]".to_string());
-        input_idx += 1;
-
-        // We need to add the audio as another input
-        // This will be handled by building the full command
-    }
-
-    let has_bgm = request.bgm_path.as_ref().is_some();
-    let _needs_subtitle = request.subtitle_enabled && state.merged_subtitle_path.is_some();
-    let _has_audio_mix = !audio_mix_inputs.is_empty() || has_bgm;
-
-    // For simplicity, build the FFmpeg command directly
     let output_str = output_path.to_string_lossy().to_string();
-    let video_str_clone = video_str.clone();
+    let video_str_clone = merged_video.to_string_lossy().to_string();
     let audio_str_opt = state.merged_audio_path.as_ref().map(|p| p.to_string_lossy().to_string());
     let srt_path_opt = state.merged_subtitle_path.as_ref().map(|p| p.to_string_lossy().to_string());
     let bgm_path_opt = request.bgm_path.as_ref().map(|p| p.to_string_lossy().to_string());
     let tts_vol = request.tts_volume;
-    let orig_vol = request.original_volume;
     let bgm_vol = request.bgm_volume;
     let total_dur = state.total_duration;
     let font_size = request.subtitle_font_size;
-    let _subtitle_color = request.subtitle_color.clone();
     let subtitle_enabled = request.subtitle_enabled;
 
     crate::ffmpeg::command::run_ffmpeg(move || {
@@ -343,47 +311,36 @@ async fn step_composite(
             ));
         }
 
-        // Video filter for subtitles
-        let video_filter = if subtitle_enabled {
+        // Video filter for subtitles — always use filter_complex, never -vf
+        let mut has_video_filter = false;
+        if subtitle_enabled {
             if let Some(ref srt_str) = srt_path_opt {
-                // Escape special chars in path for FFmpeg subtitles filter
-                let escaped_srt = srt_str.replace('\\', "/").replace(':', "\\:").replace("'", "\\'");
-                Some(format!(
-                    "subtitles='{}':force_style='FontSize={}'",
+                let escaped_srt = srt_str
+                    .replace('\\', "/")
+                    .replace(':', "\\:")
+                    .replace("'", "\\'")
+                    .replace('[', "\\[")
+                    .replace(']', "\\]");
+                filter_complex_parts.push(format!(
+                    "[0:v]subtitles='{}':force_style='FontSize={}'[vout]",
                     escaped_srt, font_size
-                ))
-            } else {
-                None
+                ));
+                has_video_filter = true;
             }
-        } else {
-            None
-        };
+        }
 
-        // Build complete filter_complex
-        let mut full_filter = String::new();
+        // Apply filter_complex
         if !filter_complex_parts.is_empty() {
-            full_filter = filter_complex_parts.join(";");
+            cmd.arg("-filter_complex")
+                .arg(&filter_complex_parts.join(";"));
         }
 
+        // Map outputs — single video map, single audio map
         if audio_inputs_count > 0 {
-            cmd.arg("-map").arg("0:v");
+            cmd.arg("-map").arg(if has_video_filter { "[vout]" } else { "0:v" });
             cmd.arg("-map").arg("[aout]");
-        }
-
-        if let Some(ref vf) = video_filter {
-            if full_filter.is_empty() {
-                cmd.arg("-vf").arg(vf);
-            } else {
-                full_filter = format!("{};[0:v]{}[vout]", full_filter, vf);
-                cmd.arg("-map").arg("[vout]");
-                // Remove the earlier -map 0:v if we added it
-            }
-        } else if audio_inputs_count == 0 {
-            // No filters at all, just copy
-        }
-
-        if !full_filter.is_empty() {
-            cmd.arg("-filter_complex").arg(&full_filter);
+        } else if has_video_filter {
+            cmd.arg("-map").arg("[vout]");
         }
 
         cmd.codec_video("libx264")
@@ -408,15 +365,23 @@ async fn step_composite(
             }
         };
 
+        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
                 tracing::error!("Composite error: {}", e);
+                had_errors = true;
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+
+        if had_errors {
+            return Err(crate::error::FFmpegError::ExecutionError(
+                "Composite reported FFmpeg errors".into(),
+            ));
+        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(
@@ -433,32 +398,6 @@ async fn step_composite(
     state.output_video_path = Some(output_path);
     state.emit_progress(ProgressStep::Composite, 100.0, "最终合成完成");
     Ok(())
-}
-
-/// 计算片段时长
-fn compute_clip_duration(
-    clip: &crate::script::types::ScriptClip,
-    tts_results: &HashMap<i64, TtsResult>,
-) -> f64 {
-    // TTS duration for OST=0/2
-    if clip.ost != OstType::OriginalSound {
-        if let Some(tts) = tts_results.get(&clip._id) {
-            if tts.duration > 0.0 {
-                return tts.duration;
-            }
-        }
-    }
-
-    // Timestamp range for OST=1
-    if let Ok((start, end)) = crate::documentary::timestamp::parse_timestamp_range(&clip.timestamp)
-    {
-        let dur = end - start;
-        if dur > 0.0 {
-            return dur;
-        }
-    }
-
-    0.0
 }
 
 /// 主入口：执行完整 6 步纪录片流水线
@@ -518,7 +457,6 @@ pub async fn run_documentary(
 mod tests {
     use super::*;
     use crate::script::types::{OstType, ScriptClip};
-    use crate::tts::WordBoundary;
 
     fn make_test_clip(id: i64, ts: &str, ost: OstType) -> ScriptClip {
         ScriptClip {
@@ -547,18 +485,18 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_clip_duration_ost0_from_tts() {
+    fn test_calculate_clip_duration_ost0_from_tts() {
         let clip = make_test_clip(1, "00:00:00-00:00:10", OstType::NarrationOnly);
         let tts = HashMap::from([(1, make_tts(1, 5.0))]);
-        let dur = compute_clip_duration(&clip, &tts);
+        let dur = calculate_clip_duration(&clip, &tts);
         assert!((dur - 5.0).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn test_compute_clip_duration_ost1_from_range() {
+    fn test_calculate_clip_duration_ost1_from_range() {
         let clip = make_test_clip(2, "00:00:05-00:00:15", OstType::OriginalSound);
         let tts = HashMap::new();
-        let dur = compute_clip_duration(&clip, &tts);
+        let dur = calculate_clip_duration(&clip, &tts);
         assert!((dur - 10.0).abs() < f64::EPSILON);
     }
 
@@ -575,7 +513,7 @@ mod tests {
 
         let mut cumulative = 0.0f64;
         for clip in &clips {
-            let dur = compute_clip_duration(clip, &tts);
+            let dur = calculate_clip_duration(clip, &tts);
             assert!(dur > 0.0);
             cumulative += dur;
         }

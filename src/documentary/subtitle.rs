@@ -68,31 +68,23 @@ pub fn write_srt_file(content: &str, path: &Path) -> Result<(), PipelineError> {
 /// 解析 SRT 文本为块列表: [(start_secs, end_secs, text)]
 fn parse_srt_blocks(content: &str) -> Vec<(f64, f64, String)> {
     let mut blocks = Vec::new();
-    let mut lines = content.lines().peekable();
 
-    while let Some(line) = lines.next() {
-        let line = line.trim();
-        if line.is_empty() {
+    // Split by blank lines to get SRT blocks, then parse each block's lines
+    for block_text in content.split("\n\n") {
+        let block_text = block_text.trim();
+        if block_text.is_empty() {
             continue;
         }
-        // 跳过序号行
-        if line.chars().all(|c| c.is_ascii_digit()) {
-            // 下一行应该是时间戳行
-            if let Some(ts_line) = lines.next() {
-                let ts_line = ts_line.trim();
-                if let Some((start, end)) = parse_srt_timestamp_line(ts_line) {
-                    // 收集文本行直到空行
-                    let mut text_lines = Vec::new();
-                    while let Some(text_line) = lines.next() {
-                        let text_line = text_line.trim();
-                        if text_line.is_empty() {
-                            break;
-                        }
-                        text_lines.push(text_line.to_string());
-                    }
-                    if !text_lines.is_empty() {
-                        blocks.push((start, end, text_lines.join("\n")));
-                    }
+
+        let mut lines = block_text.lines();
+        // Skip sequence number line (first line)
+        let _ = lines.next();
+        // Parse timestamp line (second line)
+        if let Some(ts_line) = lines.next() {
+            if let Some((start, end)) = parse_srt_timestamp_line(ts_line.trim()) {
+                let text_lines: Vec<&str> = lines.map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+                if !text_lines.is_empty() {
+                    blocks.push((start, end, text_lines.join("\n")));
                 }
             }
         }
@@ -142,6 +134,12 @@ fn apply_offset_to_block(
     let (start, end, text) = block;
     let new_start = start + offset_secs;
     let new_end = end + offset_secs;
+    if new_start < 0.0 || new_end < 0.0 {
+        return Err(PipelineError::SrtGeneration(format!(
+            "偏移后时间戳为负: start={:.3}, end={:.3}, offset={:.3}",
+            new_start, new_end, offset_secs
+        )));
+    }
     Ok(format!(
         "{}\n{} --> {}\n{}\n",
         index,

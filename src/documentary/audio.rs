@@ -60,10 +60,14 @@ pub async fn merge_audio_files(
 
     let amix_inputs = mix_inputs.join("");
     let input_count = mix_inputs.len();
-    filter_parts.push(format!(
-        "{}amix=inputs={}:duration=longest[aout]",
-        amix_inputs, input_count
-    ));
+    if input_count > 1 {
+        filter_parts.push(format!(
+            "{}amix=inputs={}:duration=longest[aout]",
+            amix_inputs, input_count
+        ));
+    } else {
+        filter_parts.push(format!("{}volume=1[aout]", amix_inputs));
+    }
 
     let filter = filter_parts.join(";");
 
@@ -94,15 +98,23 @@ pub async fn merge_audio_files(
             }
         };
 
+        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
                 tracing::error!("Audio merge error: {}", e);
+                had_errors = true;
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+
+        if had_errors {
+            return Err(crate::error::FFmpegError::ExecutionError(
+                "Audio merge reported FFmpeg errors".into(),
+            ));
+        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(
@@ -160,14 +172,25 @@ pub async fn merge_subtitle_files(
     Ok(Some(output_path))
 }
 
-/// 计算单个片段的时长
-fn calculate_clip_duration(clip: &ScriptClip, tts_results: &HashMap<i64, TtsResult>) -> f64 {
+/// 计算单个片段的时长（与 pipeline.rs 共享的统一函数）
+pub fn calculate_clip_duration(clip: &ScriptClip, tts_results: &HashMap<i64, TtsResult>) -> f64 {
+    // For OST 0/2: TTS duration first (clip sized to match narration)
+    if clip.ost != OstType::OriginalSound {
+        if let Some(tts) = tts_results.get(&clip._id) {
+            if tts.duration > 0.0 {
+                return tts.duration;
+            }
+        }
+    }
+
+    // Explicit duration override
     if let Some(dur) = clip.duration {
         if dur > 0.0 {
             return dur;
         }
     }
 
+    // source_time_range
     if let Some(ref tr) = clip.source_time_range {
         if let Ok((start, end)) = crate::documentary::timestamp::parse_timestamp_range(tr) {
             let dur = end - start;
@@ -177,18 +200,11 @@ fn calculate_clip_duration(clip: &ScriptClip, tts_results: &HashMap<i64, TtsResu
         }
     }
 
+    // timestamp range
     if let Ok((start, end)) = crate::documentary::timestamp::parse_timestamp_range(&clip.timestamp) {
         let dur = end - start;
         if dur > 0.0 {
             return dur;
-        }
-    }
-
-    if clip.ost != OstType::OriginalSound {
-        if let Some(tts) = tts_results.get(&clip._id) {
-            if tts.duration > 0.0 {
-                return tts.duration;
-            }
         }
     }
 
