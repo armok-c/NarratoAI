@@ -340,11 +340,11 @@ fn strip_and_repair_json(input: &str) -> String {
 
 /// 从文本中提取第一个完整的 JSON 对象
 fn extract_json_object(text: &str) -> Option<String> {
-    let start = text.find('{')?;
+    let chars: Vec<char> = text.chars().collect();
+    let start = chars.iter().position(|&c| c == '{')?;
     let mut depth = 0i32;
     let mut in_string = false;
     let mut escape_next = false;
-    let chars: Vec<char> = text.chars().collect();
     for i in start..chars.len() {
         let c = chars[i];
         if escape_next {
@@ -365,7 +365,7 @@ fn extract_json_object(text: &str) -> Option<String> {
                 '}' => {
                     depth -= 1;
                     if depth == 0 {
-                        return Some(text[start..=i].to_string());
+                        return Some(chars[start..=i].iter().collect());
                     }
                 }
                 _ => {}
