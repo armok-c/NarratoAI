@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-05-02T14:40:57.281Z"
-last_activity: 2026-05-02 -- Phase 6 planning complete
+stopped_at: Phase 6 complete
+last_updated: "2026-05-03T01:00:00.000Z"
+last_activity: 2026-05-03 -- Phase 06 complete, verification passed
 progress:
   total_phases: 12
-  completed_phases: 8
-  total_plans: 31
-  completed_plans: 28
-  percent: 90
+  completed_phases: 9
+  total_plans: 35
+  completed_plans: 32
+  percent: 91
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-29)
 
 **Core value:** 用 Rust 重写核心视频剪辑流水线（LLM 文案生成 -> TTS 配音 -> FFmpeg 视频处理 -> 合成输出），实现高性能 AI 视频自动化生产
-**Current focus:** Phase 11 — extended-features
+**Current focus:** Phase 06 — documentary-pipeline COMPLETE
 
 ## Current Position
 
-Phase: 11 (extended-features) — EXECUTING
-Plan: 1 of 5
-Status: Ready to execute
-Last activity: 2026-05-02 -- Phase 6 planning complete
-Resume file: .planning/phases/06-documentary-pipeline/06-CONTEXT.md
+Phase: 06 (documentary-pipeline) — COMPLETE
+Plan: 4 of 4
+Status: Phase 06 verified and complete
+Last activity: 2026-05-03 -- Phase 06 execution + verification complete
+Resume file: .planning/phases/06-documentary-pipeline/06-VERIFICATION.md
 
-Progress: [████████░░░░░░] 42%
+Progress: [█████████░░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 16
+- Total plans completed: 20
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -49,6 +49,7 @@ Progress: [████████░░░░░░] 42%
 | 02 | 3 | - | - |
 | 03 | 3 | - | - |
 | 05 | 2 | - | - |
+| 06 | 4 | - | - |
 | 09 | 4 | - | - |
 | 12 | 3 | - | - |
 
@@ -66,9 +67,11 @@ Progress: [████████░░░░░░] 42%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 06]: Step-by-Step 函数链，PipelineState 可变结构体，fail-fast 错误恢复
+- [Phase 06]: TTS 后即时生成 SRT 片段，字幕在最终合成步骤烧录
+- [Phase 06]: 帧分析预处理与 6 步流水线解耦，两步 LLM 调用（帧分析→文案生成）
 - [Phase 09]: Timerange 使用微秒整数（SEC=1_000_000），trange() 支持秒字符串
 - [Phase 09]: 视频来源智能回退——有 clip.video 用它，无则用原始路径+source_timerange
-- [Phase 09]: 音频安全时长 = min(ffprobe 时长, 视频时长)
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-02T14:21:50.887Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/04-prompt-system-visual-analyzer/04-CONTEXT.md
+Last session: 2026-05-03T01:00:00.000Z
+Stopped at: Phase 6 complete, ready for Phase 7 or Phase 8
+Resume file: .planning/phases/06-documentary-pipeline/06-VERIFICATION.md

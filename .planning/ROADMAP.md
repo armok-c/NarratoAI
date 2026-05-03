@@ -15,7 +15,7 @@
 - [ ] **Phase 3: TTS Core + Edge-TTS** - TtsProvider trait、路由器、Edge-TTS WebSocket 实现
 - [ ] **Phase 4: Prompt System + Visual Analyzer** - Prompt 注册表/模板渲染、视频帧提取+批量视觉分析
 - [x] **Phase 5: Script Management** - JSON 脚本加载/保存/编辑/校验 *(completed 2026-04-29)*
-- [ ] **Phase 6: Documentary Pipeline** - 纪录片完整 6 步流水线（旗舰模式）
+- [x] **Phase 6: Documentary Pipeline** - 纪录片完整 6 步流水线（旗舰模式） *(completed 2026-05-03)*
 - [ ] **Phase 7: SDE Pipeline** - 短剧解说流水线（字幕解析、LLM 分析、OST 脚本）
 - [ ] **Phase 8: SDP Pipeline** - 短剧混剪流水线（多片段混剪）
 - [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
@@ -120,7 +120,16 @@ Plans:
   3. 从视频帧分析结果通过 LLM 生成解说文案，文案内容与帧画面相关
   4. SRT 字幕文件从 TTS 词边界时间戳生成，时间戳与音频同步
   5. 每步完成后状态更新并可被外部查询（进度追踪）
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- **Wave 1** *(no blockers)*
+  - [x] 06-01-PLAN.md — 基础设施（PipelineError、DocumentaryRequest、时间戳工具、SRT 生成、模块骨架）
+- **Wave 2** *(blocked on Wave 1)*
+  - [x] 06-02-PLAN.md — 6 步流水线核心（PipelineState、run_documentary、OST 裁剪、音频/字幕合并、拼接、合成）
+  - [x] 06-03-PLAN.md — 帧分析→文案生成（analyze_video、generate_narration、JSON 修复）
+- **Wave 3** *(blocked on Wave 2)*
+  - [x] 06-04-PLAN.md — 集成测试（13 项测试覆盖所有 10 个需求）
 
 ### Phase 7: SDE Pipeline
 **Goal**: 短剧解说模式完整流水线可运行——从字幕文件解析到最终带解说的视频输出
@@ -225,7 +234,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. TTS Core + Edge-TTS | 3/3 | Complete | 2026-04-28 |
 | 4. Prompt System + Visual Analyzer | 0/4 | Planning complete | - |
 | 5. Script Management | 2/2 | Complete | 2026-04-29 |
-| 6. Documentary Pipeline | 0/? | Not started | - |
+| 6. Documentary Pipeline | 4/4 | Complete | 2026-05-03 |
 | 7. SDE Pipeline | 0/? | Not started | - |
 | 8. SDP Pipeline | 0/? | Not started | - |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |

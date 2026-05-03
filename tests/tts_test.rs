@@ -110,5 +110,5 @@ fn test_synthesize_function_signature() {
     let engine = "edge_tts";
     let text = "";
     let voice_name = "";
-    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new("/tmp/_narratoai_sig_check.mp3"), None);
+    let _ = tts::synthesize(engine, text, voice_name, 1.0, 0.0, Path::new("/tmp/_narratoai_sig_check.mp3"), None, None);
 }
