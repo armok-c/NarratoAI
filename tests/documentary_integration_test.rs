@@ -132,7 +132,7 @@ fn test_progress_callback_receives_all_steps() {
     callback(ProgressStep::LoadScript, 0.0, "加载视频脚本");
     callback(ProgressStep::Tts, 20.0, "TTS 生成完成");
     callback(ProgressStep::Clip, 60.0, "视频裁剪完成");
-    callback(ProgressStep::MergeAudio, 60.0, "音频字幕合并完成");
+    callback(ProgressStep::MergeAudio, 70.0, "音频字幕合并完成");
     callback(ProgressStep::Concat, 80.0, "视频拼接完成");
     callback(ProgressStep::Composite, 100.0, "最终合成完成");
 
