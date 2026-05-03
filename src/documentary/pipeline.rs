@@ -215,15 +215,23 @@ async fn step_concat(state: &mut PipelineState) -> Result<(), PipelineError> {
             }
         };
 
+        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
                 tracing::error!("Concat error: {}", e);
+                had_errors = true;
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+
+        if had_errors {
+            return Err(crate::error::FFmpegError::ExecutionError(
+                "Concat reported FFmpeg errors".into(),
+            ));
+        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(
