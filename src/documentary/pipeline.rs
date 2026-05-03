@@ -423,7 +423,7 @@ pub async fn run_documentary(
     config: &crate::config::types::AppConfig,
     proxy: Option<&crate::config::types::ProxySection>,
 ) -> Result<PathBuf, PipelineError> {
-    request.validate().map_err(|e| PipelineError::Composite { details: e })?;
+    request.validate().map_err(|e| PipelineError::Validation { details: e })?;
 
     // Create task directory
     let task_id = uuid::Uuid::new_v4().to_string();

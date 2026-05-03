@@ -40,6 +40,9 @@ pub enum PipelineError {
     #[error("字幕生成失败: {0}")]
     SrtGeneration(String),
 
+    #[error("参数校验失败: {details}")]
+    Validation { details: String },
+
     #[error("帧提取失败: {details}")]
     FrameExtraction { details: String },
 
@@ -163,6 +166,15 @@ mod tests {
         let err = PipelineError::SrtGeneration("parse error".into());
         let msg = err.to_string();
         assert!(msg.contains("字幕生成失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_pipeline_error_validation_chinese() {
+        let err = PipelineError::Validation {
+            details: "voice_rate 超出有效范围".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("参数校验失败"), "消息应包含中文: {}", msg);
     }
 
     #[test]
