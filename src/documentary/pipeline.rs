@@ -113,7 +113,7 @@ async fn step_clip(
 
         let clip_duration = calculate_clip_duration(clip, &state.tts_results);
         if clip_duration <= 0.0 {
-            return Err(PipelineError::Composite {
+            return Err(PipelineError::VideoClip {
                 details: format!("片段 {} 时长计算为零", clip._id),
             });
         }
