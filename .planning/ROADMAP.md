@@ -147,7 +147,7 @@ Plans:
 - **Wave 2** *(blocked on Wave 1)*
   - [x] 07-03-PLAN.md — SDE 核心逻辑：字幕编码检测/解析 + 两步 LLM 脚本生成 + JSON 修复
 - **Wave 3** *(blocked on Wave 2)*
-  - [ ] 07-04-PLAN.md — SDE 流水线编排：run_sde() 原子入口 + 9 步流水线 + 视频处理集成 + guardrails
+  - [x] 07-04-PLAN.md — SDE 流水线编排：run_sde() 原子入口 + 9 步流水线 + 视频处理集成 + guardrails
 
 ### Phase 8: SDP Pipeline
 **Goal**: 短剧混剪模式完整流水线可运行——支持跨多个视频源的裁剪和拼接
