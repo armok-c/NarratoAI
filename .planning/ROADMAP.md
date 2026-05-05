@@ -154,9 +154,18 @@ Plans:
 **Depends on**: Phase 6, Phase 7
 **Requirements**: SDP-01, SDP-02
 **Success Criteria** (what must be TRUE):
-  1. 从多个视频源文件中按脚本裁剪片段并拼接为完整输出视频
+  1. 从多个视频源文件中按脚本裁剪片段并拼接为完整输出视频（D-03 限定单视频源）
   2. 短剧混剪完整流水线（字幕解析 -> LLM 分析 -> 多片段脚本 -> 视频处理）端到端运行
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- **Wave 1** *(no blockers — parallel: plan 01 + plan 02)*
+  - [ ] 08-01-PLAN.md — 公共字幕模块提取（src/subtitle/）：从 SDE 提取为独立模块，更新 SDE 导入路径
+  - [ ] 08-02-PLAN.md — SDP Prompt 模板：subtitle_analysis v2.0 + plot_extraction v2.0 更新 + 注册
+- **Wave 2** *(blocked on Wave 1)*
+  - [ ] 08-03-PLAN.md — SDP 基础设施（error/types/mod） + 脚本生成（generate_sdp_script + merge_script）
+- **Wave 3** *(blocked on Wave 2)*
+  - [ ] 08-04-PLAN.md — SDP 流水线编排（sdp_step_clip + run_sdp + step_concat + step_composite）+ lib.rs
 
 ### Phase 9: JianYing Export
 **Goal**: 系统能将项目时间线导出为剪映草稿 JSON 格式，可在剪映专业版中打开编辑
@@ -244,7 +253,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Script Management | 2/2 | Complete | 2026-04-29 |
 | 6. Documentary Pipeline | 4/4 | Complete | 2026-05-03 |
 | 7. SDE Pipeline | 0/4 | Planned | 2026-05-05 |
-| 8. SDP Pipeline | 0/? | Not started | - |
+| 8. SDP Pipeline | 0/4 | Planned | 2026-05-05 |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
 | 11. Extended Features | 5/5 | Complete | 2026-04-30 |
