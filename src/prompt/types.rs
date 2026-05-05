@@ -18,6 +18,8 @@ pub enum OutputFormat {
     PlotAnalysis,
     #[serde(rename = "json")]
     Json,
+    #[serde(rename = "text")]
+    Text,
 }
 
 /// 参数定义——模板的可配置参数
