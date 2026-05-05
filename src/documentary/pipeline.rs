@@ -283,6 +283,8 @@ async fn step_composite(
     let tts_vol = request.tts_volume;
     let bgm_vol = request.bgm_volume;
     let total_dur = state.total_duration;
+    let orig_vol = request.original_volume;
+    let has_original_audio = state.script.iter().any(|c| c.ost != OstType::NarrationOnly);
     let font_size = request.subtitle_font_size;
     let subtitle_enabled = request.subtitle_enabled;
     let subtitle_force_style = {
@@ -309,30 +311,41 @@ async fn step_composite(
         cmd.arg("-i").arg(&video_str_clone);
 
         let mut filter_complex_parts = Vec::new();
-        let mut audio_inputs_count = 0usize;
+        let mut external_audio_count = 0usize;
+        let mut amix_input_count = 0usize;
+
+        // Add original audio from video (volume-adjusted)
+        if has_original_audio {
+            filter_complex_parts.push(format!("[0:a]volume={:.2}[orig]", orig_vol));
+            amix_input_count += 1;
+        }
 
         // Add TTS audio input
         if let Some(ref audio_str) = audio_str_opt {
             cmd.arg("-i").arg(audio_str);
             filter_complex_parts.push(format!("[{}:a]volume={:.2}[tts]", 1, tts_vol));
-            audio_inputs_count += 1;
+            external_audio_count += 1;
+            amix_input_count += 1;
         }
 
         // Add BGM input
         if let Some(ref bgm_str) = bgm_path_opt {
             cmd.arg("-i").arg(bgm_str);
-            let bgm_idx = 1 + audio_inputs_count;
+            let bgm_idx = 1 + external_audio_count;
             let fade_start = if total_dur > 3.0 { total_dur - 3.0 } else { 0.0 };
             filter_complex_parts.push(format!(
                 "[{}:a]aloop=loop=-1:size=2e+09,atrim=0:{:.3},asetpts=PTS-STARTPTS,volume={:.2},afade=t=out:st={:.1}:d=3[bgm]",
                 bgm_idx, total_dur, bgm_vol, fade_start
             ));
-            audio_inputs_count += 1;
+            amix_input_count += 1;
         }
 
         // Build audio mix
-        if audio_inputs_count > 0 {
+        if amix_input_count > 0 {
             let mut mix_labels = Vec::new();
+            if has_original_audio {
+                mix_labels.push("[orig]".to_string());
+            }
             if audio_str_opt.is_some() {
                 mix_labels.push("[tts]".to_string());
             }
@@ -342,7 +355,7 @@ async fn step_composite(
             let mix_inputs = mix_labels.join("");
             filter_complex_parts.push(format!(
                 "{}amix=inputs={}:duration=longest[aout]",
-                mix_inputs, audio_inputs_count
+                mix_inputs, amix_input_count
             ));
         }
 
@@ -374,7 +387,7 @@ async fn step_composite(
         }
 
         // Map outputs — single video map, single audio map
-        if audio_inputs_count > 0 {
+        if amix_input_count > 0 {
             cmd.arg("-map").arg(if has_video_filter { "[vout]" } else { "0:v" });
             cmd.arg("-map").arg("[aout]");
         } else if has_video_filter {

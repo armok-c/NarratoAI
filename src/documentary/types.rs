@@ -20,7 +20,6 @@ pub struct DocumentaryRequest {
     pub subtitle_font_size: u32,
     pub subtitle_color: String,
     pub subtitle_position: String,
-    pub video_aspect: String,
     pub output_dir: Option<PathBuf>,
     pub threads: u32,
 }
@@ -43,7 +42,6 @@ impl Default for DocumentaryRequest {
             subtitle_font_size: 40,
             subtitle_color: "#FFFFFF".to_string(),
             subtitle_position: "bottom".to_string(),
-            video_aspect: "9:16".to_string(),
             output_dir: None,
             threads: 4,
         }
