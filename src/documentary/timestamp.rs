@@ -83,6 +83,7 @@ pub fn secs_to_srt_time(secs: f64) -> String {
     if secs < 0.0 {
         return "00:00:00,000".to_string();
     }
+    let secs = secs.min(86399.999);
     let total_ms = (secs * 1000.0).round() as u64;
     let ms = total_ms % 1000;
     let total_secs = total_ms / 1000;
@@ -98,6 +99,7 @@ pub fn secs_to_ffmpeg_time(secs: f64) -> String {
     if secs < 0.0 {
         return "00:00:00.000".to_string();
     }
+    let secs = secs.min(86399.999);
     let total_ms = (secs * 1000.0).round() as u64;
     let ms = total_ms % 1000;
     let total_secs = total_ms / 1000;
