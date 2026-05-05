@@ -143,7 +143,7 @@ Plans:
 
 ### Phase 8: SDP Pipeline
 **Goal**: 短剧混剪模式完整流水线可运行——支持跨多个视频源的裁剪和拼接
-**Depends on**: Phase 6
+**Depends on**: Phase 6, Phase 7
 **Requirements**: SDP-01, SDP-02
 **Success Criteria** (what must be TRUE):
   1. 从多个视频源文件中按脚本裁剪片段并拼接为完整输出视频
