@@ -285,6 +285,24 @@ async fn step_composite(
     let total_dur = state.total_duration;
     let font_size = request.subtitle_font_size;
     let subtitle_enabled = request.subtitle_enabled;
+    let subtitle_force_style = {
+        let hex = request.subtitle_color.trim_start_matches('#');
+        let ass_color = if hex.len() == 6 {
+            format!("&H00{}{}{}", &hex[4..6], &hex[2..4], &hex[0..2])
+        } else {
+            "&H00FFFFFF".to_string()
+        };
+        let alignment = match request.subtitle_position.as_str() {
+            "top" => "8",
+            "center" => "5",
+            _ => "2",
+        };
+        let mut style = format!("FontSize={},PrimaryColour={},Alignment={}", font_size, ass_color, alignment);
+        if let Some(ref font) = request.subtitle_font {
+            style.push_str(&format!(",FontName={}", font));
+        }
+        style
+    };
 
     crate::ffmpeg::command::run_ffmpeg(move || {
         let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
@@ -306,8 +324,8 @@ async fn step_composite(
             let bgm_idx = 1 + audio_inputs_count;
             let fade_start = if total_dur > 3.0 { total_dur - 3.0 } else { 0.0 };
             filter_complex_parts.push(format!(
-                "[{}:a]aloop=loop=-1:size=2e+09,volume={:.2},afade=t=out:st={:.1}:d=3[bgm]",
-                bgm_idx, bgm_vol, fade_start
+                "[{}:a]aloop=loop=-1:size=2e+09,atrim=0:{:.3},asetpts=PTS-STARTPTS,volume={:.2},afade=t=out:st={:.1}:d=3[bgm]",
+                bgm_idx, total_dur, bgm_vol, fade_start
             ));
             audio_inputs_count += 1;
         }
@@ -337,10 +355,13 @@ async fn step_composite(
                     .replace(':', "\\:")
                     .replace("'", "\\'")
                     .replace('[', "\\[")
-                    .replace(']', "\\]");
+                    .replace(']', "\\]")
+                    .replace(';', "\\;")
+                    .replace('\n', "")
+                    .replace('\r', "");
                 filter_complex_parts.push(format!(
-                    "[0:v]subtitles='{}':force_style='FontSize={}'[vout]",
-                    escaped_srt, font_size
+                    "[0:v]subtitles='{}':force_style='{}'[vout]",
+                    escaped_srt, subtitle_force_style
                 ));
                 has_video_filter = true;
             }
