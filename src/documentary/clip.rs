@@ -179,6 +179,9 @@ async fn run_clip_ffmpeg(
                     tracing::error!("FFmpeg clip error: {}", e);
                     had_errors = true;
                 }
+                ffmpeg_sidecar::event::FfmpegEvent::Progress(p) => {
+                    tracing::trace!("FFmpeg clip progress: {:?}", p);
+                }
                 _ => {}
             }
         }
