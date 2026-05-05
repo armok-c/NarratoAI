@@ -1,15 +1,15 @@
 ---
-status: issues-found
+status: clean
 phase: 06-documentary-pipeline
 depth: standard
 files_reviewed: 12
 date: 2026-05-05
-iteration: 2
+iteration: 3
 findings:
   critical: 0
-  warning: 2
+  warning: 0
   info: 4
-  total: 6
+  total: 4
 files_reviewed_list:
   - src/documentary/mod.rs
   - src/documentary/error.rs
@@ -25,84 +25,101 @@ files_reviewed_list:
   - tests/common/mod.rs
 previous_review:
   date: 2026-05-05
-  findings: 11 (2 CR + 4 WR + 5 IN)
-  fixed: 7
+  iteration: 2
+  findings: 6 (0 CR + 2 WR + 4 IN)
+  fixed: 2
   remaining: 4
 ---
 
-# Code Review: Phase 06 -- Documentary Pipeline (Re-Review #2)
+# Code Review: Phase 06 -- Documentary Pipeline (Iteration 3)
 
 ## Summary
 
-Second review of 12 Rust source files. Previous review found 11 issues (2 CR + 4 WR + 5 IN); 7 were fixed and 4 deferred as design decisions. This re-review confirms all 7 fixes remain intact, the 4 deferred issues persist, and identifies 1 new info-level finding (`threads` field unused). Code quality is good overall: well-structured modules, proper `thiserror` error handling, comprehensive unit tests for timestamp and subtitle logic. No critical or security issues remain.
+Third iteration review of 12 Rust source files in the documentary pipeline module. This iteration focused on verifying the fixes from commit 8177521 (WR-01: apply `original_volume` in composite audio mix; WR-02: remove unused `video_aspect` field) and checking for any regressions or new issues introduced by the changes.
 
-## Previous Fix Verification
+Both warnings from iteration 2 have been correctly fixed. All previously fixed items from iteration 1 remain intact. No new issues were introduced by the fix commit. The 4 deferred info-level items persist and none warrant elevation to Warning or Critical.
 
-| ID | Issue | Status | Verified |
-|----|-------|--------|----------|
-| CR-01 | BGM aloop + amix 超长输出 | Fixed | ✅ pipeline.rs:326-329 `atrim=0:{total_dur}` caps BGM |
-| CR-02 | SRT path semicolon injection | Fixed | ✅ pipeline.rs:359 `.replace(';', "\\;")` |
-| WR-01 | video_path/script_path validation | Fixed | ✅ types.rs:54-59 non-empty checks |
-| WR-03 | subtitle_font/color/position unused | Fixed | ✅ pipeline.rs:288-305 `force_style` uses all 3 fields |
-| WR-04 | collect_keyframe_paths silent errors | Fixed | ✅ script_gen.rs:385-401 explicit `map_err` |
-| IN-04 | Extreme f64 time values | Fixed | ✅ timestamp.rs:86,102 `.min(86399.999)` |
-| IN-05 | FFmpeg Progress events ignored | Fixed | ✅ clip.rs:182-183 `tracing::trace!` |
+## Fix Verification (Iteration 2 -> 3)
 
-## Warning Findings
+### WR-01 FIX VERIFIED: `original_volume` now applied in composite audio mix
 
-### WR-01: `original_volume` validated but never applied in composite step
+**Commit:** 8177521
 
-**File:** `src/documentary/types.rs:15` and `src/documentary/pipeline.rs:263-438`
-**Category:** logic error (carried over from previous review)
-**Previous ID:** WR-02
+The fix correctly applies `original_volume` in `step_composite`:
 
-`DocumentaryRequest::original_volume` (default 0.7) is validated in `validate()` (types.rs:70-72) but never referenced in `step_composite`. When clips have `OstType::Mixed`, the original video audio is preserved during clipping but no volume adjustment is applied in the final composite. Users who set `original_volume` expect the original audio level to change in the output, but it is silently ignored.
+1. `orig_vol` is extracted from `request.original_volume` at `pipeline.rs:286`
+2. `has_original_audio` is computed from script clips at `pipeline.rs:287` using `state.script.iter().any(|c| c.ost != OstType::NarrationOnly)` -- correctly identifies when the concatenated video contains audio from OST=1/2 clips
+3. Volume filter `[0:a]volume={orig_vol}[orig]` is applied at `pipeline.rs:319` when `has_original_audio` is true
+4. The `[orig]` label is correctly included in the `amix` input chain at `pipeline.rs:346-347`
+5. `amix_input_count` is incremented and matches the actual label count passed to `amix`
+6. The `external_audio_count` variable correctly tracks external input indices for BGM
 
-**Impact:** User-configurable original audio volume has no effect on output.
+All combinations verified correct:
+- `has_original_audio=true` + TTS + BGM: 3-input `amix` with `[orig][tts][bgm]`
+- `has_original_audio=true` + TTS, no BGM: 2-input `amix` with `[orig][tts]`
+- `has_original_audio=false` + TTS + BGM: 2-input `amix` with `[tts][bgm]`
+- `has_original_audio=false` + TTS, no BGM: 1-input `amix` with `[tts]`
 
-### WR-02: `video_aspect` field defined but never used
+The FFmpeg filter graph correctly references `[0:a]` (video file audio) and `[0:v]` (video file video) as separate streams without conflict.
 
-**File:** `src/documentary/types.rs:23` and `src/documentary/pipeline.rs:263-438`
-**Category:** dead code (carried over from previous WR-03 partial fix)
+### WR-02 FIX VERIFIED: `video_aspect` field removed
 
-`DocumentaryRequest::video_aspect` (default `"9:16"`) is never referenced anywhere in the pipeline. No FFmpeg `-aspect` or scale filter is applied based on this value. The previous fix addressed `subtitle_font`, `subtitle_color`, and `subtitle_position` from the original WR-03, but `video_aspect` was not included.
+**Commit:** 8177521
 
-**Impact:** User-configurable video aspect ratio setting has no effect.
+- Field removed from `DocumentaryRequest` struct in `types.rs`
+- Default value `"9:16"` removed from `impl Default`
+- No validation reference remains in `validate()`
+- Zero references to `video_aspect` exist anywhere in the Rust codebase (confirmed via grep)
 
-## Info Findings
+### Previously Fixed Items (Iterations 1-2) -- All Intact
+
+| ID | Issue | Status |
+|----|-------|--------|
+| CR-01 | BGM aloop + amix producing excessively long output | Fixed, intact |
+| CR-02 | SRT path semicolon injection in FFmpeg filter | Fixed, intact |
+| WR-01 (iter1) | video_path/script_path empty-string validation | Fixed, intact |
+| WR-03 | subtitle_font/color/position unused | Fixed, intact |
+| WR-04 | collect_keyframe_paths silently discards errors | Fixed, intact |
+| IN-04 (iter1) | Extreme f64 time values | Fixed, intact |
+| IN-05 (iter1) | FFmpeg Progress events ignored | Fixed, intact |
+
+## Info Findings (Deferred, Reassessed)
 
 ### IN-01: `SubtitleSegment.offset_secs` always 0.0 -- confusing dual-offset pattern
 
 **File:** `src/documentary/audio.rs:153-156`
-**Category:** code clarity (carried over from previous review)
+**Category:** code clarity (deferred from iteration 2)
 
-In `merge_subtitle_files`, `SubtitleSegment::offset_secs` is always set to `0.0`. The actual time offset is applied in `generate_srt_from_word_boundaries` via the `cumulative_offset` parameter. The `offset_secs` field and `apply_offset_to_block` logic in `merge_srt_files` are effectively dead code for this call path.
+In `merge_subtitle_files`, `SubtitleSegment::offset_secs` is always set to `0.0`. The actual time offset is applied upstream in `generate_srt_from_word_boundaries` via the `cumulative_offset` parameter. The `offset_secs` field and `apply_offset_to_block` in `merge_srt_files` are effectively dead code for this call path.
+
+**Reassessment:** No change. The logic is correct (no double-offset). The field is misleading but not a bug. Stays Info.
 
 ### IN-02: `PipelineState.progress` always None -- progress callbacks never fire
 
-**File:** `src/documentary/pipeline.rs:468`
-**Category:** dead code (carried over from previous review)
+**File:** `src/documentary/pipeline.rs:481`
+**Category:** dead code (deferred from iteration 2)
 
-`PipelineState.progress` is hardcoded to `None` in `run_documentary`. The `emit_progress` method and all progress callback invocations are dead code. `DocumentaryRequest` has no `progress` field and `run_documentary` accepts no callback parameter.
+`PipelineState.progress` is hardcoded to `None` in `run_documentary`. The `emit_progress` method and all progress callback invocations are dead code until the pipeline is integrated with a caller that passes a progress callback.
+
+**Reassessment:** No change. Intentional design for future integration. Stays Info.
 
 ### IN-03: Integration tests ignored with empty bodies
 
-**File:** `tests/documentary_integration_test.rs:166-203`
-**Category:** test quality (carried over from previous review)
+**File:** `tests/documentary_integration_test.rs:167-203`
+**Category:** test quality (deferred from iteration 2)
 
-Four integration tests are marked `#[ignore = "需要 FFmpeg"]` and contain empty bodies. There is zero end-to-end pipeline test coverage. Even the `ffmpeg_available()` guard inside these tests is pointless since they're already `#[ignore]`.
+Four FFmpeg-dependent integration tests are marked `#[ignore]` and contain no test logic beyond the availability check.
+
+**Reassessment:** No change. Placeholder tests for future implementation. Stays Info.
 
 ### IN-04: `threads` field validated but never passed to FFmpeg
 
-**File:** `src/documentary/types.rs:25` and `src/documentary/pipeline.rs`, `src/documentary/clip.rs`
-**Category:** dead code (new finding)
+**File:** `src/documentary/types.rs:24,74-75`
+**Category:** dead code (deferred from iteration 2)
 
-`DocumentaryRequest::threads` (default 4) is validated as non-zero in `validate()` (types.rs:76-78) but is never passed to any FFmpeg command. Neither `step_composite` nor `run_clip_ffmpeg` uses the `-threads` flag. Users who set `threads` expect parallelism control, but FFmpeg defaults are used instead.
+`DocumentaryRequest::threads` (default 4) is validated as non-zero in `validate()` but is never passed to any FFmpeg command. FFmpeg uses its default threading behavior instead.
 
-**Fix:** Pass `-threads` to FFmpeg commands:
-```rust
-cmd.arg("-threads").arg(request.threads.to_string());
-```
+**Reassessment:** No change. Not a correctness bug -- FFmpeg defaults work fine. Stays Info.
 
 ## Files Reviewed
 
@@ -110,27 +127,24 @@ cmd.arg("-threads").arg(request.threads.to_string());
 |------|-------|----------|
 | src/documentary/mod.rs | 14 | 0 |
 | src/documentary/error.rs | 205 | 0 |
-| src/documentary/types.rs | 106 | 0 WR, 0 IN (fields defined here, issues in pipeline.rs) |
+| src/documentary/types.rs | 106 | 0 |
 | src/documentary/timestamp.rs | 249 | 0 |
 | src/documentary/subtitle.rs | 243 | 0 |
-| src/documentary/pipeline.rs | 563 | 2 WR (WR-01, WR-02) |
+| src/documentary/pipeline.rs | 563 | 0 (WR-01/WR-02 fixed) |
 | src/documentary/clip.rs | 243 | 0 |
-| src/documentary/audio.rs | 273 | 0 (IN-01 affects this file but is structural) |
+| src/documentary/audio.rs | 273 | 0 (IN-01 deferred) |
 | src/documentary/script_gen.rs | 522 | 0 |
 | src/lib.rs | 30 | 0 |
-| tests/documentary_integration_test.rs | 242 | 0 (IN-03 is test quality, not code defect) |
+| tests/documentary_integration_test.rs | 242 | 0 (IN-03 deferred) |
 | tests/common/mod.rs | 13 | 0 |
 
-## Recommendations
+## Conclusion
 
-1. **WR-01 (original_volume)** -- Either implement volume adjustment in `step_composite` for the original audio stream, or remove the field from `DocumentaryRequest` to avoid misleading users.
-2. **WR-02 (video_aspect)** -- Either apply aspect ratio scaling via FFmpeg `scale` filter, or remove the field.
-3. **IN-04 (threads)** -- Pass `-threads` to FFmpeg commands or remove the field.
-4. **IN-01/IN-02/IN-03** -- Deferred items from previous review; track as tech debt.
+All actionable findings from iterations 1 and 2 have been fixed. The remaining 4 info-level items are design decisions that do not affect correctness, security, or data integrity. No new issues were introduced by the fix commit 8177521. The codebase is ready for the next development phase.
 
 ---
 
 _Reviewed: 2026-05-05_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 2_
+_Iteration: 3_
