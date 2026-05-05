@@ -1716,6 +1716,7 @@ dependencies = [
  "backoff",
  "base64",
  "chrono",
+ "encoding_rs",
  "ffmpeg-sidecar",
  "futures",
  "hex",
