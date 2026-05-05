@@ -42,7 +42,7 @@ fn step_load_script(state: &mut PipelineState, script_path: &Path) -> Result<(),
 }
 
 /// 步骤 2: TTS 语音生成
-async fn step_tts(
+pub(crate) async fn step_tts(
     state: &mut PipelineState,
     request: &DocumentaryRequest,
     config: &crate::config::types::AppConfig,
@@ -95,7 +95,7 @@ async fn step_tts(
 }
 
 /// 步骤 3: 视频裁剪
-async fn step_clip(
+pub(crate) async fn step_clip(
     state: &mut PipelineState,
     video_path: &Path,
 ) -> Result<(), PipelineError> {
@@ -145,7 +145,7 @@ async fn step_clip(
 }
 
 /// 步骤 4: 合并音频和字幕
-async fn step_merge_audio_subtitle(
+pub(crate) async fn step_merge_audio_subtitle(
     state: &mut PipelineState,
     _request: &DocumentaryRequest,
 ) -> Result<(), PipelineError> {
@@ -176,7 +176,7 @@ async fn step_merge_audio_subtitle(
 }
 
 /// 步骤 5: 视频拼接
-async fn step_concat(state: &mut PipelineState) -> Result<(), PipelineError> {
+pub(crate) async fn step_concat(state: &mut PipelineState) -> Result<(), PipelineError> {
     tracing::info!("## 5. 合并视频 — {} 个片段", state.script.len());
 
     let concat_list_path = state.task_dir.join("concat_list.txt");
@@ -260,7 +260,7 @@ async fn step_concat(state: &mut PipelineState) -> Result<(), PipelineError> {
 }
 
 /// 步骤 6: 最终合成
-async fn step_composite(
+pub(crate) async fn step_composite(
     state: &mut PipelineState,
     request: &DocumentaryRequest,
 ) -> Result<(), PipelineError> {
