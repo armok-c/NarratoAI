@@ -264,7 +264,7 @@ fn parse_script_clips(response: &str) -> Result<Vec<ScriptClip>, PipelineError> 
             source: crate::error::LLMError::Validation("LLM 响应中未找到 items 数组".to_string()),
         })?;
 
-    let arr = items.as_array().or_else(|| parsed.as_array()).ok_or_else(|| PipelineError::Llm {
+    let arr = items.as_array().ok_or_else(|| PipelineError::Llm {
         source: crate::error::LLMError::Validation("items 不是数组".to_string()),
     })?;
 

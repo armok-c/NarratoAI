@@ -41,6 +41,10 @@ pub fn generate_srt_from_word_boundaries(
 ///
 /// 解析每个片段中的 SRT 块，将时间戳加上各自的 offset_secs，然后按顺序重新编号。
 pub fn merge_srt_files(segments: &[SubtitleSegment]) -> Result<String, PipelineError> {
+    if segments.is_empty() {
+        return Err(PipelineError::SrtGeneration("字幕片段列表为空".to_string()));
+    }
+
     let mut merged_blocks = Vec::new();
     let mut index = 1u32;
 

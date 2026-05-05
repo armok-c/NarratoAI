@@ -4,7 +4,7 @@ use super::error::PipelineError;
 
 /// 解析时间戳范围 "HH:MM:SS-HH:MM:SS" 或 "HH:MM:SS,sss-HH:MM:SS,sss"
 pub fn parse_timestamp_range(input: &str) -> Result<(f64, f64), PipelineError> {
-    let parts: Vec<&str> = input.split('-').collect();
+    let parts: Vec<&str> = input.splitn(2, '-').collect();
     if parts.len() != 2 {
         return Err(PipelineError::Timestamp(format!(
             "时间戳范围格式无效，应为 HH:MM:SS-HH:MM:SS: {}",

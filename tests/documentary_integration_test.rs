@@ -47,27 +47,27 @@ fn test_srt_generation_from_word_boundaries() {
     let wbs = vec![
         WordBoundary {
             start_offset: 0,
-            end_offset: 5_000_000_0,
+            end_offset: 50_000_000,
             text: "第一句".to_string(),
         },
         WordBoundary {
-            start_offset: 5_000_000_0,
-            end_offset: 12_000_000_0,
+            start_offset: 50_000_000,
+            end_offset: 120_000_000,
             text: "第二句".to_string(),
         },
         WordBoundary {
-            start_offset: 12_000_000_0,
-            end_offset: 20_000_000_0,
+            start_offset: 120_000_000,
+            end_offset: 200_000_000,
             text: "第三句".to_string(),
         },
         WordBoundary {
-            start_offset: 20_000_000_0,
-            end_offset: 27_500_000_0,
+            start_offset: 200_000_000,
+            end_offset: 275_000_000,
             text: "第四句".to_string(),
         },
         WordBoundary {
-            start_offset: 27_500_000_0,
-            end_offset: 35_000_000_0,
+            start_offset: 275_000_000,
+            end_offset: 350_000_000,
             text: "第五句".to_string(),
         },
     ];
