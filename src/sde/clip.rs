@@ -1,10 +1,9 @@
 use std::path::Path;
 
-use crate::documentary::error::PipelineError;
 use crate::documentary::clip::clip_all_videos;
 use crate::sde::error::SdeError;
 use crate::sde::timestamp::find_precise_range;
-use crate::sde::types::{SdePipelineState, SubtitleSegment};
+use crate::sde::types::SdePipelineState;
 use crate::script::types::OstType;
 
 /// SDE 视频裁剪——在纪录片裁剪基础上增加 OST=1 精确时间戳校正
@@ -64,9 +63,7 @@ fn secs_to_timestamp_str(secs: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-    use crate::documentary::types::TtsResult;
+    use crate::sde::types::SubtitleSegment;
     use crate::script::types::ScriptClip;
 
     fn make_segment(index: usize, start: f64, end: f64, text: &str) -> SubtitleSegment {
