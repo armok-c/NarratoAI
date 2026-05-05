@@ -383,23 +383,19 @@ fn emit_progress(request: &ScriptGenRequest, pct: f32, msg: &str) {
 
 /// 收集 keyframe_*.jpg 文件
 fn collect_keyframe_paths(dir: &std::path::Path) -> Result<Vec<PathBuf>, PipelineError> {
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|ext| ext == "jpg" || ext == "jpeg" || ext == "png")
-        })
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry.map_err(|e| PipelineError::FrameExtraction {
+            details: format!("读取关键帧目录失败: {}", e),
+        })?;
+        if entry.path().extension()
+            .is_some_and(|ext| ext == "jpg" || ext == "jpeg" || ext == "png")
+            && entry.file_name().to_str()
                 .is_some_and(|name| name.starts_with("keyframe_"))
-        })
-        .map(|entry| entry.path())
-        .collect();
-
+        {
+            paths.push(entry.path());
+        }
+    }
     paths.sort();
     Ok(paths)
 }
