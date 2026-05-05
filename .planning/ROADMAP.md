@@ -19,7 +19,6 @@
 - [ ] **Phase 7: SDE Pipeline** - 短剧解说流水线（字幕解析、LLM 分析、OST 脚本）
 - [ ] **Phase 8: SDP Pipeline** - 短剧混剪流水线（多片段混剪）
 - [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
-- [ ] **Phase 10: Tauri Command Layer** - Tauri 2.0 命令注册、进度推送、文件对话框
 - [x] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量 (completed 2026-04-30)
 - [x] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎 (completed 2026-04-30)
 
@@ -139,11 +138,20 @@ Plans:
   1. 从 SRT/ASS 字幕文件提取中文对话内容，正确处理中文编码
   2. LLM 分析剧情后生成带 OST 类型标记的解说脚本
   3. 短剧解说完整流水线（字幕解析 -> LLM 分析 -> 带 OST 脚本 -> 视频处理）端到端输出最终视频
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- **Wave 1** *(no blockers — parallel: plan 01 + plan 02)*
+  - [ ] 07-01-PLAN.md — SDE 基础设施：错误类型、数据结构、时间戳工具、模块声明、encoding_rs 依赖
+  - [ ] 07-02-PLAN.md — SDE Prompt 模板：plot_analysis v1.0 + script_generation v2.0 + 注册
+- **Wave 2** *(blocked on Wave 1)*
+  - [ ] 07-03-PLAN.md — SDE 核心逻辑：字幕编码检测/解析 + 两步 LLM 脚本生成 + JSON 修复
+- **Wave 3** *(blocked on Wave 2)*
+  - [ ] 07-04-PLAN.md — SDE 流水线编排：run_sde() 原子入口 + 9 步流水线 + 视频处理集成 + guardrails
 
 ### Phase 8: SDP Pipeline
 **Goal**: 短剧混剪模式完整流水线可运行——支持跨多个视频源的裁剪和拼接
-**Depends on**: Phase 6
+**Depends on**: Phase 6, Phase 7
 **Requirements**: SDP-01, SDP-02
 **Success Criteria** (what must be TRUE):
   1. 从多个视频源文件中按脚本裁剪片段并拼接为完整输出视频
@@ -235,9 +243,9 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Prompt System + Visual Analyzer | 0/4 | Planning complete | - |
 | 5. Script Management | 2/2 | Complete | 2026-04-29 |
 | 6. Documentary Pipeline | 4/4 | Complete | 2026-05-03 |
-| 7. SDE Pipeline | 0/? | Not started | - |
+| 7. SDE Pipeline | 0/4 | Planned | 2026-05-05 |
 | 8. SDP Pipeline | 0/? | Not started | - |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
 | 10. Tauri Command Layer | 0/? | Not started | - |
-| 11. Extended Features | 5/5 | Complete   | 2026-04-30 |
+| 11. Extended Features | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |

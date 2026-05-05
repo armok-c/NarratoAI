@@ -9,12 +9,22 @@ use crate::prompt::types::OutputFormat;
 /// - `OutputFormat::Json`：用 serde_json 验证是否为有效 JSON 对象
 /// - `OutputFormat::NarrationScript`：检查解说文案长度和段落结构
 /// - `OutputFormat::PlotAnalysis`：检查剧情分析内容和中文存在性
+/// - `OutputFormat::Text`：检查输出是否非空
 pub fn validate_output(output: &str, format: &OutputFormat) -> Result<(), PromptError> {
     match format {
         OutputFormat::Json => validate_json(output),
         OutputFormat::NarrationScript => validate_narration_script(output),
         OutputFormat::PlotAnalysis => validate_plot_analysis(output),
+        OutputFormat::Text => validate_text(output),
     }
+}
+
+/// 验证文本格式输出——检查非空
+fn validate_text(output: &str) -> Result<(), PromptError> {
+    if output.trim().is_empty() {
+        return Err(PromptError::Validation("文本格式输出为空".into()));
+    }
+    Ok(())
 }
 
 /// 验证 JSON 格式输出

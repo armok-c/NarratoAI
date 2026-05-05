@@ -80,7 +80,22 @@ fn register_short_drama_editing_prompts(registry: &mut PromptRegistry, errors: &
 }
 
 fn register_short_drama_narration_prompts(registry: &mut PromptRegistry, errors: &mut Vec<PromptError>) {
-    let prompt = Prompt {
+    // Plot analysis v1.0 — 分析字幕剧情（D-18）
+    let plot_analysis = Prompt {
+        metadata: PromptMetadata {
+            name: "plot_analysis".into(), category: "short_drama_narration".into(), version: "v1.0".into(),
+            model_type: ModelType::Text, output_format: OutputFormat::Text,
+            tags: vec!["short-drama-narration".into(), "plot-analysis".into(), "text".into()],
+            parameters: vec![
+                ParameterDef { name: "subtitle_content".into(), required: true, default: None, description: "字幕内容（含时间戳）".into() },
+            ],
+        },
+        content: include_str!("templates/short_drama_narration/plot_analysis_v1.0.md").into(),
+    };
+    if let Err(e) = registry.register(plot_analysis, true) { errors.push(e); }
+
+    // Script generation v1.0 — 向后兼容（保留不动）
+    let script_gen_v1 = Prompt {
         metadata: PromptMetadata {
             name: "script_generation".into(), category: "short_drama_narration".into(), version: "v1.0".into(),
             model_type: ModelType::Text, output_format: OutputFormat::NarrationScript,
@@ -93,7 +108,23 @@ fn register_short_drama_narration_prompts(registry: &mut PromptRegistry, errors:
         },
         content: include_str!("templates/short_drama_narration/script_generation_v1.0.md").into(),
     };
-    if let Err(e) = registry.register(prompt, true) { errors.push(e); }
+    if let Err(e) = registry.register(script_gen_v1, true) { errors.push(e); }
+
+    // Script generation v2.0 — 升级版，含完整短剧解说创作要素
+    let script_gen_v2 = Prompt {
+        metadata: PromptMetadata {
+            name: "script_generation".into(), category: "short_drama_narration".into(), version: "v2.0".into(),
+            model_type: ModelType::Text, output_format: OutputFormat::NarrationScript,
+            tags: vec!["short-drama-narration".into(), "script-generation".into(), "text".into(), "v2".into()],
+            parameters: vec![
+                ParameterDef { name: "drama_name".into(), required: true, default: None, description: "短剧名称".into() },
+                ParameterDef { name: "plot_analysis".into(), required: true, default: None, description: "剧情分析结果".into() },
+                ParameterDef { name: "subtitle_content".into(), required: true, default: None, description: "原始字幕内容（含时间戳）".into() },
+            ],
+        },
+        content: include_str!("templates/short_drama_narration/script_generation_v2.0.md").into(),
+    };
+    if let Err(e) = registry.register(script_gen_v2, true) { errors.push(e); }
 }
 
 #[cfg(test)]
@@ -117,7 +148,11 @@ mod tests {
         assert!(result.is_ok(), "完整注册应成功: {:?}", result.err());
         assert_eq!(registry.list_prompts("documentary").len(), 2);
         assert_eq!(registry.list_prompts("short_drama_editing").len(), 1);
-        assert_eq!(registry.list_prompts("short_drama_narration").len(), 1);
+        assert_eq!(registry.list_prompts("short_drama_narration").len(), 2);
+        // 验证所有三个 prompt 版本均已注册（plot_analysis v1.0 + script_generation v1.0 + v2.0）
+        assert!(registry.get("short_drama_narration", "plot_analysis", Some("v1.0")).is_ok());
+        assert!(registry.get("short_drama_narration", "script_generation", Some("v1.0")).is_ok());
+        assert!(registry.get("short_drama_narration", "script_generation", Some("v2.0")).is_ok());
     }
 
     #[test]
