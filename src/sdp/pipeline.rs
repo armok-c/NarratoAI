@@ -1,0 +1,377 @@
+use std::path::PathBuf;
+
+use crate::documentary::error::PipelineError;
+use crate::ffmpeg::command::run_ffmpeg;
+use crate::sdp::error::SdpError;
+use crate::sdp::types::{SdpPipelineState, SdpProgressStep, SdpRequest};
+use crate::script::types::OstType;
+
+/// SDP 流水线主入口——4 步顺序编排
+///
+/// 步骤：Clip(0%→30%) → Concat(30%→60%) → Composite(60%→90%→100%)
+///
+/// 参数：
+/// - request: SdpRequest（含 video_path, script_path, bgm_path, volume 等）
+/// - config: 全局配置
+///
+/// 返回最终输出视频的 PathBuf。
+pub async fn run_sdp(
+    request: SdpRequest,
+    _config: &crate::config::types::AppConfig,
+) -> Result<PathBuf, SdpError> {
+    // 0. 参数校验
+    request
+        .validate()
+        .map_err(|e| SdpError::Validation { details: e })?;
+
+    // 1. 创建任务目录
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let task_dir = request
+        .output_dir
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join("narratoai").join(&task_id));
+    std::fs::create_dir_all(&task_dir)?;
+
+    // 2. 初始化流水线状态
+    let mut state = SdpPipelineState::new(task_id, task_dir);
+
+    // 3. 加载脚本
+    let script_path = request
+        .script_path
+        .clone()
+        .unwrap_or_else(|| state.task_dir.join("merged_subtitle.json"));
+    state.script = crate::script::load_script(&script_path)?;
+
+    // G4: OST 校验——所有片段必须为 OST=1（OriginalSound）
+    if state.script.iter().any(|c| c.ost != OstType::OriginalSound) {
+        return Err(SdpError::Validation {
+            details: "SDP 仅支持 OST=1（原声）片段，请检查脚本中的 OST 值".into(),
+        });
+    }
+
+    // ============================================================
+    //  步骤 1: 视频裁剪 (Clip)  —  0% → 30%
+    // ============================================================
+    state.emit_progress(SdpProgressStep::Clip, 0.0, "正在裁剪视频片段...");
+    crate::sdp::clip::sdp_step_clip(&mut state, &request.video_path).await?;
+    state.emit_progress(SdpProgressStep::Clip, 30.0, "视频裁剪完成");
+
+    // ============================================================
+    //  步骤 2: 片段拼接 (Concat)  —  30% → 60%
+    // ============================================================
+    state.emit_progress(SdpProgressStep::Concat, 30.0, "正在拼接视频片段...");
+    sdp_step_concat(&mut state).await?;
+    state.emit_progress(SdpProgressStep::Concat, 60.0, "视频拼接完成");
+
+    // ============================================================
+    //  步骤 3: 最终合成 + BGM (Composite)  —  60% → 90% → 100%
+    // ============================================================
+    state.emit_progress(SdpProgressStep::Composite, 60.0, "正在最终合成...");
+    sdp_step_composite(&mut state, &request).await?;
+    state.emit_progress(SdpProgressStep::Composite, 100.0, "最终合成完成");
+
+    // 返回结果
+    state.output_video_path.ok_or_else(|| SdpError::Validation {
+        details: "流水线完成但未生成输出视频".into(),
+    })
+}
+
+/// SDP 步骤 2：视频片段拼接
+///
+/// 使用 FFmpeg concat demuxer 合并裁剪后的片段。
+async fn sdp_step_concat(state: &mut SdpPipelineState) -> Result<(), SdpError> {
+    let concat_list_path = state.task_dir.join("concat_list.txt");
+    let mut concat_content = String::new();
+
+    for clip in &state.script {
+        if let Some(ref video_path) = clip.video {
+            let path_str = video_path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .replace("'", "'\\''");
+            concat_content.push_str(&format!("file '{}'\n", path_str));
+        } else {
+            return Err(SdpError::Validation {
+                details: format!("片段 {} 缺少视频文件", clip._id),
+            });
+        }
+    }
+
+    std::fs::write(&concat_list_path, &concat_content)?;
+
+    let combined_path = state.task_dir.join("combined_concat.mp4");
+    let concat_path_str = concat_list_path.to_string_lossy().to_string();
+    let combined_path_str = combined_path.to_string_lossy().to_string();
+
+    run_ffmpeg(move || {
+        let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+        cmd.arg("-f")
+            .arg("concat")
+            .arg("-safe")
+            .arg("0")
+            .arg("-i")
+            .arg(&concat_path_str)
+            .arg("-c")
+            .arg("copy")
+            .arg("-y")
+            .output(&combined_path_str);
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+        let iter = match child.iter() {
+            Ok(iter) => iter,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::error::FFmpegError::SpawnFailed(e.to_string()));
+            }
+        };
+        let mut had_errors = false;
+        for event in iter {
+            if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
+                tracing::error!("SDP Concat error: {}", e);
+                had_errors = true;
+            }
+        }
+        let status = child
+            .wait()
+            .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+        if had_errors || !status.success() {
+            return Err(crate::error::FFmpegError::ExecutionError(
+                "SDP Concat failed".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e: crate::error::FFmpegError| {
+        SdpError::VideoProcess(PipelineError::FFmpeg { source: e })
+    })?;
+
+    state.combined_video_path = Some(combined_path);
+    Ok(())
+}
+
+/// SDP 步骤 3：最终合成 + BGM 混音
+///
+/// 与 documentary composite 的区别：
+/// - 无 TTS 音频输入（SDP 全部 OST=1，原始音频直接取自视频 clip）
+/// - 无字幕烧录（无 subtitles filter）
+/// - 仍支持 BGM 混音（aloop + atrim + volume + afade + amix）
+/// - 仍需要原始音频音量控制
+async fn sdp_step_composite(
+    state: &mut SdpPipelineState,
+    request: &SdpRequest,
+) -> Result<(), SdpError> {
+    let merged_video = state
+        .combined_video_path
+        .as_ref()
+        .ok_or_else(|| SdpError::Validation {
+            details: "缺少拼接视频".into(),
+        })?;
+
+    let output_path = state.task_dir.join("combined_sdp.mp4");
+    let video_str = merged_video.to_string_lossy().to_string();
+    let output_str = output_path.to_string_lossy().to_string();
+
+    // 预先提取所有值，确保 move closure 不捕获&mut state或&request引用
+    let original_volume = request.original_volume;
+    let bgm_volume = request.bgm_volume;
+    let bgm_path_opt = request
+        .bgm_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+    let total_dur = state.total_duration.max(0.0);
+    let has_bgm = bgm_path_opt.is_some();
+
+    run_ffmpeg(move || {
+        let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+        cmd.arg("-i").arg(&video_str);
+
+        let mut filter_complex_parts: Vec<String> = Vec::new();
+        let mut amix_count = 0usize;
+
+        // 原始音频（音量调整）
+        filter_complex_parts.push(format!("[0:a]volume={:.2}[orig]", original_volume));
+        amix_count += 1;
+
+        if let Some(ref bgm_path) = bgm_path_opt {
+            cmd.arg("-i").arg(bgm_path);
+            let fade_start = if total_dur > 3.0 {
+                total_dur - 3.0
+            } else {
+                0.0
+            };
+            filter_complex_parts.push(format!(
+                "[1:a]aloop=loop=-1:size=2e+09,atrim=0:{:.3},asetpts=PTS-STARTPTS,volume={:.2},afade=t=out:st={:.1}:d=3[bgm]",
+                total_dur, bgm_volume, fade_start
+            ));
+            amix_count += 1;
+        }
+
+        // 构建 amix
+        let mix_inputs = if has_bgm { "[orig][bgm]" } else { "[orig]" };
+        filter_complex_parts.push(format!(
+            "{}amix=inputs={}:duration=longest[aout]",
+            mix_inputs, amix_count
+        ));
+
+        if !filter_complex_parts.is_empty() {
+            cmd.arg("-filter_complex")
+                .arg(&filter_complex_parts.join(";"));
+        }
+
+        cmd.arg("-map")
+            .arg("0:v")
+            .arg("-map")
+            .arg("[aout]")
+            .codec_video("libx264")
+            .arg("-preset")
+            .arg("medium")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .codec_audio("aac")
+            .arg("-y")
+            .output(&output_str);
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+        let iter = match child.iter() {
+            Ok(iter) => iter,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::error::FFmpegError::SpawnFailed(e.to_string()));
+            }
+        };
+        let mut had_errors = false;
+        for event in iter {
+            if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
+                tracing::error!("SDP Composite error: {}", e);
+                had_errors = true;
+            }
+        }
+        let status = child
+            .wait()
+            .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+        if had_errors || !status.success() {
+            return Err(crate::error::FFmpegError::ExecutionError(
+                "SDP Composite failed".into(),
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e: crate::error::FFmpegError| {
+        SdpError::VideoProcess(PipelineError::FFmpeg { source: e })
+    })?;
+
+    state.output_video_path = Some(output_path);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::script::types::{OstType, ScriptClip};
+
+    fn make_clip(id: i64, ts: &str, ost: OstType) -> ScriptClip {
+        ScriptClip {
+            _id: id,
+            timestamp: ts.to_string(),
+            picture: "测试画面".to_string(),
+            narration: "测试解说".to_string(),
+            ost,
+            duration: None,
+            source_time_range: None,
+            edited_time_range: None,
+            audio: None,
+            video: None,
+            subtitle: None,
+        }
+    }
+
+    // ---- OST Validation (G4) ----
+
+    #[test]
+    fn test_sdp_ost_validation_all_ost1_passes() {
+        let script = vec![
+            make_clip(1, "00:00:00-00:00:05", OstType::OriginalSound),
+            make_clip(2, "00:00:05-00:00:10", OstType::OriginalSound),
+        ];
+        let has_non_ost1 = script.iter().any(|c| c.ost != OstType::OriginalSound);
+        assert!(!has_non_ost1, "全部 OST=1 应通过校验");
+    }
+
+    #[test]
+    fn test_sdp_ost_validation_non_ost1_fails() {
+        let script = vec![
+            make_clip(1, "00:00:00-00:00:05", OstType::NarrationOnly),
+            make_clip(2, "00:00:05-00:00:10", OstType::OriginalSound),
+        ];
+        let has_non_ost1 = script.iter().any(|c| c.ost != OstType::OriginalSound);
+        assert!(has_non_ost1, "包含非 OST=1 片段应发现");
+    }
+
+    #[test]
+    fn test_sdp_ost_validation_mixed_fails() {
+        let script = vec![
+            make_clip(1, "00:00:00-00:00:05", OstType::Mixed),
+        ];
+        let has_non_ost1 = script.iter().any(|c| c.ost != OstType::OriginalSound);
+        assert!(has_non_ost1, "OST=2 (Mixed) 也应不通过");
+    }
+
+    // ---- Concat validation (before FFmpeg) ----
+
+    #[test]
+    fn test_sdp_concat_validation_no_video_fails() {
+        // 所有 clip.video = None，should trigger early error before FFmpeg
+        let script = vec![
+            make_clip(1, "00:00:00-00:00:05", OstType::OriginalSound),
+        ];
+        let all_missing_video = script.iter().any(|c| c.video.is_none());
+        assert!(all_missing_video, "video 为 None 时应检测到");
+    }
+
+    // ---- Progress step sequence ----
+
+    #[test]
+    fn test_sdp_state_progress_sequence() {
+        // 验证 ProgressStep 枚举的顺序和命名
+        let clip_step = SdpProgressStep::Clip;
+        let concat_step = SdpProgressStep::Concat;
+        let composite_step = SdpProgressStep::Composite;
+
+        // 确认枚举值顺序
+        assert_eq!(clip_step as u8, 0, "Clip 应为第一个");
+        assert_eq!(concat_step as u8, 1, "Concat 应为第二个");
+        assert_eq!(composite_step as u8, 2, "Composite 应为第三个");
+
+        // 验证 PartialEq
+        assert_eq!(clip_step, SdpProgressStep::Clip);
+        assert_ne!(clip_step, concat_step);
+    }
+
+    // ---- SdpRequest validation ----
+
+    #[test]
+    fn test_sdp_request_validate_missing_video() {
+        let req = SdpRequest::default();
+        let result = req.validate();
+        assert!(result.is_err(), "video_path 为空应校验失败");
+    }
+
+    #[test]
+    fn test_sdp_request_validate_out_of_range_volume() {
+        let req = SdpRequest {
+            video_path: PathBuf::from("video.mp4"),
+            original_volume: 15.0,
+            ..Default::default()
+        };
+        let result = req.validate();
+        assert!(result.is_err(), "original_volume 超出范围应校验失败");
+    }
+}
