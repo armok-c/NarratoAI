@@ -143,50 +143,16 @@ pub fn repair_json(raw: &str) -> String {
         if serde_json::from_str::<serde_json::Value>(&without_fence).is_ok() {
             return without_fence;
         }
-        // Continue with the stripped text for subsequent steps
-        let mut result = without_fence;
-
-        // Step 3: First JSON object extraction
-        if serde_json::from_str::<serde_json::Value>(&result).is_err() {
-            if let Some(extracted) = extract_first_json_object(&result) {
-                if serde_json::from_str::<serde_json::Value>(&extracted).is_ok() {
-                    return extracted;
-                }
-                result = extracted;
-            }
-        }
-
-        // Step 4: Double braces
-        if serde_json::from_str::<serde_json::Value>(&result).is_err() {
-            let fixed = fix_double_braces(&result);
-            if serde_json::from_str::<serde_json::Value>(&fixed).is_ok() {
-                return fixed;
-            }
-            result = fixed;
-        }
-
-        // Step 5: Trailing comma
-        if serde_json::from_str::<serde_json::Value>(&result).is_err() {
-            let fixed = fix_trailing_commas(&result);
-            if serde_json::from_str::<serde_json::Value>(&fixed).is_ok() {
-                return fixed;
-            }
-            result = fixed;
-        }
-
-        // Step 6: Single quotes to double quotes
-        if !result.contains('"') && result.contains('\'') {
-            let fixed = result.replace('\'', "\"");
-            if serde_json::from_str::<serde_json::Value>(&fixed).is_ok() {
-                return fixed;
-            }
-        }
-
-        return result;
+        return apply_repair_steps(without_fence);
     }
 
     // No code fence found, try steps 3-6 on original text
-    let mut result = text.to_string();
+    apply_repair_steps(text.to_string())
+}
+
+/// 应用 JSON 修复步骤 3-6（步骤 3: 首对象提取, 4: 双大括号, 5: 尾逗号, 6: 单引号）
+fn apply_repair_steps(input: String) -> String {
+    let mut result = input;
 
     // Step 3: First JSON object extraction
     if let Some(extracted) = extract_first_json_object(&result) {
