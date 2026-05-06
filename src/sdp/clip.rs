@@ -2,7 +2,6 @@ use std::path::Path;
 
 use crate::documentary::types::TtsResult;
 use crate::sde::timestamp::{find_precise_range, parse_srt_timestamp};
-use crate::sde::types::SubtitleSegment;
 use crate::sdp::error::SdpError;
 use crate::sdp::types::SdpPipelineState;
 
