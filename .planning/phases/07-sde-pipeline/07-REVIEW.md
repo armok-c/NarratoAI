@@ -1,8 +1,8 @@
 ---
 phase: 07-sde-pipeline
-reviewed: 2026-05-06T16:00:00Z
+reviewed: 2026-05-06T17:00:00Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 10
 files_reviewed_list:
   - src/sde/error.rs
   - src/sde/mod.rs
@@ -13,111 +13,79 @@ files_reviewed_list:
   - src/sde/types.rs
   - src/documentary/pipeline.rs
   - src/documentary/types.rs
+  - src/documentary/audio.rs
 findings:
   critical: 0
-  warning: 2
+  warning: 0
   info: 2
-  total: 4
+  total: 2
 status: issues_found
 ---
 
-# Phase 7: Code Review Report (Eighth Pass)
+# Phase 07: 代码审查报告（第九轮）
 
-**Reviewed:** 2026-05-06T16:00:00Z
-**Depth:** standard
-**Files Reviewed:** 9
-**Status:** issues_found
+**审查时间:** 2026-05-06T17:00:00Z
+**审查深度:** standard
+**文件数量:** 10
+**状态:** issues_found（仅遗留 Info 项）
 
-## Summary
+## 摘要
 
-Eighth-pass review of the SDE pipeline module. All prior fixes verified:
+第九轮审查重点验证第八轮发现的 2 个 Warning（WR-08、WR-09）的修复情况，并检查是否引入新问题。
 
-- **WR-01** (sync write in async TTS): Verified fixed in `src/documentary/pipeline.rs:78` using `tokio::fs::write`. No regression.
-- **WR-02** (subtitle_color validation): Verified fixed in `src/documentary/types.rs:77-80`. Consistent with SDE side.
-- **Passes 1-6** (20 fixes): No regressions detected.
+**修复验证结果：**
+- **WR-08 已修复:** `src/documentary/audio.rs:170` 现在使用 `tokio::fs::write` 替代同步 `write_srt_file`
+- **WR-09 已修复:** 所有 4 处 `create_dir_all` 调用已替换为 `tokio::fs::create_dir_all`：
+  - `src/sde/pipeline.rs:52` -- 主流水线入口
+  - `src/sde/pipeline.rs:701` -- `analyze_subtitle_plot` 独立 API
+  - `src/sde/pipeline.rs:734` -- `generate_sde_script` 独立 API
+  - `src/documentary/pipeline.rs:484` -- 纪录片流水线入口
 
-Two new warnings found, both related to async purity (same category as previously-fixed WR-01):
+**回归检查：**
+- 所有修复的错误处理（`.map_err()`）和类型转换正确，无回归
+- 未发现新的 sync-in-async 模式（`parse_subtitle_file` 中的 `fs::read` 已通过 `spawn_blocking` 正确包装）
+- `write_srt_file`（`src/documentary/subtitle.rs:64`）现在仅被测试代码引用，不再是生产代码路径
 
-1. WR-08: `src/documentary/audio.rs:170` calls sync `write_srt_file` (which uses `std::fs::write`) from an `async fn` — identical pattern to WR-01 which was fixed in `documentary/pipeline.rs` but missed in `audio.rs`.
-2. WR-09: `src/sde/pipeline.rs` lines 52, 701, 734 use `std::fs::create_dir_all` in async functions — same category of blocking I/O in async context.
-
-Two info-level items: dead code in `subtitle.rs` (carried over from IN-01/IN-02) and an unused `_task_dir` parameter.
-
-## Warnings
-
-### WR-08: Sync `write_srt_file` in async `merge_subtitle_files`
-
-**File:** `src/documentary/audio.rs:170`
-**Issue:** `merge_subtitle_files` is a `pub async fn` that calls `crate::documentary::subtitle::write_srt_file(&merged, &output_path)?`. Internally, `write_srt_file` uses `std::fs::write` (line 68 of `subtitle.rs`), which blocks the Tokio runtime thread during disk I/O. This is the identical pattern to seventh-pass WR-01, which was fixed in `documentary/pipeline.rs` step_tts but missed in `audio.rs`.
-
-This function is called from both SDE pipeline (step 6, line 286-292) and documentary pipeline (step 4), so the impact covers both pipelines.
-
-Severity: WARNING (not CRITICAL) because subtitle files are typically small (a few KB), blocking time is negligible, and runtime starvation is unlikely.
-
-**Fix:**
-```rust
-// Option A: Replace write_srt_file call with direct tokio::fs::write
-tokio::fs::write(&output_path, &merged)
-    .await
-    .map_err(|e| PipelineError::Io(e))?;
-
-// Option B: Make write_srt_file async internally
-```
-
-### WR-09: Sync `std::fs::create_dir_all` in async functions
-
-**File:** `src/sde/pipeline.rs:52`, `src/sde/pipeline.rs:701`, `src/sde/pipeline.rs:734`
-**Issue:** Three calls to `std::fs::create_dir_all` in `async fn` contexts. `create_dir_all` is a synchronous blocking operation (may involve filesystem traversal and permission checks). Documentary pipeline has the same pattern at line 484.
-
-Severity: WARNING because directory creation happens once per task and is fast, but violates the same async purity principle as WR-08.
-
-**Fix:**
-```rust
-// Replace:
-std::fs::create_dir_all(&task_dir)?;
-// With:
-tokio::fs::create_dir_all(&task_dir).await?;
-```
+**新增问题：** 无 BLOCKER 或 WARNING。2 个 Info 级遗留项继续存在。
 
 ## Info
 
-### IN-03: Dead code — `extract_text_from_srt` and `extract_text_from_ass`
+### IN-01: `write_srt_file` 死代码（遗留，原 IN-03）
 
-**File:** `src/sde/subtitle.rs:357-417`
-**Issue:** These two functions are only called from their own `#[cfg(test)]` tests. No production code path references them. `cargo check` emits `dead_code` warnings. Carried over from seventh-pass IN-01/IN-02.
-**Fix:** Add `#[cfg(test)]` attribute or remove the functions.
+**文件:** `src/documentary/subtitle.rs:64`
+**问题:** `pub fn write_srt_file` 标记为 `pub` 但仅在同模块的测试中使用。生产代码中无任何调用方引用此函数。WR-08 修复已将唯一生产调用方 `merge_subtitle_files` 改用 `tokio::fs::write`，因此该函数现在是完全的死代码。
+**建议:** 可安全移除 `write_srt_file` 函数及其测试，或将可见性降为 `pub(crate)` 并标注 `#[deprecated]`。
 
-### IN-04: Unused `_task_dir` parameter in `parse_script`
+### IN-02: `parse_script` 的 `_task_dir` 未使用参数（遗留，原 IN-04）
 
-**File:** `src/sde/script_gen.rs:302`
-**Issue:** `parse_script(raw_json: &str, _task_dir: &Path)` has an unused `_task_dir` parameter. The function comment states "caller is responsible for async-saving to task_dir/script_final.json", confirming the parameter is unused by design. Every caller constructs a `Path` reference that is never consumed.
-**Fix:** Remove the parameter or use it for file saving as originally intended.
+**文件:** `src/sde/script_gen.rs:302`
+**问题:** `parse_script(raw_json: &str, _task_dir: &Path)` 的 `_task_dir` 参数从未在函数体中使用。这是历史 API 设计遗留，函数注释中提到"调用方负责将结果异步保存到 `task_dir/script_final.json`"，但实际上这个参数对函数行为无任何影响。
+**建议:** 可在未来版本中移除此参数，让调用方自行管理路径。当前不会导致 bug，仅影响 API 清晰度。
 
----
+## 跨流水线一致性（SDE vs 纪录片）
 
-## Cross-Pipeline Consistency (SDE vs Documentary)
+| 检查项 | SDE | 纪录片 | 状态 |
+|--------|-----|--------|------|
+| subtitle_color 校验 | types.rs:89-92 | types.rs:77-80 | 一致 |
+| TTS 循环中的写入 | tokio::fs::write:184 | tokio::fs::write:78 | 一致 |
+| concat 逻辑 | pipeline.rs:301-386 | pipeline.rs:182-269 | 一致 |
+| composite 逻辑 | pipeline.rs:453-602 | pipeline.rs:325-463 | 一致 |
+| 字幕合并写入 | tokio::fs::write（已修复） | tokio::fs::write（已修复） | 一致 |
+| create_dir_all | tokio::fs（已修复） | tokio::fs（已修复） | 一致 |
 
-| Check | SDE | Documentary | Status |
-|-------|-----|-------------|--------|
-| subtitle_color validation | types.rs:89-92 | types.rs:77-80 | Consistent |
-| TTS loop write | tokio::fs::write:184 | tokio::fs::write:78 | Consistent |
-| concat logic | pipeline.rs:301-386 | pipeline.rs:182-269 | Consistent |
-| composite logic | pipeline.rs:453-602 | pipeline.rs:325-463 | Consistent (mirrored) |
-| subtitle merge write | delegates to merge_subtitle_files | same | Shared issue (WR-08) |
-| create_dir_all | std::fs (3 places) | std::fs (1 place) | Shared issue (WR-09) |
+## 安全 / Unsafe / Panic 扫描
 
-## Security / Unsafe / Panic Scan
-
-| Check | Result |
-|-------|--------|
-| `unsafe` blocks | None |
-| Bare `.unwrap()` in production | None (only `LazyLock` regex init, compile-time safe) |
-| Hardcoded secrets | None |
-| Panic paths | `script_gen.rs:253` `unreachable!()` after exhaustive match — logically safe |
-| Large functions (>50 lines) | `run_sde`: ~580 lines (orchestrator, well-structured but oversized) |
+| 检查项 | 结果 |
+|--------|------|
+| `unsafe` 块 | 无 |
+| 生产代码中的裸 `.unwrap()` | 无（仅 `LazyLock` regex 初始化，编译期安全） |
+| 硬编码密钥 | 无 |
+| Panic 路径 | `script_gen.rs:253` 的 `unreachable!()` 在穷尽匹配后，逻辑安全 |
+| 大函数（>50 行） | `run_sde`: ~580 行（编排器，结构清晰但偏大） |
 
 ---
 
-_Reviewed: 2026-05-06T16:00:00Z_
-_Reviewer: Claude (gsd-code-reviewer)_
-_Depth: standard_
+_审查时间: 2026-05-06T17:00:00Z_
+_审查者: Claude (gsd-code-reviewer)_
+_审查深度: standard_
+_第九轮 -- 第八轮 2 个 Warning 全部修复确认，无新增 BLOCKER/WARNING_
