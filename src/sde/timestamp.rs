@@ -7,11 +7,19 @@ use super::types::SubtitleSegment;
 pub fn parse_srt_timestamp(input: &str) -> Result<f64, SdeError> {
     let input = input.trim();
 
-    // 统一分隔符：同时支持逗号和点号
-    let normalized = input.replace('.', ",");
-    let (time_part, millis) = match normalized.find(',') {
-        Some(pos) => (normalized[..pos].to_string(), normalized[pos + 1..].to_string()),
-        None => (normalized, String::new()),
+    // 检测实际分隔符（逗号或点号），不做全局替换以避免混淆时间部分中的点号
+    let (time_part, millis_str) = if let Some(pos) = input.find(',') {
+        (input[..pos].to_string(), input[pos + 1..].to_string())
+    } else if let Some(pos) = input.rfind('.') {
+        // 仅当点号位于最后一个冒号之后时才视为亚秒分隔符
+        let last_colon = input.rfind(':').unwrap_or(0);
+        if pos > last_colon {
+            (input[..pos].to_string(), input[pos + 1..].to_string())
+        } else {
+            (input.to_string(), String::new())
+        }
+    } else {
+        (input.to_string(), String::new())
     };
 
     let parts: Vec<&str> = time_part.split(':').collect();
@@ -54,17 +62,17 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SdeError> {
         });
     }
 
-    let ms: f64 = if millis.is_empty() {
+    let ms: f64 = if millis_str.is_empty() {
         0.0
     } else {
-        let ms_val: u32 = millis
+        // 填充到 3 位："2" -> "200", "20" -> "200", "200" -> "200"
+        let padded = format!("{:0<3}", millis_str);
+        let ms_val: u32 = padded
             .parse()
             .map_err(|_| SdeError::ParseSubtitle {
-                details: format!("毫秒解析失败: {}", millis),
+                details: format!("毫秒解析失败: {}", millis_str),
             })?;
-        // 处理毫秒位数：最多 3 位
-        let divisor = 10u32.pow((millis.len() as u32).min(3));
-        ms_val as f64 / divisor as f64
+        ms_val as f64 / 1000.0
     };
 
     let total = h as f64 * 3600.0 + m as f64 * 60.0 + s as f64 + ms;
