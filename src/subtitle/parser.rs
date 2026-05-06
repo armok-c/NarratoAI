@@ -4,9 +4,9 @@ use std::path::Path;
 use encoding_rs;
 use regex::Regex;
 
-use crate::sde::error::SdeError;
-use crate::sde::timestamp::parse_srt_timestamp;
-use crate::sde::types::SubtitleSegment;
+use crate::subtitle::error::SubtitleError;
+use crate::subtitle::timestamp::parse_srt_timestamp;
+use crate::subtitle::types::SubtitleSegment;
 
 /// 检查文本中是否包含 SRT 时间戳模式（HH:MM:SS,mmm 或 HH:MM:SS.mmm）
 fn has_srt_timecodes(text: &str) -> bool {
@@ -21,14 +21,14 @@ fn has_meaningful_content(text: &str) -> bool {
 }
 
 /// 将 u8 切片转换为 UTF-16LE 字符串
-fn decode_utf16le(bytes: &[u8]) -> Result<String, SdeError> {
+fn decode_utf16le(bytes: &[u8]) -> Result<String, SubtitleError> {
     let aligned = if bytes.len() % 2 == 0 {
         bytes
     } else {
         &bytes[..bytes.len() - 1]
     };
     if aligned.is_empty() {
-        return Err(SdeError::ParseSubtitle {
+        return Err(SubtitleError::ParseSubtitle {
             details: "UTF-16LE 数据为空".into(),
         });
     }
@@ -36,20 +36,20 @@ fn decode_utf16le(bytes: &[u8]) -> Result<String, SdeError> {
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
-    String::from_utf16(&u16_data).map_err(|e| SdeError::ParseSubtitle {
+    String::from_utf16(&u16_data).map_err(|e| SubtitleError::ParseSubtitle {
         details: format!("UTF-16LE 解码失败: {}", e),
     })
 }
 
 /// 将 u8 切片转换为 UTF-16BE 字符串
-fn decode_utf16be(bytes: &[u8]) -> Result<String, SdeError> {
+fn decode_utf16be(bytes: &[u8]) -> Result<String, SubtitleError> {
     let aligned = if bytes.len() % 2 == 0 {
         bytes
     } else {
         &bytes[..bytes.len() - 1]
     };
     if aligned.is_empty() {
-        return Err(SdeError::ParseSubtitle {
+        return Err(SubtitleError::ParseSubtitle {
             details: "UTF-16BE 数据为空".into(),
         });
     }
@@ -57,7 +57,7 @@ fn decode_utf16be(bytes: &[u8]) -> Result<String, SdeError> {
         .chunks_exact(2)
         .map(|c| u16::from_be_bytes([c[0], c[1]]))
         .collect();
-    String::from_utf16(&u16_data).map_err(|e| SdeError::ParseSubtitle {
+    String::from_utf16(&u16_data).map_err(|e| SubtitleError::ParseSubtitle {
         details: format!("UTF-16BE 解码失败: {}", e),
     })
 }
@@ -91,8 +91,8 @@ fn looks_like_utf16le(data: &[u8]) -> bool {
 /// 5. GB18030（encoding_rs，GB2312 超集）
 ///
 /// 每个步骤成功后，检查文本是否包含 SRT 时间戳或有意义内容 → fast path 返回。
-/// 全部失败 → SdeError::ParseSubtitle。
-pub fn detect_encoding(data: &[u8]) -> Result<String, SdeError> {
+/// 全部失败 → SubtitleError::ParseSubtitle。
+pub fn detect_encoding(data: &[u8]) -> Result<String, SubtitleError> {
     // 0. Check BOM-based detection first (BOM is unambiguous)
     if data.len() >= 2 {
         if data[0] == 0xFF && data[1] == 0xFE {
@@ -148,7 +148,7 @@ pub fn detect_encoding(data: &[u8]) -> Result<String, SdeError> {
         }
     }
 
-    Err(SdeError::ParseSubtitle {
+    Err(SubtitleError::ParseSubtitle {
         details: "无法检测字幕文件编码（尝试了 BOM/UTF-8/UTF-16/GBK/GB18030）".into(),
     })
 }
@@ -402,9 +402,9 @@ fn extract_text_from_ass(text: &str) -> String {
 }
 
 /// 根据编码名解码字节为字符串
-fn decode_bytes(data: &[u8], encoding: &str) -> Result<String, SdeError> {
+fn decode_bytes(data: &[u8], encoding: &str) -> Result<String, SubtitleError> {
     match encoding {
-        "utf-8" => String::from_utf8(data.to_vec()).map_err(|e| SdeError::ParseSubtitle {
+        "utf-8" => String::from_utf8(data.to_vec()).map_err(|e| SubtitleError::ParseSubtitle {
             details: format!("UTF-8 解码失败: {}", e),
         }),
         "utf-8-sig" => {
@@ -414,7 +414,7 @@ fn decode_bytes(data: &[u8], encoding: &str) -> Result<String, SdeError> {
             } else {
                 data
             };
-            String::from_utf8(stripped.to_vec()).map_err(|e| SdeError::ParseSubtitle {
+            String::from_utf8(stripped.to_vec()).map_err(|e| SubtitleError::ParseSubtitle {
                 details: format!("UTF-8-SIG 解码失败: {}", e),
             })
         }
@@ -428,7 +428,7 @@ fn decode_bytes(data: &[u8], encoding: &str) -> Result<String, SdeError> {
             let (text, _encoding_used, _had_errors) = encoding_rs::GB18030.decode(data);
             Ok(text.to_string())
         }
-        other => Err(SdeError::ParseSubtitle {
+        other => Err(SubtitleError::ParseSubtitle {
             details: format!("不支持的编码: {}", other),
         }),
     }
@@ -439,10 +439,10 @@ fn decode_bytes(data: &[u8], encoding: &str) -> Result<String, SdeError> {
 /// 返回 (段落列表, 标准化文本, 编码名) 三元组。
 ///
 /// 注意：此函数是 CPU 密集型的（编码检测 + 正则匹配），
-/// 在 pipeline.rs 中调用时应使用 tokio::task::spawn_blocking 包装。
+/// 在调用时应使用 tokio::task::spawn_blocking 包装。
 pub fn parse_subtitle_file(
     path: &Path,
-) -> Result<(Vec<SubtitleSegment>, String, String), SdeError> {
+) -> Result<(Vec<SubtitleSegment>, String, String), SubtitleError> {
     let data = fs::read(path)?;
     let encoding = detect_encoding(&data)?;
     let decoded = decode_bytes(&data, &encoding)?;
@@ -518,8 +518,8 @@ mod tests {
         let result = detect_encoding(data);
         assert!(result.is_err(), "Random bytes should fail");
         match result {
-            Err(SdeError::ParseSubtitle { .. }) => {}
-            _ => panic!("Expected SdeError::ParseSubtitle"),
+            Err(SubtitleError::ParseSubtitle { .. }) => {}
+            _ => panic!("Expected SubtitleError::ParseSubtitle"),
         }
     }
 

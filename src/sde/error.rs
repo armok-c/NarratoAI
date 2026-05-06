@@ -34,6 +34,17 @@ impl From<std::io::Error> for SdeError {
     }
 }
 
+impl From<crate::subtitle::error::SubtitleError> for SdeError {
+    fn from(e: crate::subtitle::error::SubtitleError) -> Self {
+        match e {
+            crate::subtitle::error::SubtitleError::ParseSubtitle { details } =>
+                SdeError::ParseSubtitle { details },
+            crate::subtitle::error::SubtitleError::Io { source } =>
+                SdeError::Io { source },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
