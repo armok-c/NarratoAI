@@ -289,11 +289,14 @@ pub async fn run_sde(
     let mut concat_content = String::new();
     for clip in &state.script {
         if let Some(ref video_path) = clip.video {
-            let path_str = video_path
-                .to_string_lossy()
-                .replace('\\', "/")
-                .replace("'", "'\\''");
-            concat_content.push_str(&format!("file '{}'\n", path_str));
+            let path_str = video_path.to_string_lossy().replace('\\', "/");
+            if path_str.contains('\n') || path_str.contains('\r') {
+                return Err(SdeError::Validation {
+                    details: format!("视频路径包含非法字符: {}", clip._id),
+                });
+            }
+            let escaped = path_str.replace("'", "'\\''");
+            concat_content.push_str(&format!("file '{}'\n", escaped));
         } else {
             return Err(SdeError::VideoProcess(PipelineError::Concat {
                 details: format!("片段 {} 缺少视频文件", clip._id),
