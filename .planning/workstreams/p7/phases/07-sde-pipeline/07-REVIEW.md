@@ -1,193 +1,114 @@
 ---
 phase: 07-sde-pipeline
-reviewed: 2026-05-06T16:30:00Z
+reviewed: 2026-05-06T21:00:00Z
 depth: standard
-files_reviewed: 8
+files_reviewed: 15
 files_reviewed_list:
+  - Cargo.toml
+  - src/documentary/pipeline.rs
+  - src/lib.rs
+  - src/prompt/register.rs
+  - src/prompt/templates/short_drama_narration/plot_analysis_v1.0.md
+  - src/prompt/templates/short_drama_narration/script_generation_v2.0.md
+  - src/prompt/types.rs
+  - src/prompt/validators.rs
+  - src/sde/error.rs
+  - src/sde/mod.rs
   - src/sde/pipeline.rs
   - src/sde/script_gen.rs
   - src/sde/subtitle.rs
   - src/sde/timestamp.rs
   - src/sde/types.rs
-  - src/sde/error.rs
-  - src/sde/mod.rs
-  - src/ffmpeg/command.rs
 findings:
-  critical: 2
-  warning: 5
-  info: 4
-  total: 11
+  critical: 0
+  warning: 2
+  info: 3
+  total: 5
 status: issues_found
 ---
 
-# Phase 07: Code Review Report (Second Pass)
+# Phase 07: Code Review Report (Fifth Pass)
 
-**Reviewed:** 2026-05-06T16:30:00Z
+**Reviewed:** 2026-05-06T21:00:00Z
 **Depth:** standard
-**Files Reviewed:** 8
+**Files Reviewed:** 15 (expanded scope: added `src/documentary/pipeline.rs`)
 **Status:** issues_found
 
 ## Summary
 
-Re-reviewed the SDE pipeline after 8 of 16 prior findings were fixed. Previous CR-01 (millisecond parsing), CR-03 (encoding detection logic inversion), WR-04 (stub audio.rs), WR-06 (path existence checks), WR-07 (empty frac guard) are confirmed fixed. Deleted files `audio.rs` and `clip.rs` are confirmed removed from `mod.rs`.
+Fifth-pass review of the SDE pipeline module. This pass expanded scope to 15 files including `src/documentary/pipeline.rs` (which had 5 step functions changed to `pub(crate)` in plan 04). All files were read in full and checked for bugs, security issues, and quality problems.
 
-Two new critical issues found: a code fence stripping bug that corrupts `json5`-tagged LLM output by leaving a trailing `5` character, and a channel-count mismatch in the FFmpeg `amix` filter when `volume=0.00` is used (which is technically allowed by validation but produces a zero-count input). Five warnings include redundant validation logic, duplicated repair code paths, unguarded unwrap in `find_precise_range`, regex recompilation per call, and magic number without documentation.
+All 19 previously-fixed findings from passes 1-4 were verified as correctly applied:
 
-## Critical Issues
+- **WR-01 (pass 4):** `subtitle_color` hex validation confirmed at `types.rs:89-93` -- `hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit())`.
+- **WR-02 (pass 4):** `parse_script` no longer performs file I/O (`_task_dir` parameter unused); caller `run_sde` uses `tokio::fs::write` at `pipeline.rs:134`.
+- **WR-03 (pass 4):** `validate_output` calls confirmed at `script_gen.rs:58-62` and `script_gen.rs:117-121`.
+- **Pass 3 fixes:** "播放原片" OST=1 restriction (`pipeline.rs:156`), `subtitle_font` sanitization (`pipeline.rs:438-444`).
+- **Pass 2 fixes:** `strip_code_fence` json5-before-json, `tts_volume` validation, `apply_repair_steps` helper.
+- **Pass 1 fixes:** Millisecond padding, FFmpeg concat injection guard, GBK-before-GB18030, path existence checks.
 
-### CR-01: `strip_code_fence` corrupts `json5`-tagged LLM output
-
-**File:** `src/sde/script_gen.rs:231-232`
-**Issue:** The code checks `after_start.starts_with("json")` before `after_start.starts_with("json5")`. Since `"json5"` starts with `"json"`, the first branch always matches for both tags. Then `&after_start[4..]` slices off only 4 bytes (`"json"`), leaving the `"5"` character as a prefix to the extracted content.
-
-Trace for input `` ```json5\n{"key": "val"}\n``` ``:
-1. `after_start = "json5\n{\"key\": \"val\"}\n```"`
-2. `after_start.starts_with("json")` = true (first branch taken)
-3. `after_tag = &after_start[4..]` = `"5\n{\"key\": \"val\"}\n```"`
-4. After closing fence removal: `"5\n{\"key\": \"val\"}"` -- the leading `5` corrupts the JSON
-
-The downstream `extract_first_json_object` recovers by finding the first `{`, so the impact is mitigated. However, `strip_code_fence` itself returns wrong output, and the extra parsing step is wasteful. If LLM output starts with a digit after `json5\n` (e.g., `` ```json5\n5 {"key": "val"} ``` ``), the `5` prefix could interfere with subsequent repair steps.
-
-**Fix:**
-```rust
-let after_tag = if after_start.starts_with("json5") {
-    &after_start[5..]
-} else if after_start.starts_with("json") {
-    &after_start[4..]
-} else {
-    after_start
-};
-```
-
-### CR-02: FFmpeg `amix` filter produces `inputs=0` when all volumes are `0.00`
-
-**File:** `src/sde/pipeline.rs:440-486`
-**Issue:** The composite step builds FFmpeg filter chains where `amix_input_count` tracks how many audio streams go into the `amix` filter. The `volume` filter is unconditionally added for each enabled audio source (line 442: `[0:a]volume={:.2}[orig]`). However, `tts_volume` and `original_volume` are validated to allow `0.0` (the range check is `0.0..=10.0`). When `original_volume = 0.0` AND no TTS audio exists AND no BGM exists, `amix_input_count` is still 1 (from `has_original_audio`), producing `amix=inputs=1` with `[orig]` feeding a zero-volume stream. This works but produces silent output, which may be unexpected.
-
-More critically: if `has_original_audio = true` and the filter graph includes `[0:a]volume=0.00[orig]`, FFmpeg's `amix=inputs=1` works fine. The real edge case is when `tts_volume = 0.0` and `tts` audio exists: `[1:a]volume=0.00[tts]` produces a zero-volume stream that still gets mixed, wasting processing time. This is not a crash but produces incorrect (silent) output without any warning.
-
-While not a crash scenario, allowing `volume = 0.0` to pass validation without warning means the user gets a completely silent video with no indication of why.
-
-**Fix:** Either add a warning when volume parameters are 0.0, or change the validation range to exclude 0.0:
-```rust
-// In types.rs validate():
-if self.tts_volume <= 0.0 {
-    return Err(format!("tts_volume 必须大于 0: {}", self.tts_volume));
-}
-if self.original_volume < 0.0 {
-    return Err(format!("original_volume 不能为负数: {}", self.original_volume));
-}
-```
+Two new warnings and three info items found. No critical issues.
 
 ## Warnings
 
-### WR-01: Redundant range check in `voice_rate` validation
+### WR-01: Test `test_parse_script_saves_file` is provably broken -- asserts file that `parse_script` never writes
 
-**File:** `src/sde/types.rs:71`
-**Issue:** The condition `!(0.0..=5.0).contains(&self.voice_rate) || self.voice_rate <= 0.0` is logically equivalent to `self.voice_rate <= 0.0 || self.voice_rate > 5.0`. The range check `0.0..=5.0` includes 0.0, but then the second condition explicitly excludes it. This works correctly but is harder to read than a single exclusive range.
+**File:** `src/sde/script_gen.rs:539-547`
+**Issue:** The test `test_parse_script_saves_file` asserts that `script_final.json` exists on disk after calling `parse_script()`. However, `parse_script` (line 302) accepts `_task_dir` (underscore-prefixed = unused) and performs **no file I/O**. The function's doc comment (line 301) explicitly states "calling code is responsible for asynchronously saving." The actual file saving is done by `run_sde` at `pipeline.rs:134` using `tokio::fs::write`. Running `cargo test test_parse_script_saves_file` confirms the test panics every time with "script_final.json should be saved." This is a test reliability bug -- the test suite has one consistently failing test.
+
+**Fix:** Remove the broken test or replace it with one that tests the actual contract:
+
+```rust
+// Option A: Remove test_parse_script_saves_file entirely
+// (file saving is tested at the pipeline integration level)
+
+// Option B: Replace with a correct test:
+#[test]
+fn test_parse_script_returns_valid_clips() {
+    let json = make_items_json(r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#);
+    let dir = tempfile::TempDir::new().expect("create temp dir");
+    let clips = parse_script(&json, dir.path()).expect("parse should succeed");
+    assert_eq!(clips.len(), 1);
+    assert_eq!(clips[0]._id, 1);
+    assert_eq!(clips[0].ost, OstType::NarrationOnly);
+}
+```
+
+### WR-02: Sync `std::fs::write` in SDE concat step blocks async runtime
+
+**File:** `src/sde/pipeline.rs:317`
+**Issue:** `run_sde` is an `async fn` running on the tokio runtime, yet line 317 uses blocking `std::fs::write` to write `concat_list.txt`. The same pattern exists in `documentary/pipeline.rs:195`. Pass 4 fixed this for `parse_script` (which no longer writes files), but the concat-list writes in both pipeline files were not addressed. The file is small so the blocking duration is negligible, but it is inconsistent with the async pattern used elsewhere in the same function (e.g., `tokio::fs::write` at `pipeline.rs:134`).
 
 **Fix:**
 ```rust
-if self.voice_rate <= 0.0 || self.voice_rate > 5.0 {
-    return Err(format!("voice_rate 超出有效范围 (0, 5]: {}", self.voice_rate));
-}
-```
-
-### WR-02: Duplicated repair steps in `repair_json` code paths
-
-**File:** `src/sde/script_gen.rs:147-186` and `189-221`
-**Issue:** Steps 3-6 (extract JSON object, fix double braces, fix trailing commas, fix single quotes) are duplicated between the "code fence found" branch (lines 149-183) and the "no code fence" branch (lines 192-219). These 70+ lines are near-identical. Any fix to one path must be mirrored in the other, creating a maintenance hazard.
-
-**Fix:** Extract the repair steps into a helper function:
-```rust
-fn apply_repair_steps(result: String) -> String {
-    let mut result = result;
-    // Steps 3-6 ...
-    result
-}
-
-// Then in repair_json:
-if without_fence != text {
-    let result = apply_repair_steps(without_fence);
-    return result;
-}
-apply_repair_steps(text.to_string())
-```
-
-### WR-03: Unguarded `unwrap()` in `find_precise_range` on non-empty matched vector
-
-**File:** `src/sde/timestamp.rs:119-120`
-**Issue:** `matched.first().unwrap()` and `matched.last().unwrap()` are called after the `matched.is_empty()` check on line 115, so these are safe. However, the code relies on the reader tracing back to the empty check to verify safety. Using `if let` or early return would be more idiomatic.
-
-**Fix:**
-```rust
-let start = matched.first().expect("checked non-empty above").start_secs;
-let end = matched.last().expect("checked non-empty above").end_secs;
-```
-Or use `?` with a conversion. The current code is correct but fragile under future refactoring.
-
-### WR-04: Regex compiled on every call in `has_srt_timecodes` and `normalize_subtitle_text`
-
-**File:** `src/sde/subtitle.rs:13, 171`
-**Issue:** `Regex::new(r"...")` is called inside function bodies, compiling the regex on every invocation. For `parse_subtitle_file` this is called once per file, so the overhead is negligible, but `normalize_subtitle_text` is a public function that could be called repeatedly.
-
-**Fix:** Use `std::sync::LazyLock` (Rust 1.80+) or `lazy_static` to compile once:
-```rust
-static SRT_TIMECODE_RE: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"\d{2}:\d{2}:\d{2}[,.]\d{3}").unwrap());
-
-static MILLIS_SEP_RE: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"(\d{2}:\d{2}:\d{2})[.](\d{3})").unwrap());
-```
-
-### WR-05: Magic number `20` in `has_meaningful_content` threshold
-
-**File:** `src/sde/subtitle.rs:20`
-**Issue:** The function checks `non_whitespace > 20` to determine if content is "meaningful". This magic number has no documentation explaining why 20 was chosen. A very short subtitle file with fewer than 20 non-whitespace characters total would fail encoding detection even if valid.
-
-**Fix:** Extract to a named constant with documentation:
-```rust
-/// Minimum non-whitespace character count to consider decoded content "meaningful"
-/// for encoding detection. Set conservatively to reject random byte noise.
-const MIN_MEANINGFUL_CONTENT_CHARS: usize = 20;
+// Replace line 317:
+tokio::fs::write(&concat_list_path, &concat_content)
+    .await
+    .map_err(|e| SdeError::Io { source: e })?;
 ```
 
 ## Info
 
-### IN-01: `repair_json` single-quote replacement is overly aggressive
+### IN-01: Unused import `OstType` in `script_gen.rs`
 
-**File:** `src/sde/script_gen.rs:178`
-**Issue:** Step 6 replaces ALL single quotes with double quotes when the text contains no double quotes. This breaks content like contractions in English text (`don't` becomes `don"t`) or possessives. The check `!result.contains('"') && result.contains('\'')` is meant to be a heuristic, but it can produce invalid JSON from content that merely contains apostrophes.
+**File:** `src/sde/script_gen.rs:10`
+**Issue:** `use crate::script::types::OstType;` is imported but never used in the file. The Rust compiler emits `warning: unused import`.
+**Fix:** Remove the import line.
 
-**Fix:** Consider replacing only single quotes at JSON string boundaries (immediately after `:` or `[` or `,`), or skip this step entirely and rely on the other repair strategies.
+### IN-02: Dead code -- `has_timecodes` with overly broad heuristic
 
-### IN-02: Temporary task directories are never cleaned up
+**File:** `src/sde/script_gen.rs:14-17`
+**Issue:** The `#[cfg(test)]` function `has_timecodes` checks `text.contains(':')` as a timecode indicator, which matches virtually any text with a colon (e.g., `"error: something"`). The associated test (`test_has_timecodes`) gives false confidence in the detection logic. The subtitle module already has a proper `has_srt_timecodes` using a regex (`\d{2}:\d{2}:\d{2}[,.]\d{3}`) at `subtitle.rs:25-27`.
+**Fix:** Either reuse `subtitle::has_srt_timecodes` or remove the dead function and its test.
 
-**File:** `src/sde/pipeline.rs:679, 712`
-**Issue:** `analyze_subtitle_plot` and `generate_sde_script` create task directories under `temp_dir()` containing plot analysis text and raw narration JSON. These are never cleaned up. In a long-running service process, this accumulates orphaned temp files.
+### IN-03: Dead code -- `extract_text_from_srt` and `extract_text_from_ass`
 
-**Fix:** Consider using `tempfile::TempDir` for automatic cleanup on drop, or add a cleanup step after the API response is returned.
-
-### IN-03: `fix_double_braces` uses byte-index slicing on potentially multi-byte text
-
-**File:** `src/sde/script_gen.rs:249`
-**Issue:** `trimmed[1..trimmed.len() - 1]` uses byte slicing. Since `trimmed` has been verified to start with `{{` and end with `}}` (ASCII characters at positions 0-1 and len-2..len-1), the byte boundaries are valid. However, if the function were ever applied to text starting with multi-byte Unicode characters that look like double braces, this would panic. The current usage is safe since `fix_double_braces` is only called on JSON-like text, but the pattern is fragile.
-
-**Fix:** No action needed for the current code, but a comment explaining the safety assumption would help future maintainers.
-
-### IN-04: `normalize_subtitle_text` only normalizes 3-digit millisecond separators
-
-**File:** `src/sde/subtitle.rs:171`
-**Issue:** The regex `(\d{2}:\d{2}:\d{2})[.](\d{3})` only converts `.` to `,` when the fractional part has exactly 3 digits. Timestamps like `00:00:05.2` or `00:00:05.20` are not normalized. This is handled correctly by `parse_srt_timestamp` which independently handles dot separators, but the normalization function's name and documentation suggest it handles all cases. The inconsistency between the normalization layer and the parsing layer could confuse future contributors.
-
-**Fix:** Update the doc comment to clarify the scope:
-```rust
-/// 标准化毫秒分隔符：仅处理标准的 3 位毫秒格式 (HH:MM:SS.mmm -> HH:MM:SS,mmm)。
-/// 非标准位数 (如 .2 或 .50) 由 parse_srt_timestamp 独立处理。
-```
+**File:** `src/sde/subtitle.rs:357` and `src/sde/subtitle.rs:385`
+**Issue:** Both functions are private and never called from anywhere in the crate. The Rust compiler warns about dead code for both.
+**Fix:** Remove both functions, or annotate with `#[allow(dead_code)]` if intended for future use.
 
 ---
 
-_Reviewed: 2026-05-06T16:30:00Z_
+_Reviewed: 2026-05-06T21:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
