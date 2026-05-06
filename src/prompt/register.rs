@@ -64,19 +64,36 @@ fn register_documentary_prompts(registry: &mut PromptRegistry, errors: &mut Vec<
 }
 
 fn register_short_drama_editing_prompts(registry: &mut PromptRegistry, errors: &mut Vec<PromptError>) {
-    let prompt = Prompt {
+    // subtitle_analysis v2.0 — SDP 第一步：分析字幕叙事结构（D-10）
+    let subtitle_analysis = Prompt {
+        metadata: PromptMetadata {
+            name: "subtitle_analysis".into(), category: "short_drama_editing".into(), version: "v2.0".into(),
+            model_type: ModelType::Text, output_format: OutputFormat::Json,
+            tags: vec!["short-drama-editing".into(), "subtitle-analysis".into(), "sdp".into()],
+            parameters: vec![
+                ParameterDef { name: "subtitle_content".into(), required: true, default: None, description: "字幕内容（含时间码）".into() },
+                ParameterDef { name: "custom_clips".into(), required: false, default: Some("5".into()), description: "建议提取的片段数量".into() },
+            ],
+        },
+        content: include_str!("templates/short_drama_editing/subtitle_analysis_v2.0.md").into(),
+    };
+    if let Err(e) = registry.register(subtitle_analysis, true) { errors.push(e); }
+
+    // plot_extraction v2.0 — SDP 第二步：精确定位关键剧情时间段（D-10）
+    let plot_extraction = Prompt {
         metadata: PromptMetadata {
             name: "plot_extraction".into(), category: "short_drama_editing".into(), version: "v2.0".into(),
             model_type: ModelType::Text, output_format: OutputFormat::PlotAnalysis,
-            tags: vec!["short-drama-editing".into(), "plot-extraction".into(), "text".into()],
+            tags: vec!["short-drama-editing".into(), "plot-extraction".into(), "text".into(), "sdp".into()],
             parameters: vec![
-                ParameterDef { name: "subtitle_content".into(), required: true, default: None, description: "字幕内容".into() },
-                ParameterDef { name: "language".into(), required: false, default: Some("zh-CN".into()), description: "输出语言".into() },
+                ParameterDef { name: "subtitle_content".into(), required: true, default: None, description: "字幕内容（含时间码）".into() },
+                ParameterDef { name: "plot_summary".into(), required: true, default: None, description: "剧情梗概（来自第一步 analysis）".into() },
+                ParameterDef { name: "plot_titles".into(), required: true, default: None, description: "情节点标题列表".into() },
             ],
         },
         content: include_str!("templates/short_drama_editing/plot_extraction_v2.0.md").into(),
     };
-    if let Err(e) = registry.register(prompt, true) { errors.push(e); }
+    if let Err(e) = registry.register(plot_extraction, true) { errors.push(e); }
 }
 
 fn register_short_drama_narration_prompts(registry: &mut PromptRegistry, errors: &mut Vec<PromptError>) {
@@ -147,9 +164,12 @@ mod tests {
         let result = register_all_prompts(&mut registry);
         assert!(result.is_ok(), "完整注册应成功: {:?}", result.err());
         assert_eq!(registry.list_prompts("documentary").len(), 2);
-        assert_eq!(registry.list_prompts("short_drama_editing").len(), 1);
+        assert_eq!(registry.list_prompts("short_drama_editing").len(), 2);
         assert_eq!(registry.list_prompts("short_drama_narration").len(), 2);
-        // 验证所有三个 prompt 版本均已注册（plot_analysis v1.0 + script_generation v1.0 + v2.0）
+        // 验证 short_drama_editing 分类下两个 prompt 均已注册
+        assert!(registry.get("short_drama_editing", "subtitle_analysis", Some("v2.0")).is_ok());
+        assert!(registry.get("short_drama_editing", "plot_extraction", Some("v2.0")).is_ok());
+        // 验证 short_drama_narration 分类下三个 prompt 版本均已注册
         assert!(registry.get("short_drama_narration", "plot_analysis", Some("v1.0")).is_ok());
         assert!(registry.get("short_drama_narration", "script_generation", Some("v1.0")).is_ok());
         assert!(registry.get("short_drama_narration", "script_generation", Some("v2.0")).is_ok());
