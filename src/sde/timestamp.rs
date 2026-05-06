@@ -168,6 +168,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_srt_single_digit_millis() {
+        // "05.2" means 5 seconds and 200ms, not 5.020s
+        let result = parse_srt_timestamp("00:00:05.2").unwrap();
+        assert!((result - 5.2).abs() < 0.001, "expected 5.2, got {}", result);
+    }
+
+    #[test]
+    fn test_parse_srt_two_digit_millis() {
+        // "05.50" means 5 seconds and 500ms
+        let result = parse_srt_timestamp("00:00:05.50").unwrap();
+        assert!((result - 5.5).abs() < 0.001, "expected 5.5, got {}", result);
+    }
+
+    #[test]
     fn test_parse_srt_invalid_format() {
         let err = parse_srt_timestamp("bad").unwrap_err();
         assert!(matches!(err, SdeError::ParseSubtitle { .. }));
