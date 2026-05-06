@@ -75,7 +75,9 @@ pub(crate) async fn step_tts(
         // Generate per-clip SRT
         if !tts_output.word_boundaries.is_empty() {
             let srt_content = generate_srt_from_word_boundaries(&tts_output.word_boundaries, 0.0);
-            crate::documentary::subtitle::write_srt_file(&srt_content, &srt_path)?;
+            tokio::fs::write(&srt_path, &srt_content)
+                .await
+                .map_err(PipelineError::from)?;
         }
 
         state.tts_results.insert(
