@@ -23,6 +23,7 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具（当前 Python 版
 - ✓ 版本化 Prompt 管理系统 — Python 版已实现
 - ✓ 字幕生成与合并 — Python 版已实现
 - ✓ 剪映草稿导出 — Python 版已实现
+- ✓ SDP 短剧混剪流水线（Rust） — Validated in Phase 8: subtitle extraction, LLM prompts, clip/concat/composite pipeline
 
 ### Active
 
@@ -34,7 +35,7 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具（当前 Python 版
 - [ ] Rust Prompt 系统（版本化、分类注册表、模板渲染）
 - [ ] Rust 纪录片解说流水线（6 步编排）
 - [ ] Rust 短剧解说流水线
-- [ ] Rust 短剧混剪流水线
+- [x] Rust 短剧混剪流水线 — Validated in Phase 8
 - [ ] Rust 配置系统（TOML 加载）
 - [x] Rust 脚本管理（JSON 加载/保存/编辑/校验） — Validated in Phase 5
 - [ ] Rust 状态管理（文件存储，JSON/TOML）
@@ -91,4 +92,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-30 after Phase 12 completion — all 7 TTS engines implemented*
+*Last updated: 2026-05-06 after Phase 08 completion — SDP pipeline complete (5 plans, 22/22 must-haves verified)*
