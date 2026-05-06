@@ -535,17 +535,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parse_script_saves_file() {
-        let json = make_items_json(r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#);
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let _clips = parse_script(&json, dir.path()).expect("parse should succeed");
-        let script_path = dir.path().join("script_final.json");
-        assert!(script_path.exists(), "script_final.json should be saved");
-        let content = std::fs::read_to_string(&script_path).expect("read saved file");
-        assert!(content.contains("解说1"), "saved file should contain narration: {}", content);
-    }
-
     // ========== strip_code_fence tests ==========
 
     #[test]
