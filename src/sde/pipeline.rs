@@ -141,8 +141,8 @@ pub async fn run_sde(
     state.emit_progress(SdeProgressStep::Tts, 50.0, "正在生成配音...");
 
     for clip in &state.script {
-        // D-23: 检测 narration 是否以 "播放原片" 开头 → 跳过 TTS
-        if clip.narration.starts_with("播放原片") {
+        // D-23: "播放原片" 前缀仅对 OST=1 片段跳过 TTS；OST=0/2 仍需 TTS 结果
+        if clip.narration.starts_with("播放原片") && clip.ost == OstType::OriginalSound {
             continue;
         }
         // OST=1 片段使用原始音轨，无需 TTS
@@ -424,7 +424,13 @@ pub async fn run_sde(
                 font_size, ass_color, alignment
             );
         if let Some(ref font) = request.subtitle_font {
-            style.push_str(&format!(",FontName={}", font));
+            let sanitized: String = font
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+                .collect();
+            if !sanitized.is_empty() {
+                style.push_str(&format!(",FontName={}", sanitized));
+            }
         }
         style
     };
