@@ -1,6 +1,6 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-02T21:00:00Z
+reviewed: 2026-05-06T17:20:00Z
 depth: standard
 files_reviewed: 19
 files_reviewed_list:
@@ -26,53 +26,103 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 0
-  info: 0
-  total: 0
-status: clean
+  info: 5
+  total: 5
+status: issues_found
 ---
 
-# Phase 04: Code Review Report (Iteration 15)
+# Phase 04: Code Review Report (Iteration 16)
 
-**Reviewed:** 2026-05-02T21:00:00Z
+**Reviewed:** 2026-05-06T17:20:00Z
 **Depth:** standard
 **Files Reviewed:** 19
-**Status:** clean
+**Status:** issues_found (5 INFO, 0 WARNING, 0 CRITICAL)
 
 ## Summary
 
-对 Phase 04 (prompt-system-visual-analyzer) 进行第 15 次迭代审查（re-review #14）。上一轮审查发现的 3 个 WARNING（WR-14-01/02/03）全部验证修复正确，无回归。5 个 INFO 问题（IN-14-01~05）状态未变，均属于代码风格/维护性建议，不影响正确性。
+对 Phase 04 (prompt-system-visual-analyzer) 进行第 16 次迭代审查。自上次审查（iteration 15, 2026-05-02）以来，commit `bf363c2` 为 `BatchResponse` 添加了 `#[serde(deny_unknown_fields)]`（修复验证），该修复已验证正确应用。
 
-本轮审查未发现新的 CRITICAL、WARNING 或 INFO 问题。Phase 04 审查结果为 **clean**。
+本轮审查未发现新的 CRITICAL 或 WARNING 问题。5 个 INFO 问题（IN-16-01~05）均为代码风格/维护性建议，不影响正确性。
 
 ## Build Verification
 
 | Check | Result | Notes |
 |-------|--------|-------|
-| `cargo check` | PASS | 0 errors, 1 warning (dead_code in `tts::azure_speech`, outside Phase 04 scope) |
-| `cargo clippy --lib` (prompt + visual scope) | PASS | 0 warnings in Phase 04 modules |
+| `cargo check -p narratoai-core` | PASS | 0 errors, 7 warnings (均不在 Phase 04 模块内) |
+| `cargo clippy --lib` (prompt + visual) | PASS | 0 warnings in Phase 04 modules |
 | `cargo test --lib` (prompt + visual) | PASS | 88 passed, 0 failed |
 
 ## Previous Fix Verification
 
 | ID | Fix Commit | Status | Detail |
-|----|-----------|--------|--------|
-| WR-14-01 | e0df0b9 + cb6b12b | PASS | `rename_fast_path_frames()` 第 418-422 行：`meta.len() < 100` 检查正确，小于 100 字节的文件被 `remove_file` 删除并跳过。测试 mock 数据为 200 字节（第 589 行），超过阈值。 |
-| WR-14-02 | fabdf59 | PASS | `BatchResponse` 第 30 行使用 `#[serde(rename = "frame_observations")]`，而非 `alias`。反序列化和序列化均使用一致的字段名。测试 `test_parse_and_retry_batch_response` 验证 `frame_observations` 键名正确解析。 |
-| WR-14-03 | 3695d93 | PASS | `extract_frames_fallback()` 第 242-248 行：错误消息包含 `errors.iter().take(5).cloned().collect::<Vec<_>>().join("; ")`，保留前 5 个错误详情。格式为 `"所有帧提取均失败 (N 个错误): detail1; detail2; ..."`。 |
+|----|-----------|--------|-------|
+| BatchResponse deny_unknown_fields | bf363c2 | PASS | `analyzer.rs` 第 29 行 `#[serde(deny_unknown_fields)]` 已正确添加。`BatchResponse` 使用 `#[serde(rename = "frame_observations")]`，反序列化字段名一致。测试 `test_parse_and_retry_batch_response` 验证通过。 |
 
-## Info Status (Unchanged)
+## Info Findings
 
-| ID | Status | Notes |
-|----|--------|-------|
-| IN-14-01 | Still present | `template.rs` 第 118/132/141 行，filter_re 3 次独立迭代。不影响正确性。 |
-| IN-14-02 | Still present | `manager.rs` 第 112 行，`validate_output(&self, ...)` 未使用 `self`。API 风格问题。 |
-| IN-14-03 | Still present | `frame_extractor.rs` 第 470 行，`seconds_to_hhmmssmmm` 的 `#[allow(dead_code)]` 多余（函数被广泛使用）。 |
-| IN-14-04 | Still present | `frame_extractor.rs` 第 562 行，`parse_frame_number_from_name` 的 `#[allow(dead_code)]` 多余（有对应测试）。 |
-| IN-14-05 | Still present | `types.rs` 第 44-49 行，`strip_code_fence` 中 `text.trim()` 冗余调用 3 次。 |
+### IN-16-01: template.rs — filter_re 三次独立迭代
+
+**File:** `src/prompt/template.rs`
+**Lines:** 118, 132, 141
+**Severity:** INFO
+**Category:** performance (minor)
+
+`filter_re.captures_iter(&result)` 被独立执行三次：校验变量存在性（第 118 行）、校验过滤器名（第 132 行）、应用替换（第 141 行）。可合并为单次迭代同时完成校验和替换，减少冗余正则扫描。
+
+**Impact:** 对于典型模板尺寸（<10KB），性能影响可忽略。纯代码维护性问题。
+
+### IN-16-02: manager.rs — validate_output 的 &self 未使用
+
+**File:** `src/prompt/manager.rs`
+**Line:** 112
+**Severity:** INFO
+**Category:** api-style
+
+`validate_output(&self, output: &str, format: &OutputFormat)` 接收 `&self` 但内部完全未使用，直接委托给 `validators::validate_output`。这是外观模式的 API 一致性设计，所有方法都通过 `&self` 调用，但会触发 clippy `unused_self` 警告（如果启用的话）。
+
+**Impact:** API 风格问题。可考虑将此方法改为关联函数或移到模块级别。
+
+### IN-16-03: frame_extractor.rs — seconds_to_hhmmssmmm 的 #[allow(dead_code)] 多余
+
+**File:** `src/visual/frame_extractor.rs`
+**Line:** 470
+**Severity:** INFO
+**Category:** code-cleanliness
+
+`seconds_to_hhmmssmmm` 函数在 `rename_fast_path_frames`（第 452 行）和测试中被广泛使用。`#[allow(dead_code)]` 标注可安全移除。
+
+**Impact:** 不影响功能。多余的 allow 注解可能误导维护者认为该函数未被使用。
+
+### IN-16-04: frame_extractor.rs — parse_frame_number_from_name 的 #[allow(dead_code)] 多余
+
+**File:** `src/visual/frame_extractor.rs`
+**Line:** 562
+**Severity:** INFO
+**Category:** code-cleanliness
+
+`parse_frame_number_from_name` 函数有对应的单元测试（第 674-683 行）。`#[allow(dead_code)]` 标注可安全移除。
+
+**Impact:** 同 IN-16-03。
+
+### IN-16-05: types.rs — strip_code_fence 中 trim() 冗余调用
+
+**File:** `src/visual/types.rs`
+**Lines:** 45, 47, 49
+**Severity:** INFO
+**Category:** code-cleanliness
+
+`strip_code_fence` 函数中对 `text.trim()` 调用了 3 次：
+- 第 45 行：`text.trim().strip_prefix("```json")`
+- 第 47 行：`text.trim().strip_prefix("```")`
+- 第 49 行：`s.trim().trim_end_matches("```").trim()`
+
+第 45 行已执行 trim，后续 `or_else` 分支中的 `text.trim()` 再次执行相同操作是冗余的（因为 if 第一个分支没匹配，text 本身未改变）。可提前 `let text = text.trim();` 统一处理。
+
+**Impact:** 性能可忽略（字符串 trim 是 O(n) 且输入通常很小）。纯代码风格问题。
 
 ---
 
-_Reviewed: 2026-05-02T21:00:00Z_
+_Reviewed: 2026-05-06T17:20:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 15_
+_Iteration: 16_
