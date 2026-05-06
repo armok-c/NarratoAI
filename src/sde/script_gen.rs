@@ -10,6 +10,7 @@ use crate::script::types::OstType;
 use crate::script::types::Script;
 
 /// 检查文本中是否包含 SRT 时间戳模式
+#[cfg(test)]
 fn has_timecodes(text: &str) -> bool {
     text.contains("-->") || text.contains(':')
 }
