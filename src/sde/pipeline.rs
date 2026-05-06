@@ -5,9 +5,9 @@ use crate::config::types::{AppConfig, ProxySection};
 use crate::documentary::audio::{calculate_clip_duration, merge_audio_files, merge_subtitle_files};
 use crate::documentary::clip::clip_all_videos;
 use crate::documentary::error::PipelineError;
-use crate::documentary::subtitle::{generate_srt_from_word_boundaries, write_srt_file};
+use crate::documentary::subtitle::generate_srt_from_word_boundaries;
 use crate::documentary::timestamp::{parse_time_to_secs, secs_to_ffmpeg_time, secs_to_srt_time};
-use crate::documentary::types::{DocumentaryRequest, TtsResult};
+use crate::documentary::types::TtsResult;
 use crate::ffmpeg::command::run_ffmpeg;
 use crate::llm::provider::LlmProvider;
 use crate::llm::registry::Registry;
@@ -49,7 +49,7 @@ pub async fn run_sde(
         .output_dir
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("narratoai").join(&task_id));
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     // 2. 初始化流水线状态
     let mut state = SdePipelineState::new(task_id, task_dir);
@@ -125,6 +125,17 @@ pub async fn run_sde(
     // G5: Empty Script Guard — parse_script 检查 clips.is_empty()
     state.script = parse_script(&state.narration_raw, &state.task_dir)?;
 
+    // 保存最终脚本（异步 I/O，避免阻塞 tokio runtime）
+    {
+        let script_json = serde_json::to_string_pretty(&state.script)
+            .map_err(|e| SdeError::JsonRepair {
+                details: format!("序列化脚本失败: {}", e),
+            })?;
+        tokio::fs::write(state.task_dir.join("script_final.json"), &script_json)
+            .await
+            .map_err(|e| SdeError::Io { source: e })?;
+    }
+
     // G2: Timestamp Non-Overlap Guard
     detect_and_abort_overlaps(&state.script)?;
 
@@ -141,8 +152,8 @@ pub async fn run_sde(
     state.emit_progress(SdeProgressStep::Tts, 50.0, "正在生成配音...");
 
     for clip in &state.script {
-        // D-23: 检测 narration 是否以 "播放原片" 开头 → 跳过 TTS
-        if clip.narration.starts_with("播放原片") {
+        // D-23: "播放原片" 前缀仅对 OST=1 片段跳过 TTS；OST=0/2 仍需 TTS 结果
+        if clip.narration.starts_with("播放原片") && clip.ost == OstType::OriginalSound {
             continue;
         }
         // OST=1 片段使用原始音轨，无需 TTS
@@ -170,7 +181,9 @@ pub async fn run_sde(
         if !tts_output.word_boundaries.is_empty() {
             let srt_content =
                 generate_srt_from_word_boundaries(&tts_output.word_boundaries, 0.0);
-            write_srt_file(&srt_content, &srt_path)?;
+            tokio::fs::write(&srt_path, &srt_content)
+                .await
+                .map_err(|e| SdeError::Io { source: e })?;
         }
 
         state.tts_results.insert(
@@ -289,18 +302,23 @@ pub async fn run_sde(
     let mut concat_content = String::new();
     for clip in &state.script {
         if let Some(ref video_path) = clip.video {
-            let path_str = video_path
-                .to_string_lossy()
-                .replace('\\', "/")
-                .replace("'", "'\\''");
-            concat_content.push_str(&format!("file '{}'\n", path_str));
+            let path_str = video_path.to_string_lossy().replace('\\', "/");
+            if path_str.contains('\n') || path_str.contains('\r') {
+                return Err(SdeError::Validation {
+                    details: format!("视频路径包含非法字符: {}", clip._id),
+                });
+            }
+            let escaped = path_str.replace("'", "'\\''");
+            concat_content.push_str(&format!("file '{}'\n", escaped));
         } else {
             return Err(SdeError::VideoProcess(PipelineError::Concat {
                 details: format!("片段 {} 缺少视频文件", clip._id),
             }));
         }
     }
-    std::fs::write(&concat_list_path, &concat_content)?;
+    tokio::fs::write(&concat_list_path, &concat_content)
+        .await
+        .map_err(|e| SdeError::Io { source: e })?;
 
     let combined_path = state.task_dir.join("merger.mp4");
     let concat_path_str = concat_list_path.to_string_lossy().to_string();
@@ -421,7 +439,13 @@ pub async fn run_sde(
                 font_size, ass_color, alignment
             );
         if let Some(ref font) = request.subtitle_font {
-            style.push_str(&format!(",FontName={}", font));
+            let sanitized: String = font
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+                .collect();
+            if !sanitized.is_empty() {
+                style.push_str(&format!(",FontName={}", sanitized));
+            }
         }
         style
     };
@@ -659,29 +683,6 @@ fn warn_ost_ratio(script: &[ScriptClip]) {
     }
 }
 
-/// 从 SdeRequest 构建 DocumentaryRequest（参数对齐）
-fn build_doc_request(request: &SdeRequest, task_dir: &Path) -> DocumentaryRequest {
-    DocumentaryRequest {
-        video_path: request.video_path.clone(),
-        script_path: task_dir.join("script_final.json"),
-        tts_engine: request.tts_engine.clone(),
-        voice_name: request.voice_name.clone(),
-        voice_rate: request.voice_rate,
-        voice_pitch: request.voice_pitch,
-        tts_volume: request.tts_volume,
-        original_volume: request.original_volume,
-        bgm_volume: request.bgm_volume,
-        bgm_path: request.bgm_path.clone(),
-        subtitle_enabled: request.subtitle_enabled,
-        subtitle_font: request.subtitle_font.clone(),
-        subtitle_font_size: request.subtitle_font_size,
-        subtitle_color: request.subtitle_color.clone(),
-        subtitle_position: request.subtitle_position.clone(),
-        output_dir: Some(task_dir.to_path_buf()),
-        threads: request.threads,
-    }
-}
-
 // ============================================================
 //  独立公开 API（D-07）
 // ============================================================
@@ -697,7 +698,7 @@ pub async fn analyze_subtitle_plot(
 ) -> Result<String, SdeError> {
     let task_id = uuid::Uuid::new_v4().to_string();
     let task_dir = std::env::temp_dir().join("narratoai").join(&task_id);
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     let subtitle_path_clone = subtitle_path.to_path_buf();
     let (segments, text, _encoding) = tokio::task::spawn_blocking(move || {
@@ -730,7 +731,7 @@ pub async fn generate_sde_script(
 ) -> Result<String, SdeError> {
     let task_id = uuid::Uuid::new_v4().to_string();
     let task_dir = std::env::temp_dir().join("narratoai").join(&task_id);
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     let mut state = SdePipelineState::new(task_id, task_dir);
     state.plot_analysis = plot_analysis.to_string();
@@ -834,49 +835,5 @@ mod tests {
         assert_eq!(secs_to_srt_time(0.0), "00:00:00,000");
         assert_eq!(secs_to_srt_time(3661.5), "01:01:01,500");
         assert_eq!(secs_to_srt_time(90.0), "00:01:30,000");
-    }
-
-    // ---- build_doc_request ----
-
-    #[test]
-    fn test_build_doc_request_maps_sde_fields() {
-        let req = SdeRequest {
-            subtitle_path: PathBuf::from("sub.srt"),
-            video_path: PathBuf::from("video.mp4"),
-            drama_name: "测试剧集".to_string(),
-            temperature: 0.7,
-            tts_engine: "edge_tts".to_string(),
-            voice_name: "zh-CN-XiaoyiNeural".to_string(),
-            voice_rate: 1.2,
-            voice_pitch: 0.5,
-            tts_volume: 0.9,
-            original_volume: 0.8,
-            bgm_volume: 0.3,
-            bgm_path: Some(PathBuf::from("bgm.mp3")),
-            subtitle_enabled: true,
-            subtitle_font: Some("font.ttf".to_string()),
-            subtitle_font_size: 36,
-            subtitle_color: "#FFFFFF".to_string(),
-            subtitle_position: "bottom".to_string(),
-            output_dir: Some(PathBuf::from("/tmp/output")),
-            threads: 4,
-        };
-        let task_dir = PathBuf::from("/tmp/task");
-        let doc_req = build_doc_request(&req, &task_dir);
-
-        assert_eq!(doc_req.video_path, req.video_path);
-        assert_eq!(doc_req.tts_engine, req.tts_engine);
-        assert_eq!(doc_req.voice_rate, req.voice_rate);
-        assert_eq!(doc_req.voice_pitch, req.voice_pitch);
-        assert_eq!(doc_req.tts_volume, req.tts_volume);
-        assert_eq!(doc_req.original_volume, req.original_volume);
-        assert_eq!(doc_req.bgm_volume, req.bgm_volume);
-        assert_eq!(doc_req.bgm_path, req.bgm_path);
-        assert_eq!(doc_req.subtitle_font, req.subtitle_font);
-        assert_eq!(doc_req.subtitle_font_size, req.subtitle_font_size);
-        assert_eq!(doc_req.subtitle_color, req.subtitle_color);
-        assert_eq!(doc_req.subtitle_position, req.subtitle_position);
-        assert_eq!(doc_req.threads, req.threads);
-        assert_eq!(doc_req.script_path, task_dir.join("script_final.json"));
     }
 }

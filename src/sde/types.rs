@@ -62,14 +62,20 @@ impl SdeRequest {
         if self.video_path.as_os_str().is_empty() {
             return Err("video_path 不能为空".to_string());
         }
-        if !(0.0..=5.0).contains(&self.voice_rate) || self.voice_rate <= 0.0 {
+        if !self.subtitle_path.exists() {
+            return Err(format!("字幕文件不存在: {}", self.subtitle_path.display()));
+        }
+        if !self.video_path.exists() {
+            return Err(format!("视频文件不存在: {}", self.video_path.display()));
+        }
+        if self.voice_rate <= 0.0 || self.voice_rate > 5.0 {
             return Err(format!("voice_rate 超出有效范围 (0, 5]: {}", self.voice_rate));
         }
         if !(-10.0..=10.0).contains(&self.voice_pitch) {
             return Err(format!("voice_pitch 超出有效范围 [-10, 10]: {}", self.voice_pitch));
         }
-        if !(0.0..=10.0).contains(&self.tts_volume) {
-            return Err(format!("tts_volume 超出有效范围 [0, 10]: {}", self.tts_volume));
+        if self.tts_volume <= 0.0 || self.tts_volume > 10.0 {
+            return Err(format!("tts_volume 超出有效范围 (0, 10]: {}", self.tts_volume));
         }
         if !(0.0..=10.0).contains(&self.original_volume) {
             return Err(format!("original_volume 超出有效范围 [0, 10]: {}", self.original_volume));
@@ -79,6 +85,11 @@ impl SdeRequest {
         }
         if self.threads == 0 {
             return Err("threads 必须大于 0".to_string());
+        }
+        // 校验 subtitle_color 为 #RRGGBB 格式
+        let hex = self.subtitle_color.trim_start_matches('#');
+        if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("subtitle_color 必须为 #RRGGBB 格式".to_string());
         }
         Ok(())
     }
@@ -161,9 +172,14 @@ mod tests {
 
     #[test]
     fn test_sde_request_validate_valid() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("sub.srt");
+        let vid = dir.path().join("video.mp4");
+        std::fs::write(&sub, "").unwrap();
+        std::fs::write(&vid, "").unwrap();
         let req = SdeRequest {
-            subtitle_path: PathBuf::from("sub.srt"),
-            video_path: PathBuf::from("video.mp4"),
+            subtitle_path: sub,
+            video_path: vid,
             ..Default::default()
         };
         assert!(req.validate().is_ok());

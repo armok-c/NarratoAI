@@ -4,12 +4,14 @@ use std::path::Path;
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::prompt::manager::PromptManager;
+use crate::prompt::types::OutputFormat;
 use crate::sde::error::SdeError;
 use crate::sde::types::SdePipelineState;
 use crate::script::types::OstType;
 use crate::script::types::Script;
 
 /// 检查文本中是否包含 SRT 时间戳模式
+#[cfg(test)]
 fn has_timecodes(text: &str) -> bool {
     text.contains("-->") || text.contains(':')
 }
@@ -50,6 +52,13 @@ pub async fn step_analyze_plot(
         .await
         .map_err(|e| SdeError::PlotAnalysis {
             details: format!("LLM 调用失败: {}", e),
+        })?;
+
+    // 校验 LLM 输出格式
+    prompt_manager
+        .validate_output(&result, &OutputFormat::Text)
+        .map_err(|e| SdeError::PlotAnalysis {
+            details: format!("LLM 输出校验失败: {}", e),
         })?;
 
     // 保存中间产物
@@ -104,6 +113,13 @@ pub async fn step_generate_script(
             details: format!("LLM 调用失败: {}", e),
         })?;
 
+    // 校验 LLM 输出格式
+    prompt_manager
+        .validate_output(&result, &OutputFormat::Json)
+        .map_err(|e| SdeError::ScriptGeneration {
+            details: format!("LLM 输出校验失败: {}", e),
+        })?;
+
     // 保存中间产物
     let raw_path = state.task_dir.join("narration_raw.json");
     tokio::fs::write(&raw_path, &result)
@@ -142,50 +158,16 @@ pub fn repair_json(raw: &str) -> String {
         if serde_json::from_str::<serde_json::Value>(&without_fence).is_ok() {
             return without_fence;
         }
-        // Continue with the stripped text for subsequent steps
-        let mut result = without_fence;
-
-        // Step 3: First JSON object extraction
-        if serde_json::from_str::<serde_json::Value>(&result).is_err() {
-            if let Some(extracted) = extract_first_json_object(&result) {
-                if serde_json::from_str::<serde_json::Value>(&extracted).is_ok() {
-                    return extracted;
-                }
-                result = extracted;
-            }
-        }
-
-        // Step 4: Double braces
-        if serde_json::from_str::<serde_json::Value>(&result).is_err() {
-            let fixed = fix_double_braces(&result);
-            if serde_json::from_str::<serde_json::Value>(&fixed).is_ok() {
-                return fixed;
-            }
-            result = fixed;
-        }
-
-        // Step 5: Trailing comma
-        if serde_json::from_str::<serde_json::Value>(&result).is_err() {
-            let fixed = fix_trailing_commas(&result);
-            if serde_json::from_str::<serde_json::Value>(&fixed).is_ok() {
-                return fixed;
-            }
-            result = fixed;
-        }
-
-        // Step 6: Single quotes to double quotes
-        if !result.contains('"') && result.contains('\'') {
-            let fixed = result.replace('\'', "\"");
-            if serde_json::from_str::<serde_json::Value>(&fixed).is_ok() {
-                return fixed;
-            }
-        }
-
-        return result;
+        return apply_repair_steps(without_fence);
     }
 
     // No code fence found, try steps 3-6 on original text
-    let mut result = text.to_string();
+    apply_repair_steps(text.to_string())
+}
+
+/// 应用 JSON 修复步骤 3-6（步骤 3: 首对象提取, 4: 双大括号, 5: 尾逗号, 6: 单引号）
+fn apply_repair_steps(input: String) -> String {
+    let mut result = input;
 
     // Step 3: First JSON object extraction
     if let Some(extracted) = extract_first_json_object(&result) {
@@ -227,7 +209,9 @@ fn strip_code_fence(text: &str) -> String {
     if let Some(start) = text.find("```") {
         let after_start = &text[start + 3..];
         // Skip optional json/json5 tag
-        let after_tag = if after_start.starts_with("json") || after_start.starts_with("json5") {
+        let after_tag = if after_start.starts_with("json5") {
+            &after_start[5..]
+        } else if after_start.starts_with("json") {
             &after_start[4..]
         } else {
             after_start
@@ -313,8 +297,9 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 /// 3. 获取数组（顶层数组或 items/clips 字段）
 /// 4. 逐项反序列化为 ScriptClip（缺失 OST 默认 0，无效项跳过）
 /// 5. 通过 crate::script::validate 校验
-/// 6. 保存最终脚本到 task_dir/script_final.json
-pub fn parse_script(raw_json: &str, task_dir: &Path) -> Result<Script, SdeError> {
+///
+/// 注意：调用方负责将结果异步保存到 `task_dir/script_final.json`。
+pub fn parse_script(raw_json: &str, _task_dir: &Path) -> Result<Script, SdeError> {
     let repaired = repair_json(raw_json);
 
     let value: serde_json::Value = serde_json::from_str(&repaired).map_err(|e| {
@@ -366,13 +351,6 @@ pub fn parse_script(raw_json: &str, task_dir: &Path) -> Result<Script, SdeError>
     crate::script::validate(&clips).map_err(|e| SdeError::Validation {
         details: format!("脚本校验失败: {}", e),
     })?;
-
-    // 保存最终脚本
-    let script_path = task_dir.join("script_final.json");
-    let json_str = serde_json::to_string_pretty(&clips).map_err(|e| SdeError::JsonRepair {
-        details: format!("序列化脚本失败: {}", e),
-    })?;
-    std::fs::write(&script_path, &json_str).map_err(|e| SdeError::Io { source: e })?;
 
     Ok(clips)
 }
@@ -555,17 +533,6 @@ mod tests {
             Err(SdeError::JsonRepair { .. }) => {}
             _ => panic!("Expected JsonRepair error, got: {:?}", result),
         }
-    }
-
-    #[test]
-    fn test_parse_script_saves_file() {
-        let json = make_items_json(r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#);
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let _clips = parse_script(&json, dir.path()).expect("parse should succeed");
-        let script_path = dir.path().join("script_final.json");
-        assert!(script_path.exists(), "script_final.json should be saved");
-        let content = std::fs::read_to_string(&script_path).expect("read saved file");
-        assert!(content.contains("解说1"), "saved file should contain narration: {}", content);
     }
 
     // ========== strip_code_fence tests ==========
