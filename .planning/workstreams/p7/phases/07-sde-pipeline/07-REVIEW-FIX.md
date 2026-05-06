@@ -1,103 +1,79 @@
 ---
 phase: 07-sde-pipeline
-fixed_at: 2026-05-06T13:00:00Z
+fixed_at: 2026-05-06T17:00:00Z
 review_path: .planning/workstreams/p7/phases/07-sde-pipeline/07-REVIEW.md
-iteration: 1
-findings_in_scope: 10
-fixed: 8
-skipped: 2
+iteration: 2
+findings_in_scope: 7
+fixed: 7
+skipped: 0
 status: all_fixed
 ---
 
-# Phase 07: Code Review Fix Report
+# Phase 07: Code Review Fix Report (Second Pass)
 
-**Fixed at:** 2026-05-06T13:00:00Z
+**Fixed at:** 2026-05-06T17:00:00Z
 **Source review:** .planning/workstreams/p7/phases/07-sde-pipeline/07-REVIEW.md
-**Iteration:** 1
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope: 10
-- Fixed: 8
-- Skipped: 2 (WR-05 subsumed by CR-01, WR-08 not an issue)
+- Findings in scope: 7 (2 Critical, 5 Warning)
+- Fixed: 7
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: Millisecond parsing bug -- single/double digit ms values produce wrong seconds
-
-**Files modified:** `src/sde/timestamp.rs`
-**Commit:** 7d99d76 (fix), c357400 (tests)
-**Applied fix:** Replaced the global `replace('.', ",")` normalization and divisor-based millisecond logic with separator detection (comma vs dot after last colon) and pad-to-3-digit approach. `"05.2"` now correctly parses as 5.200s instead of 5.020s. Added test cases for single-digit and two-digit millisecond values.
-
-### CR-02: Command injection via newlines in FFmpeg concat file paths
-
-**Files modified:** `src/sde/pipeline.rs`
-**Commit:** 81f373e
-**Applied fix:** Added newline/r carriage return validation for video paths before building the FFmpeg concat list. Paths containing `\n` or `\r` now return a validation error instead of allowing injection of arbitrary file directives.
-
-### CR-03: Encoding detection logic inversion for GBK/GB18030
-
-**Files modified:** `src/sde/subtitle.rs`
-**Commit:** 5b42037
-**Applied fix:** Changed `||` to `&&` in both GBK and GB18030 detection blocks, so encodings are only accepted when `!had_errors` AND content is meaningful. Prevents returning garbled data from failed decodes.
-
-### WR-01: Remove dead code build_doc_request
-
-**Files modified:** `src/sde/pipeline.rs`
-**Commit:** 5b4189e
-**Applied fix:** Removed the unused `build_doc_request()` function (22 lines), its test `test_build_doc_request_maps_sde_fields` (41 lines), and the now-unused `DocumentaryRequest` import.
-
-### WR-02: has_timecodes is overly broad
+### CR-01: `strip_code_fence` corrupts `json5`-tagged LLM output
 
 **Files modified:** `src/sde/script_gen.rs`
-**Commit:** cec80a3
-**Applied fix:** Marked `has_timecodes()` with `#[cfg(test)]` since it is only used in test code. The function matches any text with colons (`:`), which would produce false positives in production paths.
+**Commit:** 7c69585
+**Applied fix:** Reordered the `starts_with` checks in `strip_code_fence` so `json5` is checked before `json`. This prevents the `"json5"` tag from being partially stripped to `"5"`, which would corrupt the extracted JSON content.
 
-### WR-03: Remove dead code clip.rs
-
-**Files modified:** `src/sde/clip.rs` (deleted), `src/sde/mod.rs`
-**Commit:** f2488d8
-**Applied fix:** Deleted the entire `src/sde/clip.rs` file (201 lines) and removed `pub mod clip;` from `mod.rs`. The `sde_step_clip()` function was never called; pipeline.rs inlines the OST=1 correction logic directly.
-
-### WR-04: Remove stub module audio.rs
-
-**Files modified:** `src/sde/audio.rs` (deleted), `src/sde/mod.rs`
-**Commit:** 1b933f8
-**Applied fix:** Deleted `src/sde/audio.rs` (23 lines) and removed `pub mod audio;` from `mod.rs`. The stub `sde_step_merge_audio_subtitle()` always returned `Ok(())` with actual logic inlined in pipeline.rs.
-
-### WR-06: SdeRequest::validate() should check path existence
+### CR-02: FFmpeg `amix` filter produces silent output when `tts_volume=0.0`
 
 **Files modified:** `src/sde/types.rs`
-**Commit:** c26cbf5
-**Applied fix:** Added `exists()` checks for `subtitle_path` and `video_path` in `validate()`, returning clear "file not found" errors. Updated `test_sde_request_validate_valid` to create temp files for the existence check.
+**Commit:** 7e48409
+**Applied fix:** Changed `tts_volume` validation from `!(0.0..=10.0).contains()` to `tts_volume <= 0.0 || tts_volume > 10.0`, rejecting zero volume. This prevents the user from inadvertently producing a completely silent video.
 
-### WR-07: Potential panic in normalize_ass_timestamp with empty frac
+### WR-01: Redundant range check in `voice_rate` validation
+
+**Files modified:** `src/sde/types.rs`
+**Commit:** 7e48409
+**Applied fix:** Simplified the `voice_rate` validation from `!(0.0..=5.0).contains(&self.voice_rate) || self.voice_rate <= 0.0` to the equivalent single expression `self.voice_rate <= 0.0 || self.voice_rate > 5.0`.
+
+### WR-02: Duplicated repair steps in `repair_json` code paths
+
+**Files modified:** `src/sde/script_gen.rs`
+**Commit:** 692e834
+**Applied fix:** Extracted the duplicated Steps 3-6 (extract JSON object, fix double braces, fix trailing commas, fix single quotes) into a new `apply_repair_steps()` helper function. Both the "code fence found" and "no code fence" branches now call this helper, eliminating ~70 lines of duplicated logic. All 28 existing unit tests pass.
+
+### WR-03: Unguarded `unwrap()` in `find_precise_range`
+
+**Files modified:** `src/sde/timestamp.rs`
+**Commit:** 579e8b8
+**Applied fix:** Replaced bare `.unwrap()` calls on `matched.first()` and `matched.last()` with `.expect("checked non-empty above")` to provide a clear message if the invariant is ever violated during refactoring.
+
+### WR-04: Regex compiled on every call in `has_srt_timecodes` and `normalize_subtitle_text`
 
 **Files modified:** `src/sde/subtitle.rs`
-**Commit:** f55efc3
-**Applied fix:** Added explicit empty `frac` guard before padding logic: if `frac.is_empty()`, return `"000"` instead of relying on format string behavior. Makes the edge case handling explicit and robust.
+**Commit:** 26fd4bd
+**Applied fix:** Introduced two `std::sync::LazyLock<Regex>` statics (`SRT_TIMECODE_RE` and `MILLIS_SEP_RE`) to compile regexes once at first use instead of on every function call.
 
-## Skipped Issues
+### WR-05: Magic number `20` in `has_meaningful_content` threshold
 
-### WR-05: parse_srt_timestamp rejects valid timestamps with 0 milliseconds
-
-**File:** `src/sde/timestamp.rs:57-68`
-**Reason:** Subsumed by CR-01 -- the pad-to-3-digit approach in CR-01 standardizes all millisecond handling including the zero case.
-**Original issue:** Inconsistent handling of millisecond digit counts.
-
-### WR-08: register_all_prompts test asserts only 2 prompts but 3 registered
-
-**File:** `src/prompt/register.rs:151`
-**Reason:** Not an issue -- the registry correctly keys on (category, name, version). `list_prompts` returns only the default version per name, so `.len() == 2` is correct for 2 unique names. The test at lines 153-155 already verifies all 3 versions are retrievable individually.
-**Original issue:** Suspected v1.0 script_generation was silently discarded.
+**Files modified:** `src/sde/subtitle.rs`
+**Commit:** 26fd4bd
+**Applied fix:** Extracted the magic number `20` into a named constant `MIN_MEANINGFUL_CONTENT_CHARS` with documentation explaining its purpose and rationale.
 
 ## Verification
 
 - `cargo check`: Compiles with 0 errors (4 pre-existing warnings unrelated to fixes)
-- `cargo test --lib`: 512 passed, 0 failed, 1 ignored
-- Pre-existing doctest failure in `src/tts/common.rs` (Unicode arrow in doc comment) -- not related to any fix
+- `cargo test --lib sde::script_gen`: 28 passed
+- `cargo test --lib sde::timestamp`: 12 passed
+- `cargo test --lib sde::subtitle`: 30 passed
+- All modified files verified by re-reading and syntax check
 
 ---
 
-_Fixed: 2026-05-06T13:00:00Z_
+_Fixed: 2026-05-06T17:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
