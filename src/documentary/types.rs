@@ -62,8 +62,8 @@ impl DocumentaryRequest {
         if self.voice_pitch < -10.0 || self.voice_pitch > 10.0 {
             return Err(format!("voice_pitch 超出有效范围 [-10, 10]: {}", self.voice_pitch));
         }
-        if self.tts_volume < 0.0 || self.tts_volume > 10.0 {
-            return Err(format!("tts_volume 超出有效范围 [0, 10]: {}", self.tts_volume));
+        if self.tts_volume <= 0.0 || self.tts_volume > 10.0 {
+            return Err(format!("tts_volume 超出有效范围 (0, 10]: {}", self.tts_volume));
         }
         if self.original_volume < 0.0 || self.original_volume > 10.0 {
             return Err(format!("original_volume 超出有效范围 [0, 10]: {}", self.original_volume));

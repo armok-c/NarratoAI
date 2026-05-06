@@ -5,7 +5,7 @@ use crate::config::types::{AppConfig, ProxySection};
 use crate::documentary::audio::{calculate_clip_duration, merge_audio_files, merge_subtitle_files};
 use crate::documentary::clip::clip_all_videos;
 use crate::documentary::error::PipelineError;
-use crate::documentary::subtitle::{generate_srt_from_word_boundaries, write_srt_file};
+use crate::documentary::subtitle::generate_srt_from_word_boundaries;
 use crate::documentary::timestamp::{parse_time_to_secs, secs_to_ffmpeg_time, secs_to_srt_time};
 use crate::documentary::types::TtsResult;
 use crate::ffmpeg::command::run_ffmpeg;
@@ -181,7 +181,9 @@ pub async fn run_sde(
         if !tts_output.word_boundaries.is_empty() {
             let srt_content =
                 generate_srt_from_word_boundaries(&tts_output.word_boundaries, 0.0);
-            write_srt_file(&srt_content, &srt_path)?;
+            tokio::fs::write(&srt_path, &srt_content)
+                .await
+                .map_err(|e| SdeError::Io { source: e })?;
         }
 
         state.tts_results.insert(
