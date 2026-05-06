@@ -1,8 +1,8 @@
 ---
 phase: 01-foundation
-reviewed: 2026-04-29T12:00:00Z
+reviewed: 2026-05-06T16:30:00Z
 depth: standard
-iteration: 3
+iteration: 4
 files_reviewed: 14
 files_reviewed_list:
   - Cargo.toml
@@ -22,45 +22,53 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 3
-  info: 6
-  total: 9
+  info: 5
+  total: 8
 status: issues_found
 previous_reviews:
   - path: .planning/phases/01-foundation/01-REVIEW.md
-    iteration: 2
-    date: 2026-04-28
-    findings: "0 critical, 1 warning (WR-06), 4 info"
+    iteration: 3
+    date: 2026-04-29
+    findings: "0 critical, 3 warning (WR-07, WR-08, WR-09), 6 info"
 ---
 
-# Phase 01: Code Review Report (Iteration 3)
+# Phase 01: Code Review Report (Iteration 4)
 
-**Reviewed:** 2026-04-29T12:00:00Z
+**Reviewed:** 2026-05-06T16:30:00Z
 **Depth:** standard (逐文件分析，语言特定检查)
-**Iteration:** 3 (全量复审)
+**Iteration:** 4 (全量复审)
 **Files Reviewed:** 14
 **Status:** issues_found
 
 ## Summary
 
-对 Phase 01 的全部 14 个文件进行了标准深度复审。前两轮审查中的 6 个修复（CR-01, WR-01~WR-05）和第三轮修复（WR-06）均已验证通过，未发现回归。
+对 Phase 01 的全部 14 个文件进行了标准深度复审。前序修复中 WR-08（密钥序列化泄露）已确认修复——所有密钥字段现在使用 `#[serde(skip_serializing)]`。
 
-本轮新发现 3 个 WARNING 级别问题和 6 个 INFO 级别问题。无 CRITICAL 级别问题。WARNING 级别问题集中在：配置热加载的竞态窗口、硬编码超时常量、以及 API 密钥序列化泄露风险。
+本轮确认 WR-07（notify RC）和 WR-09（硬编码超时）仍然存在，发现 1 个新的 WARNING 级别问题：`detect_hw_encoders` 在 FFmpeg 二进制不存在时返回 `Err`，但关联测试假定始终返回 `Ok`，导致测试在无 FFmpeg 环境下 panic。
+
+## Test Verification
+
+```
+cargo build: PASS (9 warnings, 0 errors)
+cargo test: FAILED — 563 passed, 1 failed, 1 ignored
+  FAILING: ffmpeg::hwaccel::tests::test_detect_encoders_format
+    panicked at "detect_hw_encoders 不应失败"
+```
 
 ---
 
 ## Previous Fix Verification
 
-所有前序修复均已验证，未发现回归：
-
 | ID | Description | Status |
 |----|-------------|--------|
-| CR-01 | HighPerformance profile encoder mismatch | VERIFIED - `hwaccel.rs:47` encoder="h264_nvenc" |
-| WR-01 | Dead-code FFmpegError variants | VERIFIED - Timeout/command.rs:123, BinaryNotFound/hwaccel.rs:138+probe.rs:39 |
-| WR-02 | test_load_example_config existence guard | VERIFIED - config_test.rs:13-16 |
-| WR-03 | test_hot_reload readiness signal | VERIFIED - config_test.rs:172-176, watcher.rs:22,60-62 |
-| WR-04 | Hardcoded credential-like voice_uri default | VERIFIED - defaults.rs:56, now empty string |
-| WR-05 | FfmpegEvent::Error silently swallowed | VERIFIED - command.rs:84,94-96,102-106 |
-| WR-06 | probe_video BinaryNotFound consistency | VERIFIED - probe.rs:25-44 match-based dispatch |
+| CR-01 | HighPerformance profile encoder mismatch | VERIFIED — `hwaccel.rs:47` encoder="h264_nvenc" |
+| WR-01 | Dead-code FFmpegError variants | VERIFIED — 所有变体在后续 Phase 中已使用 |
+| WR-02 | test_load_example_config existence guard | VERIFIED — `config_test.rs:13-16` |
+| WR-03 | test_hot_reload readiness signal | VERIFIED — `config_test.rs:172-176` |
+| WR-04 | Hardcoded credential-like voice_uri default | VERIFIED — `defaults.rs:58` (非密钥，保留为合理默认值) |
+| WR-05 | FfmpegEvent::Error silently swallowed | VERIFIED — `command.rs:107-109` logs + had_errors flag |
+| WR-06 | probe_video BinaryNotFound consistency | VERIFIED — `probe.rs:39-44` match-based dispatch |
+| WR-08 | API key Serialize 泄露 | FIXED — `types.rs` 所有密钥字段已使用 `#[serde(skip_serializing)]` |
 
 ---
 
@@ -70,32 +78,33 @@ previous_reviews:
 
 #### `Cargo.toml`
 
-- 依赖版本合理，均为社区主流 crate
-- `tokio` 使用 `features = ["full"]`，对库 crate 而言稍重但可接受（Phase 1 阶段）
-- `notify = "9.0.0-rc.3"` 使用了发布候选版本（见 WR-07）
-- `ffmpeg-sidecar` 的 `download_ffmpeg` feature 在生产环境可能不需要（见 IN-05）
+- `notify = "9.0.0-rc.3"` RC 版本风险延续（WR-07）
+- `tokio features = ["full"]` 对库 crate 偏重（IN-03）
+- `ffmpeg-sidecar = "2.5.1"` 无 default features — download_ffmpeg 已提取为可选 feature，设计改进
+- 后续 Phase 新增依赖（async-openai, reqwest, symphonia 等）合理
+- **WR-07 延续**
 
 #### `.gitignore`
 
-- 包含大量 Python 项目专用模式（`__pycache__`, `.pyc`, `app/services/__pycache__` 等），对于 Rust 重写项目不理想但无功能影响
-- `config.toml` 已正确 gitignore
-- `target/` 已正确 gitignore
-- `CLAUDE.md` 被忽略但实际已检入代码库（轻微不一致，无影响）
+- `config.toml` 和 `target/` 正确排除
+- `CLAUDE.md` 在 ignore 列表中但已检入——轻微不一致，无功能影响
+- Python 测试白名单模式工作正常
+- **无问题**
 
 #### `src/lib.rs`
 
-- 模块声明清晰：`config`, `error`, `ffmpeg`, `script`
-- `version()` 函数使用 `env!("CARGO_PKG_VERSION")` 编译时注入，模式正确
-- 单元测试验证版本号
-- **注意：** `script` 模块已声明但不在本次审查范围，且用户明确要求审查的文件列表中未包含此模块
+- 16 个 `pub mod` 声明，覆盖所有后续 Phase 添加的模块
+- `version()` 使用 `env!("CARGO_PKG_VERSION")` 编译时注入
+- 测试验证 semver 格式
+- **无问题**
 
 #### `src/error.rs`
 
-- 使用 `thiserror` 派生错误类型，模式正确
-- `ConfigError` 和 `FFmpegError` 两个枚举覆盖了各自领域的错误场景
-- `From<notify::Error> for ConfigError` 实现正确
-- 单元测试覆盖了所有变体的中文错误消息格式
-- 错误消息统一中文，与项目定位一致
+- 4 个错误枚举：ConfigError(5), FFmpegError(5), TTSError(5), LLMError(9)
+- 全部使用 `thiserror` 派生，模式正确
+- `From<notify::Error> for ConfigError` 和 `From<async_openai::error::OpenAIError> for LLMError` 实现
+- LLMError 的 OpenAIError 映射：基于错误码和消息启发式分类，覆盖了 rate limit / auth / content filter 等常见场景
+- 24 个单元测试覆盖所有变体的中文错误消息——充分
 - **无问题**
 
 ---
@@ -104,36 +113,40 @@ previous_reviews:
 
 #### `src/config/types.rs`
 
-- `AppConfig` 包含 10 个 section，结构与 `config.example.toml` 一一对应
-- 所有字段使用 `#[serde(default)]`，缺失字段使用 Default trait 填充，模式正确
-- `#[serde(deny_unknown_fields)]` 在每个 struct 上标注，提供前向兼容保护
-- 单元测试覆盖：完整解析、空 TOML、部分 section、默认值验证
-- **注意：** API 密钥字段（`vision_openai_api_key`, `text_openai_api_key`, `soulvoice.api_key` 等）实现了 `Serialize`，可能在日志或序列化输出中泄露（见 WR-08）
+- 11 个 section struct（含新增 AudioSection）
+- **密钥保护已修复**：所有密钥类字段使用 `#[serde(skip_serializing)]`，序列化时不会泄露
+  - `vision_openai_api_key`, `text_openai_api_key`
+  - `pexels_api_keys`, `pixabay_api_keys`
+  - `azure.speech_key`, `tencent.secret_id/secret_key`
+  - `soulvoice.api_key`, `tts_qwen.api_key`
+  - `doubaotts.ak/sk/token`
+- `#[serde(deny_unknown_fields)]` 在每个 struct 上——前向兼容保护
+- 5 个单元测试覆盖完整解析、空 TOML、部分 section、默认值、validate
+- `test_load_empty_toml` 断言仍然偏弱（IN-06 延续）
+- **无新问题**
 
 #### `src/config/defaults.rs`
 
-- 为 8 个 section 实现了 `Default` trait（`AzureSection` 和 `ProxySection` 使用 derive Default）
-- 默认值与 `config.example.toml` 中的注释值一致
-- API 密钥类字段默认为空字符串，正确
-- **无问题**
+- 8 个手动 Default 实现 + 2 个 derive Default（AzureSection, ProxySection）
+- 新增 AudioSection 默认值，与 config.example.toml 一致
+- `SoulVoiceSection::default()` 的 `voice_uri` 包含硬编码标识符（非密钥，是语音选择参数）
+- **无新问题**
 
 #### `src/config/mod.rs`
 
-- `ConfigManager` 使用 `Arc<RwLock<AppConfig>>` 提供线程安全的配置访问
-- `load()` 方法正确处理文件不存在和解析错误
-- `start_watching()` 和 `start_watching_with_ready()` 提供两种监听初始化方式
-- `get()` 方法使用 `unwrap_or_else(|e| e.into_inner())` 处理 poisoned lock，策略合理
-- `validate()` 方法是预留的 no-op stub（见 IN-01）
-- 单元测试覆盖：文件不存在、有效文件加载
+- `ConfigManager` 使用 `Arc<RwLock<AppConfig>>` 线程安全
+- `get()` 使用 `unwrap_or_else(|e| e.into_inner())` 处理 poisoned lock——策略合理
+- `validate()` 仍为空 stub（IN-01 延续）
+- 2 个单元测试：不存在文件、有效文件加载
+- **无新问题**
 
 #### `src/config/watcher.rs`
 
-- 使用 `notify` crate 的 `RecommendedWatcher` 实现文件监听
-- 监听父目录而非单个文件（`RecursiveMode::NonRecursive`），兼容原子保存工具
-- 按文件名过滤，避免处理不相关事件
-- `ready_signal` 机制设计良好，消除了测试中的固定延时
-- 解析在写锁外完成，仅持有写锁时做指针替换，减少锁竞争
-- **竞态窗口：** 在 `notify` 事件到达和 `reload_file` 执行之间，文件可能已被再次修改或删除，导致 `read_to_string` 失败。当前实现通过 `tracing::error` 记录并跳过，不会 panic，行为可接受（见 IN-02）
+- `notify` RecommendedWatcher 监听父目录，按文件名过滤
+- `ready_signal` 机制消除测试中固定延时
+- 解析在写锁外完成，写锁内仅做指针替换
+- 竞态窗口：notify 事件到达与 reload_file 之间文件可能已变化（IN-02 延续）
+- **无新问题**
 
 ---
 
@@ -141,37 +154,37 @@ previous_reviews:
 
 #### `src/ffmpeg/mod.rs`
 
-- 纯模块声明文件，导出 `command`, `probe`, `hwaccel` 三个子模块
+- 纯模块声明
 - **无问题**
 
 #### `src/ffmpeg/command.rs`
 
-- `clip_video` 函数实现完整：参数构建 -> 进程启动 -> 事件迭代 -> 错误收集 -> 退出检查
-- 进度回调使用 `Arc<ProgressCallback>` 包装，支持在 `spawn_blocking` 闭包中安全使用
-- `parse_time_to_secs` 支持 `HH:MM:SS.mm` 和 `MM:SS.mm` 两种格式
-- 错误处理链：`spawn()` 失败时先 `kill()` + `wait()` 清理孤儿进程
-- 600 秒硬编码超时（见 WR-09）
-- `run_ffmpeg` 泛型 spawn_blocking 包装器设计良好，为后续 Phase 复用预留
-- `test_spawn_blocking_non_blocking` 使用 `Barrier` 验证并发性，测试设计优秀
+- `clip_video` 使用 ffmpeg-sidecar builder + spawn_blocking 异步化
+- `CancellationToken` 桥接超时与阻塞线程——设计良好
+- 600 秒硬编码超时（WR-09 延续）
+- `parse_time_to_secs` 支持 HH:MM:SS.mm 和 MM:SS.mm
+- 错误处理链完整：spawn 失败时 kill + wait 清理孤儿进程
+- 测试：类型检查、无效输入、spawn_blocking 并发性验证
+- **WR-09 延续**
 
 #### `src/ffmpeg/probe.rs`
 
-- `probe_video` 通过 `ffprobe` JSON 输出解析视频信息
-- 使用 `ffmpeg_sidecar::ffprobe::ffprobe_path()` 获取二进制路径
-- `NotFound` 错误正确映射到 `FFmpegError::BinaryNotFound`（WR-06 已修复）
-- `probe_video_async` 通过 `spawn_blocking` 包装同步函数
-- 当找不到 video stream 时返回 `OutputParseError`，正确
-- **无问题**
+- `probe_video` 通过 ffprobe JSON 输出解析视频信息
+- `probe_audio` 新增：通过 ffprobe CSV 输出获取音频时长
+- 两者都正确处理 BinaryNotFound 和非零退出
+- `duration.is_finite()` 验证——防御 NaN/Inf
+- 当找不到 video stream 时返回 `OutputParseError`
+- 2 个单元测试：VideoInfo Debug+Clone、probe_audio 不存在文件
+- **无新问题**
 
 #### `src/ffmpeg/hwaccel.rs`
 
-- `HwAccelProfile` 枚举定义 5 个硬件加速配置，覆盖主流平台
-- `FFmpegProfileInfo` 结构体使用 `&'static str` 和 `&'static [&'static str]`，避免运行时分配
-- `OnceLock` 实现懒加载 profile 表，模式正确
-- `detect_hw_encoders` 调用 `ffmpeg -encoders` 解析输出，编码器检测逻辑合理
-- `recommend_profile` 根据检测结果推荐 profile，逻辑对齐 Python 版
-- 在检测失败时优雅回退到 `UniversalSoftware`
-- **无问题**
+- `HwAccelProfile` 5 个变体，`OnceLock` 懒加载 profile 表
+- `detect_hw_encoders` 调用 `ffmpeg -encoders` 解析输出
+- **新问题 WR-10**：NotFound 返回 `Err(BinaryNotFound)` 但其他错误返回 `Ok(Vec::new())`，导致 `test_detect_encoders_format` 在无 FFmpeg 环境下 panic
+- `recommend_profile` 正确处理 Err 回退到 UniversalSoftware
+- 4 个单元测试（其中 1 个在无 FFmpeg 环境下失败）
+- **WR-10 新发现**
 
 ---
 
@@ -179,19 +192,18 @@ previous_reviews:
 
 #### `tests/config_test.rs`
 
-- 覆盖 6 个测试场景：完整配置加载、最小配置、空配置、不存在文件、默认值、热加载
-- `test_load_example_config` 使用 existence guard 避免在无 example 文件时 panic
-- `test_hot_reload` 使用 readiness signal + 轮询替代固定 sleep，设计优秀
-- 测试隔离良好，每个测试使用独立的 `TempDir`
+- 6 个测试覆盖全部配置场景
+- `test_load_example_config` 使用 existence guard——CI 友好
+- `test_hot_reload` 使用 readiness signal + 轮询——设计优秀
+- TempDir 隔离——良好实践
 - **无问题**
 
 #### `tests/ffmpeg_test.rs`
 
-- `find_ffmpeg()` 辅助函数优雅处理 FFmpeg 不可用的情况
-- `create_test_video()` 使用 lavfi 源生成测试视频，无需外部文件依赖
-- 覆盖 5 个测试场景：视频探测、异步裁剪、硬件编码器检测、profile 推荐、profile 完整性
-- 测试断言充分，包含时长精度检查（`<= 1.5s`）
-- **无问题**
+- 5 个测试：probe、clip、hw 检测、profile 推荐、profile 完整性
+- `find_ffmpeg` 先 PATH 后缓存，不调用 auto_download——避免网络阻塞
+- `create_test_video` 使用 lavfi 源生成——无外部依赖
+- **无新问题**
 
 ---
 
@@ -199,74 +211,63 @@ previous_reviews:
 
 ### Warnings
 
-#### WR-07: notify crate 使用 RC 版本 (9.0.0-rc.3)
+#### WR-07: notify crate 使用 RC 版本 (9.0.0-rc.3) [延续]
 
-**File:** `Cargo.toml:14`
+**File:** `Cargo.toml:19`
 **Severity:** WARNING
 **Category:** 依赖风险
+**Status:** 延续自 Iteration 3，未修复
 
-`notify = "9.0.0-rc.3"` 是发布候选版本。RC 版本可能存在未发现的 bug，且 API 可能在正式发布前变更。对于 Phase 1 基础层而言，稳定性至关重要。
+RC 版本可能存在未发现 bug，API 可能在正式发布前变更。
 
-**Recommendation:** 关注 `notify` 9.0 正式版发布。如果短期内不会发布，考虑降级到 `notify = "8"` 稳定版（API 基本兼容）。这不是阻塞性问题，但应在后续 Phase 开始前评估。
+**Recommendation:** 关注 notify 9.0 正式版发布。如短期不会发布，降级到 `notify = "8"` 稳定版。
 
 ---
 
-#### WR-08: API 密钥字段实现了 Serialize trait，可能在日志/序列化中泄露
+#### WR-09: clip_video 硬编码 600 秒超时 [延续]
 
-**Files:** `src/config/types.rs:40,48,96,105,116,131`
+**File:** `src/ffmpeg/command.rs:141`
 **Severity:** WARNING
-**Category:** 安全
-
-以下字段同时具有 `Serialize` 和 `Deserialize` trait：
-- `AppSection::vision_openai_api_key`
-- `AppSection::text_openai_api_key`
-- `TencentSection::secret_id`, `secret_key`
-- `SoulVoiceSection::api_key`
-- `TtsQwenSection::api_key`
-- `DoubaoTTSSection::ak`, `sk`, `token`
-
-当 `AppConfig` 被序列化（如保存到文件、发送到日志系统、API 响应）时，密钥会明文输出。当前代码中虽然没有显式调用 `serde_json::to_string(&config)` 的路径，但 `Serialize` 的存在意味着任何未来的代码都可以无意中序列化完整配置。
-
-**Recommendation:** 对密钥类字段使用 `#[serde(serialize_with = "redact_secret")]` 或自定义序列化函数，将密钥值替换为 `"***REDACTED***"`。这保持了 `Deserialize` 能力（从文件加载）同时防止序列化泄露。
+**Category:** 可维护性
+**Status:** 延续自 Iteration 3，未修复
 
 ```rust
-fn redact_secret<S: serde::Serializer>(_: S) -> Result<S::Ok, S::Error> {
-    // Never serialize actual secret values
-    unimplemented!("secrets should never be serialized")
+_ = tokio::time::sleep(Duration::from_secs(600)) => {
+```
+
+**Recommendation:** 提取为函数参数或常量。
+
+---
+
+#### WR-10: detect_hw_encoders NotFound 与其他错误处理不一致
+
+**File:** `src/ffmpeg/hwaccel.rs:136-142`
+**Severity:** WARNING
+**Category:** 正确性
+**Status:** 新发现
+
+```rust
+Err(e) => {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return Err(FFmpegError::BinaryNotFound);  // ← 返回 Err
+    }
+    tracing::warn!("...");
+    return Ok(Vec::new());  // ← 其他错误返回 Ok
 }
 ```
 
-或者更实用的方案，在密钥字段上使用 `#[serde(skip_serializing)]` 或自定义 wrapper type。
+`test_detect_encoders_format` 断言 `result.is_ok()`，但在无 FFmpeg 二进制的环境下 `detect_hw_encoders` 返回 `Err(BinaryNotFound)`，导致测试 panic。当前 CI 环境测试失败确认了此问题。
 
----
-
-#### WR-09: clip_video 硬编码 600 秒超时常量
-
-**File:** `src/ffmpeg/command.rs:59`
-**Severity:** WARNING
-**Category:** 可维护性
+**Recommendation:** 统一返回 `Ok(Vec::new())`，与 spawn 失败和非零退出的处理方式一致：
 
 ```rust
-tokio::time::timeout(Duration::from_secs(600), ...)
-```
-
-600 秒（10 分钟）的超时值直接硬编码在函数体内。不同视频长度和编码复杂度可能需要不同的超时时间。长视频裁剪可能超过 10 分钟（例如 4K HEVC 硬件转码），而短视频裁剪 10 分钟超时又过长。
-
-**Recommendation:** 将超时时长提取为函数参数或常量：
-
-```rust
-const DEFAULT_CLIP_TIMEOUT_SECS: u64 = 600;
-
-pub async fn clip_video(
-    input: &Path,
-    output: &Path,
-    start: f64,
-    duration: f64,
-    progress: Option<ProgressCallback>,
-    timeout: Option<Duration>,
-) -> Result<(), FFmpegError> {
-    let timeout = timeout.unwrap_or_else(|| Duration::from_secs(DEFAULT_CLIP_TIMEOUT_SECS));
-    // ...
+Err(e) => {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        tracing::warn!("FFmpeg binary not found — 返回空编码器列表");
+        return Ok(Vec::new());
+    }
+    tracing::warn!("无法启动 ffmpeg: {} — 返回空编码器列表", e);
+    Ok(Vec::new())
 }
 ```
 
@@ -274,41 +275,30 @@ pub async fn clip_video(
 
 ### Info
 
-#### IN-01: AppConfig::validate() 是空 stub，缺少 TODO 标记
+#### IN-01: AppConfig::validate() 空 stub [延续]
 
 **File:** `src/config/mod.rs:73-76`
-**Status:** 继承自前轮，未变更
-**Comment:** 方法注释说明了"Phase 1 不要求 API key 必填"，但方法体中没有 `// TODO: Phase N - 添加配置校验` 标记。建议添加以帮助后续开发者定位。
+**Comment:** 预留方法，无 TODO 标记。
 
-#### IN-02: ConfigWatcher 热加载不保证最终一致性
+#### IN-02: ConfigWatcher 热加载不保证最终一致性 [延续]
 
-**File:** `src/config/watcher.rs:70-71`
-**Status:** 新发现
-**Comment:** `reload_file` 在读取文件时，文件可能正处于原子写入的中间状态（先写临时文件再 rename）。在大多数操作系统上 rename 是原子的，但 `notify` 可能在写入临时文件时就触发事件。当前实现通过错误日志处理此情况，不会 panic，行为可接受。如果需要更严格的保证，可考虑写入后校验文件完整性（如 checksum）。
+**File:** `src/config/watcher.rs:69-74`
+**Comment:** notify 事件与 reload_file 之间有竞态窗口，当前通过 error log 处理，不 panic。
 
-#### IN-03: tokio features = ["full"] 对库 crate 而言偏重
+#### IN-03: tokio features = ["full"] 对库 crate 偏重 [延续]
 
-**File:** `Cargo.toml:7`
-**Status:** 新发现
-**Comment:** `tokio = { version = "1.52.1", features = ["full"] }` 启用了所有 tokio feature。对于库 crate，通常只需 `["rt", "rt-multi-thread", "macros", "time", "sync"]` 等子集。使用 `full` 会增加编译时间和二进制体积。建议在后续 Phase 根据实际使用情况收窄 feature 列表。
+**File:** `Cargo.toml:11`
+**Comment:** 可在后续 Phase 收窄 feature 列表。
 
-#### IN-04: _watcher 字段命名约定
+#### IN-06: test_load_empty_toml 断言不充分 [延续]
 
-**File:** `src/config/mod.rs:16`
-**Status:** 继承自前轮，未变更
-**Comment:** `_watcher` 字段使用下划线前缀表示有意不使用。这是 Rust 惯用的"抑制未使用警告"模式，语义清晰。保留即可。
+**File:** `src/config/types.rs:374-380`
+**Comment:** `let _ = config.app.project_version;` 不验证值。建议改为 `assert!(!config.app.project_version.is_empty())`。
 
-#### IN-05: ffmpeg-sidecar 的 download_ffmpeg feature 在生产环境可能不必要
+#### IN-07: SoulVoiceSection 默认 voice_uri 硬编码标识符 [新]
 
-**File:** `Cargo.toml:13`
-**Status:** 新发现
-**Comment:** `ffmpeg-sidecar = { version = "2.5.1", features = ["download_ffmpeg"] }` 启用了自动下载 FFmpeg 的能力。在生产部署中（特别是 Docker 镜像已内置 FFmpeg 的场景），此 feature 不需要，且可能引入网络依赖。建议在 CI/release 配置中评估是否需要此 feature，或使用 feature flag 条件编译。
-
-#### IN-06: test_load_empty_toml 测试断言不充分
-
-**File:** `src/config/types.rs:311-317`
-**Status:** 继承自前轮，未变更
-**Comment:** 测试使用 `let _ = config.app.project_version;` 验证字段可访问但不验证值。建议改为 `assert!(!config.app.project_version.is_empty())` 或至少断言关键默认值。此为 INFO 级别，不阻塞。
+**File:** `src/config/defaults.rs:58`
+**Comment:** `voice_uri` 包含硬编码的语音标识符 `"speech:mcg3fdnx:..."` 。这不是密钥（是语音选择参数），但该标识符可能随服务端更新失效。无功能影响，仅为可维护性观察。
 
 ---
 
@@ -317,39 +307,36 @@ pub async fn clip_video(
 | Metric | Value |
 |--------|-------|
 | Files reviewed | 14 |
-| Lines of code (source) | ~680 |
-| Lines of code (tests) | ~430 |
-| Total findings | 9 |
+| Total findings | 8 |
 | Critical | 0 |
 | Warning | 3 |
-| Info | 6 |
-| Test coverage | Good - unit + integration |
-| Error handling | Good - thiserror + match-based dispatch |
-| Thread safety | Good - Arc<RwLock> + spawn_blocking |
-| Idiomatic Rust | Good - OnceLock, serde defaults, deny_unknown_fields |
+| Info | 5 |
+| Test result | 563/564 passed, 1 failed (WR-10) |
+| Error handling | Good — thiserror + match-based dispatch |
+| Thread safety | Good — Arc<RwLock> + spawn_blocking |
+| Security | Good — secret fields use skip_serializing |
 
 ## Risk Assessment
 
 | Risk | Level | Details |
 |------|-------|---------|
-| Memory safety | LOW | 无 unsafe 代码，所有并发通过 Arc/RwLock/spawn_blocking 处理 |
-| Error handling | LOW | 错误类型覆盖完整，所有 IO 错误显式处理 |
-| Security | MEDIUM | API 密钥 Serialize trait 可能泄露（WR-08） |
-| Dependency | LOW-MEDIUM | notify RC 版本（WR-07），ffmpeg-sidecar download feature（IN-05） |
-| Concurrency | LOW | RwLock 使用正确，热加载竞态窗口影响有限（IN-02） |
+| Memory safety | LOW | 无 unsafe 代码，Arc/RwLock/spawn_blocking 并发处理 |
+| Security | LOW | 密钥字段已用 skip_serializing 保护 |
+| Test reliability | MEDIUM | test_detect_encoders_format 在无 FFmpeg 环境下失败 (WR-10) |
+| Dependency | LOW-MEDIUM | notify RC 版本 (WR-07) |
 
 ## Recommendation
 
-**状态：可以通过，建议修复 WARNING 级别问题后进入下一 Phase。**
+**状态：可以通过，建议优先修复 WR-10。**
 
-- WR-07（notify RC 版本）：低风险，可在后续 Phase 迁移到稳定版
-- WR-08（密钥序列化）：中等优先级，建议在接入 LLM/TTS 服务前修复（Phase 2-3）
+- WR-10（detect_hw_encoders 不一致）：**高优先级** — 导致测试失败，应立即修复
+- WR-07（notify RC）：低风险，可在正式版发布后迁移
 - WR-09（硬编码超时）：低优先级，建议在视频处理功能完善时重构
 
-Phase 01 代码质量整体优秀：错误处理完善、线程安全设计合理、测试覆盖充分、Rust 惯用模式使用正确。基础层为后续 Phase 的开发奠定了良好的架构基础。
+Phase 01 代码质量整体优秀。WR-08（密钥泄露）已修复，安全性提升。唯一需要关注的是 WR-10 导致的测试不稳定性。
 
 ---
-_Reviewed: 2026-04-29T12:00:00Z_
+_Reviewed: 2026-05-06T16:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 3_
+_Iteration: 4_
