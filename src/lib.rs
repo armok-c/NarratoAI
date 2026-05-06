@@ -12,6 +12,7 @@ pub mod youtube;
 pub mod material;
 pub mod documentary;
 pub mod sde;
+pub mod sdp;
 pub mod subtitle;
 
 /// 库版本号，编译时从 Cargo.toml 注入
