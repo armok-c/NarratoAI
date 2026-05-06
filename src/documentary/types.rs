@@ -74,6 +74,11 @@ impl DocumentaryRequest {
         if self.threads == 0 {
             return Err("threads 必须大于 0".to_string());
         }
+        // 校验 subtitle_color 为 #RRGGBB 格式
+        let hex = self.subtitle_color.trim_start_matches('#');
+        if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("subtitle_color 必须为 #RRGGBB 格式".to_string());
+        }
         Ok(())
     }
 }
