@@ -282,8 +282,9 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 /// 3. 获取数组（顶层数组或 items/clips 字段）
 /// 4. 逐项反序列化为 ScriptClip（缺失 OST 默认 0，无效项跳过）
 /// 5. 通过 crate::script::validate 校验
-/// 6. 保存最终脚本到 task_dir/script_final.json
-pub fn parse_script(raw_json: &str, task_dir: &Path) -> Result<Script, SdeError> {
+///
+/// 注意：调用方负责将结果异步保存到 `task_dir/script_final.json`。
+pub fn parse_script(raw_json: &str, _task_dir: &Path) -> Result<Script, SdeError> {
     let repaired = repair_json(raw_json);
 
     let value: serde_json::Value = serde_json::from_str(&repaired).map_err(|e| {
@@ -335,13 +336,6 @@ pub fn parse_script(raw_json: &str, task_dir: &Path) -> Result<Script, SdeError>
     crate::script::validate(&clips).map_err(|e| SdeError::Validation {
         details: format!("脚本校验失败: {}", e),
     })?;
-
-    // 保存最终脚本
-    let script_path = task_dir.join("script_final.json");
-    let json_str = serde_json::to_string_pretty(&clips).map_err(|e| SdeError::JsonRepair {
-        details: format!("序列化脚本失败: {}", e),
-    })?;
-    std::fs::write(&script_path, &json_str).map_err(|e| SdeError::Io { source: e })?;
 
     Ok(clips)
 }

@@ -125,6 +125,17 @@ pub async fn run_sde(
     // G5: Empty Script Guard — parse_script 检查 clips.is_empty()
     state.script = parse_script(&state.narration_raw, &state.task_dir)?;
 
+    // 保存最终脚本（异步 I/O，避免阻塞 tokio runtime）
+    {
+        let script_json = serde_json::to_string_pretty(&state.script)
+            .map_err(|e| SdeError::JsonRepair {
+                details: format!("序列化脚本失败: {}", e),
+            })?;
+        tokio::fs::write(state.task_dir.join("script_final.json"), &script_json)
+            .await
+            .map_err(|e| SdeError::Io { source: e })?;
+    }
+
     // G2: Timestamp Non-Overlap Guard
     detect_and_abort_overlaps(&state.script)?;
 
