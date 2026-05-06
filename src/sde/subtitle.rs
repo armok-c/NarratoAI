@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use encoding_rs;
 use regex::Regex;
@@ -8,16 +9,27 @@ use crate::sde::error::SdeError;
 use crate::sde::timestamp::parse_srt_timestamp;
 use crate::sde::types::SubtitleSegment;
 
+/// SRT 时间戳正则模式（HH:MM:SS,mmm 或 HH:MM:SS.mmm）
+static SRT_TIMECODE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\d{2}:\d{2}:\d{2}[,.]\d{3}").unwrap());
+
+/// 毫秒分隔符标准化正则（HH:MM:SS.mmm → HH:MM:SS,mmm）
+static MILLIS_SEP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\d{2}:\d{2}:\d{2})[.](\d{3})").unwrap());
+
+/// 判定解码内容"有意义"的最少非空白字符数。
+/// 保守设定以排除随机字节噪音。
+const MIN_MEANINGFUL_CONTENT_CHARS: usize = 20;
+
 /// 检查文本中是否包含 SRT 时间戳模式（HH:MM:SS,mmm 或 HH:MM:SS.mmm）
 fn has_srt_timecodes(text: &str) -> bool {
-    let re = Regex::new(r"\d{2}:\d{2}:\d{2}[,.]\d{3}").unwrap();
-    re.is_match(text)
+    SRT_TIMECODE_RE.is_match(text)
 }
 
 /// 检查文本是否包含有意义的内容（至少有一些可打印字符）
 fn has_meaningful_content(text: &str) -> bool {
     let non_whitespace: usize = text.chars().filter(|c| !c.is_whitespace()).count();
-    non_whitespace > 20
+    non_whitespace > MIN_MEANINGFUL_CONTENT_CHARS
 }
 
 /// 将 u8 切片转换为 UTF-16LE 字符串
@@ -168,8 +180,7 @@ pub fn normalize_subtitle_text(text: &str) -> String {
         .replace('\x00', "");
 
     // 标准化毫秒分隔符：点号 → 逗号（时间戳模式中的点号）
-    let re = Regex::new(r"(\d{2}:\d{2}:\d{2})[.](\d{3})").unwrap();
-    let result = re.replace_all(&result, "$1,$2").to_string();
+    let result = MILLIS_SEP_RE.replace_all(&result, "$1,$2").to_string();
 
     result.trim().to_string()
 }
