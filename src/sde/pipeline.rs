@@ -49,7 +49,7 @@ pub async fn run_sde(
         .output_dir
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("narratoai").join(&task_id));
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     // 2. 初始化流水线状态
     let mut state = SdePipelineState::new(task_id, task_dir);
@@ -698,7 +698,7 @@ pub async fn analyze_subtitle_plot(
 ) -> Result<String, SdeError> {
     let task_id = uuid::Uuid::new_v4().to_string();
     let task_dir = std::env::temp_dir().join("narratoai").join(&task_id);
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     let subtitle_path_clone = subtitle_path.to_path_buf();
     let (segments, text, _encoding) = tokio::task::spawn_blocking(move || {
@@ -731,7 +731,7 @@ pub async fn generate_sde_script(
 ) -> Result<String, SdeError> {
     let task_id = uuid::Uuid::new_v4().to_string();
     let task_dir = std::env::temp_dir().join("narratoai").join(&task_id);
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     let mut state = SdePipelineState::new(task_id, task_dir);
     state.plot_analysis = plot_analysis.to_string();

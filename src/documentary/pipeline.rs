@@ -481,7 +481,7 @@ pub async fn run_documentary(
         .output_dir
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("narratoai").join(&task_id));
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     let mut state = PipelineState {
         task_id,
