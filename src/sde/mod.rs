@@ -1,4 +1,3 @@
-pub mod audio;
 pub mod error;
 pub mod pipeline;
 pub mod script_gen;
