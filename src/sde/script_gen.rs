@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::prompt::manager::PromptManager;
+use crate::prompt::types::OutputFormat;
 use crate::sde::error::SdeError;
 use crate::sde::types::SdePipelineState;
 use crate::script::types::OstType;
@@ -51,6 +52,13 @@ pub async fn step_analyze_plot(
         .await
         .map_err(|e| SdeError::PlotAnalysis {
             details: format!("LLM 调用失败: {}", e),
+        })?;
+
+    // 校验 LLM 输出格式
+    prompt_manager
+        .validate_output(&result, &OutputFormat::Text)
+        .map_err(|e| SdeError::PlotAnalysis {
+            details: format!("LLM 输出校验失败: {}", e),
         })?;
 
     // 保存中间产物
@@ -103,6 +111,13 @@ pub async fn step_generate_script(
         .await
         .map_err(|e| SdeError::ScriptGeneration {
             details: format!("LLM 调用失败: {}", e),
+        })?;
+
+    // 校验 LLM 输出格式
+    prompt_manager
+        .validate_output(&result, &OutputFormat::Json)
+        .map_err(|e| SdeError::ScriptGeneration {
+            details: format!("LLM 输出校验失败: {}", e),
         })?;
 
     // 保存中间产物
