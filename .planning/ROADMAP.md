@@ -160,8 +160,8 @@ Plans:
 
 Plans:
 - **Wave 1** *(no blockers — parallel: plan 01 + plan 02)*
-  - [ ] 08-01-PLAN.md — 公共字幕模块提取（src/subtitle/）：从 SDE 提取为独立模块，更新 SDE 导入路径
-  - [ ] 08-02-PLAN.md — SDP Prompt 模板：subtitle_analysis v2.0 + plot_extraction v2.0 更新 + 注册
+  - [x] 08-01-PLAN.md — 公共字幕模块提取（src/subtitle/）：从 SDE 提取为独立模块，更新 SDE 导入路径
+  - [x] 08-02-PLAN.md — SDP Prompt 模板：subtitle_analysis v2.0 + plot_extraction v2.0 更新 + 注册
 - **Wave 2** *(blocked on Wave 1)*
   - [ ] 08-03-PLAN.md — SDP 基础设施（error/types/mod） + 脚本生成（generate_sdp_script + merge_script）
 - **Wave 3** *(blocked on Wave 2)*
