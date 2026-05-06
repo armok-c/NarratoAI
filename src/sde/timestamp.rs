@@ -116,8 +116,8 @@ pub fn find_precise_range(
         return None;
     }
 
-    let start = matched.first().unwrap().start_secs;
-    let end = matched.last().unwrap().end_secs;
+    let start = matched.first().expect("checked non-empty above").start_secs;
+    let end = matched.last().expect("checked non-empty above").end_secs;
     Some((start, end))
 }
 
