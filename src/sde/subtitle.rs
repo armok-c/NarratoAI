@@ -271,7 +271,11 @@ fn normalize_ass_timestamp(ts: &str) -> String {
             } else {
                 h.to_string()
             };
-            let padded_frac = format!("{:0<3}", frac);
+            let padded_frac = if frac.is_empty() {
+                "000".to_string()
+            } else {
+                format!("{:0<3}", frac)
+            };
             let millis = &padded_frac[..3.min(padded_frac.len())];
             format!("{}:{}:{},{}", padded_h, m, s, millis)
         } else {
