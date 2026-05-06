@@ -167,7 +167,7 @@ Plans:
 - **Wave 3** *(blocked on Wave 2)*
   - [x] 08-04-PLAN.md — SDP 流水线编排（sdp_step_clip + run_sdp + step_concat + step_composite）+ lib.rs
 - **Wave 4** *(no blockers — gap closure)*
-  - [ ] 08-05-PLAN.md — 修复 From&lt;ScriptError&gt; 编译错误 + 清理未使用导入
+  - [x] 08-05-PLAN.md — 修复 From&lt;ScriptError&gt; 编译错误 + 清理未使用导入
 
 ### Phase 9: JianYing Export
 **Goal**: 系统能将项目时间线导出为剪映草稿 JSON 格式，可在剪映专业版中打开编辑
