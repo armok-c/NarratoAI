@@ -102,13 +102,7 @@ pub enum SdeProgressStep {
 pub type SdeProgressCallback = Box<dyn Fn(SdeProgressStep, f32, &str) + Send + Sync>;
 
 /// 字幕段落——解析后的 SRT 条目
-#[derive(Debug, Clone)]
-pub struct SubtitleSegment {
-    pub index: usize,
-    pub start_secs: f64,
-    pub end_secs: f64,
-    pub text: String,
-}
+pub use crate::subtitle::types::SubtitleSegment;
 
 /// SDE 流水线中间状态——贯穿 9 步
 pub struct SdePipelineState {

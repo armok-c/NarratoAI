@@ -15,7 +15,7 @@ use crate::prompt::manager::PromptManager;
 use crate::script::types::{OstType, ScriptClip};
 use crate::sde::error::SdeError;
 use crate::sde::script_gen::{parse_script, step_analyze_plot, step_generate_script};
-use crate::sde::subtitle::parse_subtitle_file;
+use crate::subtitle::parser::parse_subtitle_file;
 use crate::sde::timestamp::find_precise_range;
 use crate::sde::types::{SdePipelineState, SdeProgressStep, SdeRequest};
 
