@@ -75,7 +75,9 @@ pub(crate) async fn step_tts(
         // Generate per-clip SRT
         if !tts_output.word_boundaries.is_empty() {
             let srt_content = generate_srt_from_word_boundaries(&tts_output.word_boundaries, 0.0);
-            crate::documentary::subtitle::write_srt_file(&srt_content, &srt_path)?;
+            tokio::fs::write(&srt_path, &srt_content)
+                .await
+                .map_err(PipelineError::from)?;
         }
 
         state.tts_results.insert(
@@ -184,15 +186,23 @@ pub(crate) async fn step_concat(state: &mut PipelineState) -> Result<(), Pipelin
     for clip in &state.script {
         if let Some(ref video_path) = clip.video {
             // FFmpeg concat demuxer requires forward slashes
-            let path_str = video_path.to_string_lossy().replace('\\', "/").replace("'", "'\\''");
-            concat_content.push_str(&format!("file '{}'\n", path_str));
+            let path_str = video_path.to_string_lossy().replace('\\', "/");
+            if path_str.contains('\n') || path_str.contains('\r') {
+                return Err(PipelineError::Concat {
+                    details: format!("视频路径包含非法字符: {}", clip._id),
+                });
+            }
+            let escaped = path_str.replace("'", "'\\''");
+            concat_content.push_str(&format!("file '{}'\n", escaped));
         } else {
             return Err(PipelineError::Concat {
                 details: format!("片段 {} 缺少视频文件", clip._id),
             });
         }
     }
-    std::fs::write(&concat_list_path, &concat_content)?;
+    tokio::fs::write(&concat_list_path, &concat_content)
+        .await
+        .map_err(PipelineError::from)?;
 
     let output_path = state.task_dir.join("merger.mp4");
     let concat_path = concat_list_path.to_string_lossy().to_string();
@@ -301,7 +311,13 @@ pub(crate) async fn step_composite(
         };
         let mut style = format!("FontSize={},PrimaryColour={},Alignment={}", font_size, ass_color, alignment);
         if let Some(ref font) = request.subtitle_font {
-            style.push_str(&format!(",FontName={}", font));
+            let sanitized: String = font
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+                .collect();
+            if !sanitized.is_empty() {
+                style.push_str(&format!(",FontName={}", sanitized));
+            }
         }
         style
     };
@@ -465,7 +481,7 @@ pub async fn run_documentary(
         .output_dir
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("narratoai").join(&task_id));
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     let mut state = PipelineState {
         task_id,

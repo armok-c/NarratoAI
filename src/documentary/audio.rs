@@ -167,7 +167,9 @@ pub async fn merge_subtitle_files(
 
     let merged = merge_srt_files(&segments)?;
     let output_path = task_dir.join("merged_subtitle.srt");
-    crate::documentary::subtitle::write_srt_file(&merged, &output_path)?;
+    tokio::fs::write(&output_path, &merged)
+        .await
+        .map_err(PipelineError::from)?;
 
     Ok(Some(output_path))
 }
