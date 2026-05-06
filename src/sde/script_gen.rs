@@ -228,7 +228,9 @@ fn strip_code_fence(text: &str) -> String {
     if let Some(start) = text.find("```") {
         let after_start = &text[start + 3..];
         // Skip optional json/json5 tag
-        let after_tag = if after_start.starts_with("json") || after_start.starts_with("json5") {
+        let after_tag = if after_start.starts_with("json5") {
+            &after_start[5..]
+        } else if after_start.starts_with("json") {
             &after_start[4..]
         } else {
             after_start
