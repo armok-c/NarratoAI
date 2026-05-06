@@ -7,7 +7,7 @@ use crate::documentary::clip::clip_all_videos;
 use crate::documentary::error::PipelineError;
 use crate::documentary::subtitle::{generate_srt_from_word_boundaries, write_srt_file};
 use crate::documentary::timestamp::{parse_time_to_secs, secs_to_ffmpeg_time, secs_to_srt_time};
-use crate::documentary::types::{DocumentaryRequest, TtsResult};
+use crate::documentary::types::TtsResult;
 use crate::ffmpeg::command::run_ffmpeg;
 use crate::llm::provider::LlmProvider;
 use crate::llm::registry::Registry;
@@ -662,29 +662,6 @@ fn warn_ost_ratio(script: &[ScriptClip]) {
     }
 }
 
-/// 从 SdeRequest 构建 DocumentaryRequest（参数对齐）
-fn build_doc_request(request: &SdeRequest, task_dir: &Path) -> DocumentaryRequest {
-    DocumentaryRequest {
-        video_path: request.video_path.clone(),
-        script_path: task_dir.join("script_final.json"),
-        tts_engine: request.tts_engine.clone(),
-        voice_name: request.voice_name.clone(),
-        voice_rate: request.voice_rate,
-        voice_pitch: request.voice_pitch,
-        tts_volume: request.tts_volume,
-        original_volume: request.original_volume,
-        bgm_volume: request.bgm_volume,
-        bgm_path: request.bgm_path.clone(),
-        subtitle_enabled: request.subtitle_enabled,
-        subtitle_font: request.subtitle_font.clone(),
-        subtitle_font_size: request.subtitle_font_size,
-        subtitle_color: request.subtitle_color.clone(),
-        subtitle_position: request.subtitle_position.clone(),
-        output_dir: Some(task_dir.to_path_buf()),
-        threads: request.threads,
-    }
-}
-
 // ============================================================
 //  独立公开 API（D-07）
 // ============================================================
@@ -837,49 +814,5 @@ mod tests {
         assert_eq!(secs_to_srt_time(0.0), "00:00:00,000");
         assert_eq!(secs_to_srt_time(3661.5), "01:01:01,500");
         assert_eq!(secs_to_srt_time(90.0), "00:01:30,000");
-    }
-
-    // ---- build_doc_request ----
-
-    #[test]
-    fn test_build_doc_request_maps_sde_fields() {
-        let req = SdeRequest {
-            subtitle_path: PathBuf::from("sub.srt"),
-            video_path: PathBuf::from("video.mp4"),
-            drama_name: "测试剧集".to_string(),
-            temperature: 0.7,
-            tts_engine: "edge_tts".to_string(),
-            voice_name: "zh-CN-XiaoyiNeural".to_string(),
-            voice_rate: 1.2,
-            voice_pitch: 0.5,
-            tts_volume: 0.9,
-            original_volume: 0.8,
-            bgm_volume: 0.3,
-            bgm_path: Some(PathBuf::from("bgm.mp3")),
-            subtitle_enabled: true,
-            subtitle_font: Some("font.ttf".to_string()),
-            subtitle_font_size: 36,
-            subtitle_color: "#FFFFFF".to_string(),
-            subtitle_position: "bottom".to_string(),
-            output_dir: Some(PathBuf::from("/tmp/output")),
-            threads: 4,
-        };
-        let task_dir = PathBuf::from("/tmp/task");
-        let doc_req = build_doc_request(&req, &task_dir);
-
-        assert_eq!(doc_req.video_path, req.video_path);
-        assert_eq!(doc_req.tts_engine, req.tts_engine);
-        assert_eq!(doc_req.voice_rate, req.voice_rate);
-        assert_eq!(doc_req.voice_pitch, req.voice_pitch);
-        assert_eq!(doc_req.tts_volume, req.tts_volume);
-        assert_eq!(doc_req.original_volume, req.original_volume);
-        assert_eq!(doc_req.bgm_volume, req.bgm_volume);
-        assert_eq!(doc_req.bgm_path, req.bgm_path);
-        assert_eq!(doc_req.subtitle_font, req.subtitle_font);
-        assert_eq!(doc_req.subtitle_font_size, req.subtitle_font_size);
-        assert_eq!(doc_req.subtitle_color, req.subtitle_color);
-        assert_eq!(doc_req.subtitle_position, req.subtitle_position);
-        assert_eq!(doc_req.threads, req.threads);
-        assert_eq!(doc_req.script_path, task_dir.join("script_final.json"));
     }
 }
