@@ -314,7 +314,9 @@ pub async fn run_sde(
             }));
         }
     }
-    std::fs::write(&concat_list_path, &concat_content)?;
+    tokio::fs::write(&concat_list_path, &concat_content)
+        .await
+        .map_err(|e| SdeError::Io { source: e })?;
 
     let combined_path = state.task_dir.join("merger.mp4");
     let concat_path_str = concat_list_path.to_string_lossy().to_string();
