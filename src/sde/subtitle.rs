@@ -135,7 +135,7 @@ pub fn detect_encoding(data: &[u8]) -> Result<String, SdeError> {
     // 3. Try GBK
     {
         let (text, _encoding_used, had_errors) = encoding_rs::GBK.decode(data);
-        if !had_errors || has_srt_timecodes(&text) || has_meaningful_content(&text) {
+        if !had_errors && (has_srt_timecodes(&text) || has_meaningful_content(&text)) {
             return Ok("gbk".to_string());
         }
     }
@@ -143,7 +143,7 @@ pub fn detect_encoding(data: &[u8]) -> Result<String, SdeError> {
     // 4. Try GB18030 (superset of GB2312)
     {
         let (text, _encoding_used, had_errors) = encoding_rs::GB18030.decode(data);
-        if !had_errors || has_srt_timecodes(&text) || has_meaningful_content(&text) {
+        if !had_errors && (has_srt_timecodes(&text) || has_meaningful_content(&text)) {
             return Ok("gb18030".to_string());
         }
     }
