@@ -165,7 +165,7 @@ Plans:
 - **Wave 2** *(blocked on Wave 1)*
   - [x] 08-03-PLAN.md — SDP 基础设施（error/types/mod） + 脚本生成（generate_sdp_script + merge_script）
 - **Wave 3** *(blocked on Wave 2)*
-  - [ ] 08-04-PLAN.md — SDP 流水线编排（sdp_step_clip + run_sdp + step_concat + step_composite）+ lib.rs
+  - [x] 08-04-PLAN.md — SDP 流水线编排（sdp_step_clip + run_sdp + step_concat + step_composite）+ lib.rs
 
 ### Phase 9: JianYing Export
 **Goal**: 系统能将项目时间线导出为剪映草稿 JSON 格式，可在剪映专业版中打开编辑
