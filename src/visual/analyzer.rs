@@ -218,11 +218,16 @@ fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
     let cleaned = types::strip_code_fence(json_text);
 
     // 尝试按 BatchResponse schema 解析（匹配 prompt 中声明的结构）
-    if let Ok(resp) = serde_json::from_str::<BatchResponse>(cleaned) {
-        return Ok(ParsedBatch {
-            observations: resp.observations,
-            overall_activity_summary: resp.overall_activity_summary,
-        });
+    match serde_json::from_str::<BatchResponse>(cleaned) {
+        Ok(resp) => {
+            return Ok(ParsedBatch {
+                observations: resp.observations,
+                overall_activity_summary: resp.overall_activity_summary,
+            });
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "BatchResponse parse failed, falling back to single");
+        }
     }
 
     // 回退：尝试解析为单个 FrameObservation（兼容单对象响应）
