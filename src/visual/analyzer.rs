@@ -286,9 +286,24 @@ fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
         ));
     }
 
-    // Sort by frame number (lexical sort on zero-padded prefix)
-    paths.sort();
+    // 按文件名中的帧序号数字排序（避免超过 6 位时字典排序错误）
+    paths.sort_by(|a, b| {
+        let a_num = extract_frame_number_from_keyframe(a);
+        let b_num = extract_frame_number_from_keyframe(b);
+        a_num.cmp(&b_num)
+    });
     Ok(paths)
+}
+
+/// 从 keyframe_XXXXXX_*.jpg 文件名中提取帧序号
+fn extract_frame_number_from_keyframe(path: &Path) -> u64 {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .strip_prefix("keyframe_")
+        .and_then(|s| s.split('_').next())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 /// 按字符边界截断字符串，避免在多字节 UTF-8 字符中间切割导致 panic
