@@ -436,9 +436,8 @@ mod tests {
     /// Test: 创建临时目录写入模拟帧文件，验证收集正确
     #[test]
     fn test_collect_frame_paths() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_collect");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create mock keyframe files
         let files = [
@@ -450,7 +449,7 @@ mod tests {
             std::fs::write(temp_dir.join(f), b"mock frame data").expect("应能写入测试文件");
         }
 
-        let result = collect_frame_paths(&temp_dir);
+        let result = collect_frame_paths(temp_dir);
         assert!(result.is_ok(), "应成功收集帧文件");
         let paths = result.unwrap();
         assert_eq!(paths.len(), 3, "应收集到 3 个帧文件");
@@ -461,17 +460,16 @@ mod tests {
             "应按帧序号排序"
         );
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// Test: 空目录返回错误
     #[test]
     fn test_collect_frame_paths_empty() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_collect_empty");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
-        let result = collect_frame_paths(&temp_dir);
+        let result = collect_frame_paths(temp_dir);
         assert!(
             result.is_err(),
             "空目录应返回错误"
@@ -486,15 +484,14 @@ mod tests {
             panic!("应返回 VisualError::FrameExtraction");
         }
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// Test: 非 keyframe 前缀的文件被过滤
     #[test]
     fn test_collect_frame_paths_filters_non_matching() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_filter");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create keyframe and non-keyframe files
         std::fs::write(
@@ -507,11 +504,11 @@ mod tests {
         std::fs::write(temp_dir.join("notes.txt"), b"not a frame")
             .expect("应能写入测试文件");
 
-        let result = collect_frame_paths(&temp_dir);
+        let result = collect_frame_paths(temp_dir);
         assert!(result.is_ok(), "应成功收集帧文件");
         let paths = result.unwrap();
         assert_eq!(paths.len(), 1, "应只收集到 1 个 keyframe 文件");
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 }
