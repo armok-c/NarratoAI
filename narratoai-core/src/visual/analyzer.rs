@@ -24,7 +24,22 @@ use crate::visual::types::{BatchAnalysisResult, FrameObservation};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-/// LLM 响应的顶层包装类型，匹配 prompt 中声明的 JSON schema
+// ---------------------------------------------------------------------------
+// 常量定义（IN-02）
+// ---------------------------------------------------------------------------
+
+/// 默认帧提取间隔（秒）
+const DEFAULT_INTERVAL_SECONDS: f64 = 3.0;
+
+/// LLM 视觉分析温度（低温度减少幻觉）
+const ANALYSIS_TEMPERATURE: f32 = 0.1_f32;
+
+/// LLM 视觉分析最大 token 数
+const ANALYSIS_MAX_TOKENS: u32 = 4096;
+
+// ---------------------------------------------------------------------------
+// LLM 响应的顶层包装类型
+// ---------------------------------------------------------------------------
 ///
 /// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
 /// 需要先反序列化为该类型再提取内部的观察列表。
@@ -106,7 +121,7 @@ pub async fn analyze_video_frames(
     let (frame_count, frame_paths) = extract_frames(
         video_path,
         output_dir,
-        interval_seconds.unwrap_or(3.0), // 默认 3 秒间隔
+        interval_seconds.unwrap_or(DEFAULT_INTERVAL_SECONDS), // 默认 3 秒间隔
         quality,
         progress_for_extract, // progress
         cancel, // cancel
@@ -160,8 +175,8 @@ pub async fn analyze_video_frames(
             Some(batch_size),
             Some(max_concurrency),
             Some(LlmResponseFormat::Json),
-            Some(0.1),  // temperature: 低温度减少幻觉
-            Some(4096), // max_tokens
+            Some(ANALYSIS_TEMPERATURE),
+            Some(ANALYSIS_MAX_TOKENS),
             cancel_after_extract.clone(), // cancel token
         )
         .await

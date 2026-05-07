@@ -1,6 +1,19 @@
 use crate::prompt::error::PromptError;
 use crate::prompt::types::OutputFormat;
 
+// ---------------------------------------------------------------------------
+// 常量定义（IN-02）
+// ---------------------------------------------------------------------------
+
+/// 剧情分析最低字符数
+const MIN_PLOT_ANALYSIS_CHARS: usize = 100;
+
+/// 解说文案最低字符数
+const MIN_NARRATION_CHARS: usize = 50;
+
+/// 解说文案最低段落数
+const MIN_NARRATION_PARAGRAPHS: usize = 3;
+
 /// 验证 LLM 输出的格式和内容（D-20）
 ///
 /// 对齐 Python 版 `app/services/prompts/validators.py` 的 PromptOutputValidator。
@@ -65,9 +78,11 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("解说文案为空".into()));
     }
 
-    if normalized.chars().count() < 50 {
+    if normalized.chars().count() < MIN_NARRATION_CHARS {
         return Err(PromptError::Validation(format!(
-            "解说文案过短: {} 字符（需要 >= 50）",
+            "解说文案过短: {} 字符（需要 >= {}）",
+            normalized.chars().count(),
+            MIN_NARRATION_CHARS,
             normalized.chars().count()
         )));
     }
@@ -76,9 +91,11 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         .split("\n\n")
         .filter(|p| !p.trim().is_empty())
         .collect();
-    if paragraphs.len() < 3 {
+    if paragraphs.len() < MIN_NARRATION_PARAGRAPHS {
         return Err(PromptError::Validation(format!(
-            "解说文案段落数不足: {} 段（需要 >= 3）",
+            "解说文案段落数不足: {} 段（需要 >= {}）",
+            paragraphs.len(),
+            MIN_NARRATION_PARAGRAPHS,
             paragraphs.len()
         )));
     }
@@ -97,9 +114,11 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("剧情分析内容为空".into()));
     }
 
-    if trimmed.chars().count() < 100 {
+    if trimmed.chars().count() < MIN_PLOT_ANALYSIS_CHARS {
         return Err(PromptError::Validation(format!(
-            "剧情分析内容不足: {} 字符（需要 >= 100）",
+            "剧情分析内容不足: {} 字符（需要 >= {}）",
+            trimmed.chars().count(),
+            MIN_PLOT_ANALYSIS_CHARS,
             trimmed.chars().count()
         )));
     }
