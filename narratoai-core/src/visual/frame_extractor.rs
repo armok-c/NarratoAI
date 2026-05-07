@@ -18,6 +18,9 @@ use tokio_util::sync::CancellationToken;
 use crate::ffmpeg::command::ProgressCallback;
 use crate::visual::error::VisualError;
 
+/// 回退路径最大帧数限制（防止 ffprobe 返回异常大 duration 导致整数溢出）
+const MAX_TOTAL_FRAMES: usize = 100_000;
+
 // ---------------------------------------------------------------------------
 // 公共入口
 // ---------------------------------------------------------------------------
@@ -239,6 +242,11 @@ async fn extract_frames_fallback(
         }
 
         let total_frames = (duration / interval_seconds).ceil() as usize;
+        if total_frames > MAX_TOTAL_FRAMES {
+            return Err(VisualError::FrameExtraction(format!(
+                "视频帧数过多: {} (最大 {})", total_frames, MAX_TOTAL_FRAMES
+            )));
+        }
         if total_frames == 0 {
             return Ok(0);
         }
@@ -510,6 +518,8 @@ fn rename_fast_path_frames(
 /// 将秒数转换为 HHMMSSmmm 格式字符串（9 位数字）
 pub(crate) fn seconds_to_hhmmssmmm(total_secs: f64) -> String {
     debug_assert!(!total_secs.is_nan(), "seconds_to_hhmmssmmm called with NaN");
+    debug_assert!(total_secs >= 0.0, "seconds_to_hhmmssmmm called with negative value");
+    let total_secs = total_secs.max(0.0);
     let total_millis = (total_secs * 1000.0).round() as u64;
     let hours = total_millis / 3_600_000;
     let minutes = (total_millis % 3_600_000) / 60_000;
