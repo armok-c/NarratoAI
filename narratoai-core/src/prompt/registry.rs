@@ -1,10 +1,20 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use regex::Regex;
 
 use crate::prompt::error::PromptError;
 use crate::prompt::types::Prompt;
+
+/// 模板变量占位符正则：匹配 ${variable} 和 ${variable|filter}
+static TEMPLATE_VAR_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn template_var_regex() -> &'static Regex {
+    TEMPLATE_VAR_REGEX.get_or_init(|| {
+        Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}")
+            .expect("TEMPLATE_VAR_REGEX 编译失败")
+    })
+}
 
 /// 共享的 Prompt 注册表——Arc<RwLock<PromptRegistry>> 提供线程安全访问
 pub type SharedPromptRegistry = Arc<RwLock<PromptRegistry>>;
@@ -81,9 +91,7 @@ impl PromptRegistry {
     /// 防止模板引用了未声明的变量（WR-04），确保 `render_prompt` 中的 `Validation` 错误路径
     /// 覆盖所有可能的变量引用，避免用户收到与 `ParameterDef` 不一致的 `TemplateRender` 错误。
     fn validate_prompt_parameters(&self, prompt: &Prompt) -> Result<(), PromptError> {
-        let re = Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}").map_err(|e| {
-            PromptError::TemplateRender(format!("正则编译失败: {}", e))
-        })?;
+        let re = template_var_regex();
 
         let declared: HashSet<&str> = prompt
             .metadata
@@ -204,9 +212,9 @@ impl PromptRegistry {
                         let mut versions: Vec<&String> = m.keys().collect();
                         versions.sort_by(|a, b| {
                             let a_num: u64 = a.trim_start_matches('v').split('.').next()
-                                .and_then(|s| s.parse().ok()).unwrap_or(0);
+                                .and_then(|s| s.parse().ok()).unwrap_or(u64::MAX);
                             let b_num: u64 = b.trim_start_matches('v').split('.').next()
-                                .and_then(|s| s.parse().ok()).unwrap_or(0);
+                                .and_then(|s| s.parse().ok()).unwrap_or(u64::MAX);
                             a_num.cmp(&b_num)
                         });
                         versions.into_iter().next().cloned()
