@@ -22,6 +22,12 @@ pub fn generate_srt_from_word_boundaries(
     for (i, wb) in word_boundaries.iter().enumerate() {
         let start_secs = offset_secs + wb.start_offset as f64 / 10_000_000.0;
         let end_secs = offset_secs + wb.end_offset as f64 / 10_000_000.0;
+        if start_secs < 0.0 || end_secs < 0.0 {
+            tracing::warn!(
+                "Word boundary #{} produces negative timestamp (start={:.3}, end={:.3}, offset={:.3})",
+                i, start_secs, end_secs, offset_secs
+            );
+        }
         let start_str = secs_to_srt_time(start_secs);
         let end_str = secs_to_srt_time(end_secs);
         blocks.push(format!(
