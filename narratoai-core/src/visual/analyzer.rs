@@ -21,6 +21,7 @@ use crate::visual::error::VisualError;
 use crate::visual::frame_extractor::extract_frames;
 use crate::text_utils;
 use crate::visual::types::{BatchAnalysisResult, FrameObservation};
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 /// LLM 响应的顶层包装类型，匹配 prompt 中声明的 JSON schema
@@ -92,13 +93,20 @@ pub async fn analyze_video_frames(
         return Err(VisualError::Analysis("max_concurrency 必须 > 0".into()));
     }
 
+    // Wrap progress in Arc for shared ownership with extract_frames
+    let shared_progress = progress.map(Arc::new);
+    let progress_for_extract: Option<ProgressCallback> = shared_progress.clone().map(|arc| {
+        let cb: ProgressCallback = Box::new(move |pct, msg| (*arc)(pct, msg));
+        cb
+    });
+
     // Step 2 — 帧提取（调用方指定 output_dir, D-23）
     let frame_count = extract_frames(
         video_path,
         output_dir,
         interval_seconds.unwrap_or(3.0), // 默认 3 秒间隔
         quality,
-        None, // progress: 帧提取进度已包含在 extract_frames 内部
+        progress_for_extract, // progress
         cancel, // cancel
     )
     .await
@@ -118,7 +126,7 @@ pub async fn analyze_video_frames(
     let frame_paths = collect_frame_paths(output_dir)?;
 
     // Step 5 — 进度汇报
-    if let Some(ref cb) = progress {
+    if let Some(ref cb) = shared_progress {
         cb(
             Some(0.3),
             &format!("提取到 {} 帧，开始分析", frame_count),
@@ -153,7 +161,7 @@ pub async fn analyze_video_frames(
         .map_err(|e| VisualError::Analysis(format!("LLM 分析调用失败: {}", e)))?;
 
     // Step 7 — 反序列化并收集错误（D-14: 收集错误继续执行）
-    if let Some(ref cb) = progress {
+    if let Some(ref cb) = shared_progress {
         cb(Some(0.8), "解析分析结果");
     }
 
@@ -207,7 +215,7 @@ pub async fn analyze_video_frames(
     }
 
     // Step 9 — 返回结果
-    if let Some(ref cb) = progress {
+    if let Some(ref cb) = shared_progress {
         cb(Some(1.0), "视觉分析完成");
     }
 
