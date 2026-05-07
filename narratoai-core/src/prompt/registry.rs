@@ -136,6 +136,8 @@ impl PromptRegistry {
     }
 
     /// 返回指定 category 的所有 prompt（按 name 排序，取每个 name 的默认版本）
+    ///
+    /// 默认版本不存在时 fallback 到第一个可用版本并记录警告，而非静默丢弃。
     pub fn list_prompts(&self, category: &str) -> Vec<&Prompt> {
         let names_map = match self.prompts.get(category) {
             Some(m) => m,
@@ -147,14 +149,29 @@ impl PromptRegistry {
 
         let mut result = Vec::new();
         for name in names {
-            // 取默认版本
+            // 取默认版本，不存在时 fallback 到第一个可用版本
             let version = self
                 .default_versions
                 .get(category)
-                .and_then(|m| m.get(name.as_str()));
+                .and_then(|m| m.get(name.as_str()))
+                .cloned()
+                .or_else(|| {
+                    let fallback = names_map.get(name).and_then(|m| {
+                        let mut versions: Vec<&String> = m.keys().collect();
+                        versions.sort();
+                        versions.into_iter().next().cloned()
+                    });
+                    if let Some(ref v) = fallback {
+                        tracing::warn!(
+                            "没有默认版本: {}.{}, 使用 {}",
+                            category, name, v
+                        );
+                    }
+                    fallback
+                });
 
             if let Some(ver) = version {
-                if let Some(prompt) = names_map.get(name).and_then(|m| m.get(ver)) {
+                if let Some(prompt) = names_map.get(name).and_then(|m| m.get(&ver)) {
                     result.push(prompt);
                 }
             }
