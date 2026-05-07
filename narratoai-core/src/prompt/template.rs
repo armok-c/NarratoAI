@@ -60,10 +60,10 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 ///
 /// # 流程
 ///
-/// 第 1 遍（变量提取和校验）：使用正则 `r"\$\{(\w+)\}|\$(\w+)"`
+/// 第 1 遍（变量提取和校验）：使用正则 `r"\$\{(\w+)\}"`
 /// 通过 `captures_iter` 提取所有变量名并与上下文比对，缺失变量返回错误。
 ///
-/// 第 2 遍（变量替换）：使用 `replace_all` 将 `${variable}` 和 `$variable`
+/// 第 2 遍（变量替换）：使用 `replace_all` 将 `${variable}`
 /// 替换为上下文中对应的值。
 ///
 /// 第 3 遍（过滤器应用）：使用正则 `r"\$\{(\w+)\|(\w+)\}"` 处理过滤器语法
@@ -71,10 +71,18 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 ///
 /// # 注意
 ///
+/// - 仅支持 `${variable}` 语法，不支持裸 `$variable`（避免误匹配内容中的 `$` 符号）
 /// - `${variable|filter}` 格式不会被第 1/2 遍的正则匹配（因为 `|` 不是 `\w`）
+/// - 第 1/2 遍正则 `\$\{(\w+)\}` 和第 3 遍正则 `\$\{(\w+)\|(\w+)\}` 是两套独立的
+///   验证路径。添加新语法（如链式过滤器 `${var|f1|f2}`）时，必须同时更新两处正则，
+///   否则新语法的变量会跳过必需参数检查。
+///
+/// # 安全性
+///
+/// - 调用方负责验证变量值的合法性；本函数不执行任何清理或转义。
 pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, PromptError> {
-    // 编译变量正则
-    let var_re = Regex::new(r"\$\{(\w+)\}|\$(\w+)").map_err(|e| {
+    // 编译变量正则（仅支持 ${variable}，不支持裸 $variable）
+    let var_re = Regex::new(r"\$\{(\w+)\}").map_err(|e| {
         PromptError::TemplateRender(format!("正则编译失败: {}", e))
     })?;
 
@@ -83,7 +91,6 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     for caps in var_re.captures_iter(template) {
         let name = caps
             .get(1)
-            .or_else(|| caps.get(2))
             .map(|m| m.as_str())
             .unwrap_or("");
         if !name.is_empty() && !vars.contains_key(name) && !missing.contains(&name.to_string()) {
@@ -101,7 +108,6 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     let result = var_re.replace_all(template, |caps: &regex::Captures| {
         let name = caps
             .get(1)
-            .or_else(|| caps.get(2))
             .map(|m| m.as_str())
             .unwrap_or("");
         vars.get(name).copied().unwrap_or("")
@@ -156,10 +162,10 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
 mod tests {
     use super::*;
 
-    /// 基本变量替换：${variable} 和 $variable 两种语法
+    /// 基本变量替换：${variable} 语法
     #[test]
     fn test_basic_variable_substitution() {
-        let template = "Hello, ${name}! Welcome to $place.";
+        let template = "Hello, ${name}! Welcome to ${place}.";
         let mut vars = HashMap::new();
         vars.insert("name", "World");
         vars.insert("place", "NarratoAI");
@@ -279,7 +285,7 @@ mod tests {
     /// 多变量混合替换
     #[test]
     fn test_multi_variable_mixed() {
-        let template = "${subject} is ${adjective|upper} and $result.";
+        let template = "${subject} is ${adjective|upper} and ${result}.";
         let mut vars = HashMap::new();
         vars.insert("subject", "This");
         vars.insert("adjective", "awesome");

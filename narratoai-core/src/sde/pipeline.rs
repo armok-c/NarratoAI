@@ -125,7 +125,7 @@ pub async fn run_sde(
 
     // G1: JSON Parse Guard — parse_script 自动执行 JSON 修复（repair_json）+ 反序列化
     // G5: Empty Script Guard — parse_script 检查 clips.is_empty()
-    state.script = parse_script(&state.narration_raw, &state.task_dir)?;
+    state.script = parse_script(&state.narration_raw)?;
 
     // 保存最终脚本（异步 I/O，避免阻塞 tokio runtime）
     {

@@ -440,10 +440,7 @@ fn rename_fast_path_frames(
             .unwrap_or("");
 
         // Extract frame number from "fastframe_XXXXXX.jpg"
-        let frame_number = file_name
-            .strip_prefix("fastframe_")
-            .and_then(|s| s.strip_suffix(".jpg"))
-            .and_then(|s| s.parse::<u64>().ok())
+        let frame_number = parse_frame_number_from_name(file_name)
             .ok_or_else(|| {
                 VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", file_name))
             })?;
@@ -559,7 +556,6 @@ fn convert_image_to_jpeg(input: &Path, output: &Path, ffmpeg_quality: u32) -> Re
 }
 
 /// 从 fast frame 文件名解析帧序号
-#[allow(dead_code)]
 pub(crate) fn parse_frame_number_from_name(filename: &str) -> Option<u64> {
     filename
         .strip_prefix("fastframe_")

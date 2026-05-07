@@ -25,8 +25,10 @@ use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
 ///
 /// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
 /// 需要先反序列化为该类型再提取内部的观察列表。
+///
+/// 未知字段被静默忽略，兼容 LLM 返回额外字段的场景（D-15）。
+/// 与 `FrameObservation` 保持一致的容错策略，不使用 `deny_unknown_fields`。
 #[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BatchResponse {
     #[serde(rename = "frame_observations")]
     observations: Vec<FrameObservation>,
@@ -58,6 +60,11 @@ struct ParsedBatch {
 ///
 /// - **Step 3:** 0 帧检查 — 未提取到帧时返回 `VisualError::FrameExtraction`
 /// - **Step 8:** 空结果屏障 — 所有批次全失败时返回 `VisualError::BatchPartial`
+///
+/// # 参数
+///
+/// - `interval_seconds` — 帧提取间隔（秒），默认 3.0 秒。短片段可降低至 1.0，长视频可调高
+/// - `quality` — JPEG 压缩质量（1-31），None 使用 `extract_frames` 内置默认值
 pub async fn analyze_video_frames(
     video_path: &Path,
     output_dir: &Path,
@@ -65,6 +72,8 @@ pub async fn analyze_video_frames(
     prompt_template: &str,
     batch_size: usize,
     max_concurrency: usize,
+    interval_seconds: Option<f64>,
+    quality: Option<u32>,
     progress: Option<ProgressCallback>,
 ) -> Result<BatchAnalysisResult, VisualError> {
     // Step 1 — 进度汇报
@@ -72,12 +81,20 @@ pub async fn analyze_video_frames(
         cb(Some(0.0), "开始帧提取");
     }
 
+    // 输入参数校验
+    if batch_size == 0 {
+        return Err(VisualError::Analysis("batch_size 必须 > 0".into()));
+    }
+    if max_concurrency == 0 {
+        return Err(VisualError::Analysis("max_concurrency 必须 > 0".into()));
+    }
+
     // Step 2 — 帧提取（调用方指定 output_dir, D-23）
     let frame_count = extract_frames(
         video_path,
         output_dir,
-        3.0, // interval_seconds: 默认 3 秒
-        None, // quality: 默认使用 extract_frames 内置默认值
+        interval_seconds.unwrap_or(3.0), // 默认 3 秒间隔
+        quality,
         None, // progress: 帧提取进度已包含在 extract_frames 内部
         None, // cancel
     )
@@ -184,7 +201,7 @@ pub async fn analyze_video_frames(
         observations,
         overall_activity_summary: last_summary,
         total_frames: frame_paths.len(),
-        analyzed_batches: raw_results.len(),
+        analyzed_batches: raw_results.len() - errors.len(),
         errors,
     })
 }
@@ -321,6 +338,26 @@ mod tests {
         assert_eq!(batch.observations[0].scene_description, "场景A");
         assert_eq!(batch.observations[1].scene_description, "场景B");
         assert_eq!(batch.overall_activity_summary, Some("测试摘要".to_string()));
+    }
+
+    /// Test: 带额外字段的 BatchResponse JSON 应被正确解析（静默忽略未知字段）
+    #[test]
+    fn test_parse_and_retry_batch_with_extra_fields() {
+        let json = r#"{
+            "frame_observations": [
+                {"frame_number": 0, "timestamp": "00:00:00.000", "scene_description": "场景A", "objects": ["obj"], "actions": ["act"]}
+            ],
+            "overall_activity_summary": "带额外字段的响应",
+            "extra_field": "should be ignored",
+            "model_version": "gpt-4o-2024-05-13",
+            "confidence": 0.95
+        }"#;
+        let result = parse_and_retry(json);
+        assert!(result.is_ok(), "带额外字段的 BatchResponse 应解析成功");
+        let batch = result.unwrap();
+        assert_eq!(batch.observations.len(), 1);
+        assert_eq!(batch.observations[0].scene_description, "场景A");
+        assert_eq!(batch.overall_activity_summary, Some("带额外字段的响应".to_string()));
     }
 
     /// Test: ```json ... ``` 包裹的 JSON 应被剥离后解析

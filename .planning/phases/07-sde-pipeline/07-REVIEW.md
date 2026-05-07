@@ -1,77 +1,92 @@
 ---
 phase: 07-sde-pipeline
-reviewed: 2026-05-06T17:00:00Z
+reviewed: 2026-05-07T12:00:00Z
 depth: standard
-files_reviewed: 10
+files_reviewed: 15
 files_reviewed_list:
   - src/sde/error.rs
   - src/sde/mod.rs
   - src/sde/pipeline.rs
   - src/sde/script_gen.rs
-  - src/sde/subtitle.rs
   - src/sde/timestamp.rs
   - src/sde/types.rs
+  - src/subtitle/error.rs
+  - src/subtitle/mod.rs
+  - src/subtitle/parser.rs
+  - src/subtitle/timestamp.rs
+  - src/subtitle/types.rs
   - src/documentary/pipeline.rs
   - src/documentary/types.rs
   - src/documentary/audio.rs
+  - src/documentary/subtitle.rs
 findings:
   critical: 0
   warning: 0
-  info: 2
-  total: 2
-status: issues_found
+  info: 0
+  total: 0
+status: clean
 ---
 
-# Phase 07: 代码审查报告（第九轮）
+# Phase 07: 代码审查报告（第十二轮）
 
-**审查时间:** 2026-05-06T17:00:00Z
+**审查时间:** 2026-05-07T12:00:00Z
 **审查深度:** standard
-**文件数量:** 10
-**状态:** issues_found（仅遗留 Info 项）
+**审查文件数:** 15
+**状态:** clean
 
 ## 摘要
 
-第九轮审查重点验证第八轮发现的 2 个 Warning（WR-08、WR-09）的修复情况，并检查是否引入新问题。
+第十二轮审查对全部 15 个文件进行了逐行标准深度审查。本轮审查重点验证第十一轮修复的两个 Info 级别问题是否正确应用，以及修复是否引入了新的回归问题。
 
-**修复验证结果：**
-- **WR-08 已修复:** `src/documentary/audio.rs:170` 现在使用 `tokio::fs::write` 替代同步 `write_srt_file`
-- **WR-09 已修复:** 所有 4 处 `create_dir_all` 调用已替换为 `tokio::fs::create_dir_all`：
-  - `src/sde/pipeline.rs:52` -- 主流水线入口
-  - `src/sde/pipeline.rs:701` -- `analyze_subtitle_plot` 独立 API
-  - `src/sde/pipeline.rs:734` -- `generate_sde_script` 独立 API
-  - `src/documentary/pipeline.rs:484` -- 纪录片流水线入口
+### 修复验证结果
 
-**回归检查：**
-- 所有修复的错误处理（`.map_err()`）和类型转换正确，无回归
-- 未发现新的 sync-in-async 模式（`parse_subtitle_file` 中的 `fs::read` 已通过 `spawn_blocking` 正确包装）
-- `write_srt_file`（`src/documentary/subtitle.rs:64`）现在仅被测试代码引用，不再是生产代码路径
+**IN-01（已修复）**：`src/documentary/subtitle.rs` 中已成功移除 `write_srt_file` 函数、其测试以及不再需要的 `use std::path::Path` 导入。全局搜索确认 `write_srt_file` 无任何残留引用。
 
-**新增问题：** 无 BLOCKER 或 WARNING。2 个 Info 级遗留项继续存在。
+**IN-02（已修复）**：`src/sde/script_gen.rs` 中 `parse_script` 函数签名已从 `(raw_json: &str, _task_dir: &Path)` 简化为 `(raw_json: &str)`。调用点 `src/sde/pipeline.rs:126` 已同步更新为 `parse_script(&state.narration_raw)`，不再传递路径参数。6 个测试调用也已全部更新。`use std::path::Path` 导入已正确移除。
 
-## Info
+### 代码质量评估
 
-### IN-01: `write_srt_file` 死代码（遗留，原 IN-03）
+经过十二轮审查和修复，所有文件均达到以下标准：
 
-**文件:** `src/documentary/subtitle.rs:64`
-**问题:** `pub fn write_srt_file` 标记为 `pub` 但仅在同模块的测试中使用。生产代码中无任何调用方引用此函数。WR-08 修复已将唯一生产调用方 `merge_subtitle_files` 改用 `tokio::fs::write`，因此该函数现在是完全的死代码。
-**建议:** 可安全移除 `write_srt_file` 函数及其测试，或将可见性降为 `pub(crate)` 并标注 `#[deprecated]`。
+- **错误处理**：所有 `Result` 路径均被正确传播或转换，无吞异常或空 catch
+- **类型安全**：无 `unwrap()` 在生产代码中的不当使用（仅出现在测试代码和 `LazyLock` 初始化等安全场景）
+- **编码检测**：`detect_encoding` 覆盖 BOM/UTF-8/UTF-16/GBK/GB18030 五种编码，包含充分的质量检查
+- **输入校验**：`SdeRequest::validate()` 和 `DocumentaryRequest::validate()` 覆盖所有数值范围和路径有效性检查
+- **模块组织**：`src/subtitle/` 作为共享模块被 `sde` 和 `documentary` 正确引用，re-export 链完整
+- **FFmpeg 调用**：路径转义、错误收集、子进程清理均按统一模式处理
+- **测试覆盖**：每个模块均有对应的单元测试，覆盖正常路径和边界条件
 
-### IN-02: `parse_script` 的 `_task_dir` 未使用参数（遗留，原 IN-04）
+全部 15 个审查文件均通过质量标准检查，无任何 Critical、Warning 或 Info 级别问题。
 
-**文件:** `src/sde/script_gen.rs:302`
-**问题:** `parse_script(raw_json: &str, _task_dir: &Path)` 的 `_task_dir` 参数从未在函数体中使用。这是历史 API 设计遗留，函数注释中提到"调用方负责将结果异步保存到 `task_dir/script_final.json`"，但实际上这个参数对函数行为无任何影响。
-**建议:** 可在未来版本中移除此参数，让调用方自行管理路径。当前不会导致 bug，仅影响 API 清晰度。
+## 审查组 A：共享字幕模块 `src/subtitle/`（5 文件）
 
-## 跨流水线一致性（SDE vs 纪录片）
+| 文件 | 行数 | 结论 |
+|------|------|------|
+| error.rs | 61 | 通过 |
+| mod.rs | 10 | 通过 |
+| types.rs | 40 | 通过 |
+| timestamp.rs | 217 | 通过 |
+| parser.rs | 747 | 通过 |
 
-| 检查项 | SDE | 纪录片 | 状态 |
-|--------|-----|--------|------|
-| subtitle_color 校验 | types.rs:89-92 | types.rs:77-80 | 一致 |
-| TTS 循环中的写入 | tokio::fs::write:184 | tokio::fs::write:78 | 一致 |
-| concat 逻辑 | pipeline.rs:301-386 | pipeline.rs:182-269 | 一致 |
-| composite 逻辑 | pipeline.rs:453-602 | pipeline.rs:325-463 | 一致 |
-| 字幕合并写入 | tokio::fs::write（已修复） | tokio::fs::write（已修复） | 一致 |
-| create_dir_all | tokio::fs（已修复） | tokio::fs（已修复） | 一致 |
+## 审查组 B：SDE 核心模块 `src/sde/`（6 文件）
+
+| 文件 | 行数 | 结论 |
+|------|------|------|
+| error.rs | 97 | 通过 |
+| mod.rs | 10 | 通过 |
+| timestamp.rs | 2 | 通过（re-export 层） |
+| types.rs | 235 | 通过 |
+| script_gen.rs | 591 | 通过（IN-02 修复已验证） |
+| pipeline.rs | 840 | 通过（IN-02 调用点已更新） |
+
+## 审查组 C：纪录片依赖 `src/documentary/`（4 文件）
+
+| 文件 | 行数 | 结论 |
+|------|------|------|
+| pipeline.rs | 592 | 通过 |
+| types.rs | 109 | 通过 |
+| audio.rs | 275 | 通过 |
+| subtitle.rs | 223 | 通过（IN-01 修复已验证） |
 
 ## 安全 / Unsafe / Panic 扫描
 
@@ -81,11 +96,11 @@ status: issues_found
 | 生产代码中的裸 `.unwrap()` | 无（仅 `LazyLock` regex 初始化，编译期安全） |
 | 硬编码密钥 | 无 |
 | Panic 路径 | `script_gen.rs:253` 的 `unreachable!()` 在穷尽匹配后，逻辑安全 |
-| 大函数（>50 行） | `run_sde`: ~580 行（编排器，结构清晰但偏大） |
+| sync-in-async | 无（`parse_subtitle_file` 通过 `spawn_blocking` 包装） |
 
 ---
 
-_审查时间: 2026-05-06T17:00:00Z_
+_审查时间: 2026-05-07T12:00:00Z_
 _审查者: Claude (gsd-code-reviewer)_
 _审查深度: standard_
-_第九轮 -- 第八轮 2 个 Warning 全部修复确认，无新增 BLOCKER/WARNING_
+_审查轮次: 第十二轮（最终确认）_

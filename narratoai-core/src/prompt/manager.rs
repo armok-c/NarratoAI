@@ -17,6 +17,11 @@ use crate::prompt::validators;
 /// - register_prompt: 注册到 Registry
 /// - search_prompts: 搜索匹配的 Prompt
 /// - validate_output: 校验 LLM 输出格式
+///
+/// # 线程安全
+///
+/// 内部使用 `std::sync::RwLock`，所有方法不得在同一线程上重入调用，
+/// 否则可能导致死锁。
 pub struct PromptManager {
     registry: SharedPromptRegistry,
 }
