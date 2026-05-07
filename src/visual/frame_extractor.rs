@@ -144,6 +144,10 @@ pub(crate) async fn extract_frames_fast_path(
             .iter()
             .map_err(|e| VisualError::FrameExtraction(format!("FFmpeg 事件迭代失败: {}", e)))?;
 
+        // 注意：ffmpeg_sidecar 的 iter() 会阻塞等待下一个事件。
+        // 如果 FFmpeg 停滞（如 seek 到远端时间戳），取消检测可能延迟数秒。
+        // 此限制是 ffmpeg_sidecar 迭代器设计的固有限制。
+        // 替代方案见 extract_single_frame（使用 spawn + blocking wait）。
         for event in iter {
             if cancel.is_cancelled() {
                 let _ = child.kill();
