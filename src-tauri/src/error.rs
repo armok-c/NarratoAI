@@ -23,9 +23,9 @@ impl std::error::Error for CommandError {}
 // ---- From<T> implementations for each domain error type ----
 // 每个实现使用 err.to_string() 保留中文 Display 信息（D-18）
 
-use narratoai_core::config::error::ConfigError as CoreConfigError;
-impl From<CoreConfigError> for CommandError {
-    fn from(err: CoreConfigError) -> Self {
+use narratoai_core::error::ConfigError;
+impl From<ConfigError> for CommandError {
+    fn from(err: ConfigError) -> Self {
         CommandError {
             code: "CONFIG_ERROR".into(),
             message: err.to_string(),
