@@ -276,15 +276,24 @@ fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
             observations: vec![obs],
             overall_activity_summary: None,
         }),
-        Err(e) => {
-            warn!(
-                error = %e,
-                raw_preview = truncate_str(json_text, 200),
-                "JSON 反序列化失败",
-            );
-            Err(VisualError::Analysis(format!(
-                "JSON 解析失败: {}", e
-            )))
+        Err(_) => {
+            // 回退：尝试解析为裸 JSON 数组 [FrameObservation]（兼容常见 LLM 失败模式）
+            match serde_json::from_str::<Vec<FrameObservation>>(cleaned) {
+                Ok(observations) => Ok(ParsedBatch {
+                    observations,
+                    overall_activity_summary: None,
+                }),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        raw_preview = truncate_str(json_text, 200),
+                        "All JSON deserialization paths failed",
+                    );
+                    Err(VisualError::Analysis(format!(
+                        "JSON 解析失败: {}", e
+                    )))
+                }
+            }
         }
     }
 }
