@@ -531,8 +531,14 @@ fn file_is_valid(path: &Path) -> bool {
     path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
 }
 
-/// 运行 ffmpeg 命令，支持取消令牌（轮询取消状态，取消时杀死进程）
+/// 运行 ffmpeg 命令，启动前检查取消令牌
+///
+/// 使用阻塞 `wait()` 替代忙等轮询，取消检查在调用点（帧间/回退级别间）进行，
+/// 避免每秒 20 次无效唤醒。
 fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
+    if cancel.is_cancelled() {
+        return false;
+    }
     let mut child = match std::process::Command::new("ffmpeg")
         .args(args)
         .stdout(std::process::Stdio::null())
@@ -542,17 +548,9 @@ fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    loop {
-        if cancel.is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return false;
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
-            Err(_) => return false,
-        }
+    match child.wait() {
+        Ok(status) => status.success(),
+        Err(_) => false,
     }
 }
 
