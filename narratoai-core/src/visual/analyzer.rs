@@ -306,24 +306,45 @@ fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
         ));
     }
 
+    // 先校验所有文件名均可解析，防止 unparseable 文件名静默排序到 0（WR-02）
+    for path in &paths {
+        extract_frame_number_from_keyframe(path).map_err(|e| {
+            warn!("无法解析帧文件名: {}", e);
+            e
+        })?;
+    }
+
     // 按文件名中的帧序号数字排序（避免超过 6 位时字典排序错误）
+    // unwrap 安全：所有文件已在上面通过校验
     paths.sort_by(|a, b| {
-        let a_num = extract_frame_number_from_keyframe(a);
-        let b_num = extract_frame_number_from_keyframe(b);
+        let a_num = extract_frame_number_from_keyframe(a).unwrap();
+        let b_num = extract_frame_number_from_keyframe(b).unwrap();
         a_num.cmp(&b_num)
     });
     Ok(paths)
 }
 
 /// 从 keyframe_XXXXXX_*.jpg 文件名中提取帧序号
-fn extract_frame_number_from_keyframe(path: &Path) -> u64 {
-    path.file_name()
+///
+/// 返回 `Result` 而非默认回退 0，确保无法解析的文件名被及早发现
+/// 而不是静默排序到最前面导致帧顺序错乱（WR-02）。
+fn extract_frame_number_from_keyframe(path: &Path) -> Result<u64, VisualError> {
+    let name = path
+        .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("")
+        .unwrap_or("");
+    let num_str = name
         .strip_prefix("keyframe_")
         .and_then(|s| s.split('_').next())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0)
+        .ok_or_else(|| {
+            VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", name))
+        })?;
+    num_str.parse::<u64>().map_err(|_| {
+        VisualError::FrameExtraction(format!(
+            "帧序号不是有效数字: {} (from {})",
+            num_str, name
+        ))
+    })
 }
 
 /// 按字符边界截断字符串，避免在多字节 UTF-8 字符中间切割导致 panic
