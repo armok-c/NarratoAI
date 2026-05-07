@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 /// SDP 流水线请求参数
 ///
 /// 精简设计：包含 run_sdp 和 generate_sdp_script 所需的所有参数。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdpRequest {
     /// 字幕文件路径（用于 generate_sdp_script）
     pub subtitle_path: PathBuf,
@@ -83,8 +85,8 @@ pub enum SdpProgressStep {
     Composite,
 }
 
-/// SDP 进度回调类型
-pub type SdpProgressCallback = Box<dyn Fn(SdpProgressStep, f32, &str) + Send + Sync>;
+/// SDP 进度回调类型（字符串基——step_name, percent, message）
+pub type SdpProgressCallback = Box<dyn Fn(&str, f32, &str) + Send + Sync>;
 
 /// SDP 流水线中间状态——精简为 4 步所需字段
 ///
@@ -123,7 +125,7 @@ impl SdpPipelineState {
     }
 
     /// 触发进度回调（如果已注册）
-    pub fn emit_progress(&self, step: SdpProgressStep, pct: f32, msg: &str) {
+    pub fn emit_progress(&self, step: &str, pct: f32, msg: &str) {
         if let Some(ref cb) = self.progress {
             cb(step, pct, msg);
         }

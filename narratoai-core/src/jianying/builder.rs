@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::error::JianYingError;
@@ -16,6 +17,7 @@ use crate::script::types::{OstType, Script, ScriptClip};
 // ---------------------------------------------------------------------------
 
 /// 导出请求——包含导出所需的所有数据（per D-05）
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportRequest {
     /// 处理后的脚本（所有 Option 字段应有值）
     pub script: Script,

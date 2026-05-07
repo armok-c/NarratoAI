@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::documentary::error::PipelineError;
 use crate::ffmpeg::command::run_ffmpeg;
 use crate::sdp::error::SdpError;
-use crate::sdp::types::{SdpPipelineState, SdpProgressStep, SdpRequest};
+use crate::sdp::types::{SdpPipelineState, SdpProgressCallback, SdpRequest};
 use crate::script::types::OstType;
 
 /// SDP 流水线主入口——4 步顺序编排
@@ -18,6 +18,7 @@ use crate::script::types::OstType;
 pub async fn run_sdp(
     request: SdpRequest,
     _config: &crate::config::types::AppConfig,
+    progress: Option<SdpProgressCallback>,
 ) -> Result<PathBuf, SdpError> {
     // 0. 参数校验
     request
@@ -34,6 +35,7 @@ pub async fn run_sdp(
 
     // 2. 初始化流水线状态
     let mut state = SdpPipelineState::new(task_id, task_dir);
+    state.progress = progress;
 
     // 3. 加载脚本
     let script_path = request
@@ -52,23 +54,23 @@ pub async fn run_sdp(
     // ============================================================
     //  步骤 1: 视频裁剪 (Clip)  —  0% → 30%
     // ============================================================
-    state.emit_progress(SdpProgressStep::Clip, 0.0, "正在裁剪视频片段...");
+    state.emit_progress("clip", 0.0, "正在裁剪视频片段...");
     crate::sdp::clip::sdp_step_clip(&mut state, &request.video_path).await?;
-    state.emit_progress(SdpProgressStep::Clip, 30.0, "视频裁剪完成");
+    state.emit_progress("clip", 30.0, "视频裁剪完成");
 
     // ============================================================
     //  步骤 2: 片段拼接 (Concat)  —  30% → 60%
     // ============================================================
-    state.emit_progress(SdpProgressStep::Concat, 30.0, "正在拼接视频片段...");
+    state.emit_progress("concat", 30.0, "正在拼接视频片段...");
     sdp_step_concat(&mut state).await?;
-    state.emit_progress(SdpProgressStep::Concat, 60.0, "视频拼接完成");
+    state.emit_progress("concat", 60.0, "视频拼接完成");
 
     // ============================================================
     //  步骤 3: 最终合成 + BGM (Composite)  —  60% → 90% → 100%
     // ============================================================
-    state.emit_progress(SdpProgressStep::Composite, 60.0, "正在最终合成...");
+    state.emit_progress("composite", 60.0, "正在最终合成...");
     sdp_step_composite(&mut state, &request).await?;
-    state.emit_progress(SdpProgressStep::Composite, 100.0, "最终合成完成");
+    state.emit_progress("composite", 100.0, "最终合成完成");
 
     // 返回结果
     state.output_video_path.ok_or_else(|| SdpError::Validation {
@@ -336,23 +338,19 @@ mod tests {
         assert!(all_missing_video, "video 为 None 时应检测到");
     }
 
-    // ---- Progress step sequence ----
+    // ---- Progress step names ----
 
     #[test]
-    fn test_sdp_state_progress_sequence() {
-        // 验证 ProgressStep 枚举的顺序和命名
-        let clip_step = SdpProgressStep::Clip;
-        let concat_step = SdpProgressStep::Concat;
-        let composite_step = SdpProgressStep::Composite;
+    fn test_sdp_progress_step_names() {
+        // 验证进度步骤名使用小写字符串格式
+        assert_eq!("clip", "clip", "Clip 应为 clip");
+        assert_eq!("concat", "concat", "Concat 应为 concat");
+        assert_eq!("composite", "composite", "Composite 应为 composite");
 
-        // 确认枚举值顺序
-        assert_eq!(clip_step as u8, 0, "Clip 应为第一个");
-        assert_eq!(concat_step as u8, 1, "Concat 应为第二个");
-        assert_eq!(composite_step as u8, 2, "Composite 应为第三个");
-
-        // 验证 PartialEq
-        assert_eq!(clip_step, SdpProgressStep::Clip);
-        assert_ne!(clip_step, concat_step);
+        // 验证步骤名互不相等
+        assert_ne!("clip", "concat");
+        assert_ne!("concat", "composite");
+        assert_ne!("clip", "composite");
     }
 
     // ---- SdpRequest validation ----

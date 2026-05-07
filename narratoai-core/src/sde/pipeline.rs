@@ -17,7 +17,7 @@ use crate::sde::error::SdeError;
 use crate::sde::script_gen::{parse_script, step_analyze_plot, step_generate_script};
 use crate::subtitle::parser::parse_subtitle_file;
 use crate::sde::timestamp::find_precise_range;
-use crate::sde::types::{SdePipelineState, SdeProgressStep, SdeRequest};
+use crate::sde::types::{SdePipelineState, SdeProgressCallback, SdeRequest};
 
 // ============================================================
 //  主编排器：run_sde()
@@ -37,6 +37,7 @@ pub async fn run_sde(
     proxy: Option<&ProxySection>,
     registry: &Registry,
     prompt_manager: &PromptManager,
+    progress: Option<SdeProgressCallback>,
 ) -> Result<PathBuf, SdeError> {
     // 0. 参数校验（D-04, T-7-10）
     request
@@ -53,6 +54,7 @@ pub async fn run_sde(
 
     // 2. 初始化流水线状态
     let mut state = SdePipelineState::new(task_id, task_dir);
+    state.progress = progress;
 
     // 3. 获取 text LLM provider
     let text_provider = registry
@@ -64,7 +66,7 @@ pub async fn run_sde(
     // ============================================================
     //  步骤 0: 字幕解析 (ParseSubtitle)  —  0% → 10%
     // ============================================================
-    state.emit_progress(SdeProgressStep::ParseSubtitle, 0.0, "解析字幕文件");
+    state.emit_progress("parse_subtitle", 0.0, "解析字幕文件");
 
     let subtitle_path = request.subtitle_path.clone();
     let (segments, text, encoding) = tokio::task::spawn_blocking(move || {
@@ -82,12 +84,12 @@ pub async fn run_sde(
     // 保存中间产物
     tokio::fs::write(state.task_dir.join("subtitle_source.txt"), &state.subtitle_text)
         .await?;
-    state.emit_progress(SdeProgressStep::ParseSubtitle, 10.0, "字幕解析完成");
+    state.emit_progress("parse_subtitle", 10.0, "字幕解析完成");
 
     // ============================================================
     //  步骤 1: 剧情分析 (PlotAnalysis)  —  15% → 30%
     // ============================================================
-    state.emit_progress(SdeProgressStep::PlotAnalysis, 15.0, "正在分析剧情...");
+    state.emit_progress("plot_analysis", 15.0, "正在分析剧情...");
     step_analyze_plot(
         &mut state,
         text_provider.as_ref(),
@@ -95,12 +97,12 @@ pub async fn run_sde(
         request.temperature,
     )
     .await?;
-    state.emit_progress(SdeProgressStep::PlotAnalysis, 30.0, "剧情分析完成");
+    state.emit_progress("plot_analysis", 30.0, "剧情分析完成");
 
     // ============================================================
     //  步骤 2: 解说脚本生成 (ScriptGenerate)  —  30% → 40%
     // ============================================================
-    state.emit_progress(SdeProgressStep::ScriptGenerate, 30.0, "正在生成解说脚本...");
+    state.emit_progress("script_generate", 30.0, "正在生成解说脚本...");
     let subtitle_text_for_script = state.subtitle_text.clone();
     step_generate_script(
         &mut state,
@@ -111,7 +113,7 @@ pub async fn run_sde(
         &subtitle_text_for_script,
     )
     .await?;
-    state.emit_progress(SdeProgressStep::ScriptGenerate, 40.0, "解说脚本生成完成");
+    state.emit_progress("script_generate", 40.0, "解说脚本生成完成");
 
     // ============================================================
     //  步骤 3: 脚本解析 + 校验 (LoadScript)  —  40% → 45%
@@ -119,7 +121,7 @@ pub async fn run_sde(
     //  G2: Timestamp Non-Overlap Guard
     //  G3: OST Ratio Warning
     // ============================================================
-    state.emit_progress(SdeProgressStep::LoadScript, 40.0, "正在解析脚本...");
+    state.emit_progress("load_script", 40.0, "正在解析脚本...");
 
     // G1: JSON Parse Guard — parse_script 自动执行 JSON 修复（repair_json）+ 反序列化
     // G5: Empty Script Guard — parse_script 检查 clips.is_empty()
@@ -142,14 +144,14 @@ pub async fn run_sde(
     // G3: OST Ratio Warning
     warn_ost_ratio(&state.script);
 
-    state.emit_progress(SdeProgressStep::LoadScript, 45.0, "脚本解析完成");
+    state.emit_progress("load_script", 45.0, "脚本解析完成");
 
     // ============================================================
     //  步骤 4: TTS 生成 (Tts)  —  50% → 60%
     //  D-23: "播放原片" 前缀检测跳过 TTS
     //  OST=1 片段无需 TTS（原始音轨）
     // ============================================================
-    state.emit_progress(SdeProgressStep::Tts, 50.0, "正在生成配音...");
+    state.emit_progress("tts", 50.0, "正在生成配音...");
 
     for clip in &state.script {
         // D-23: "播放原片" 前缀仅对 OST=1 片段跳过 TTS；OST=0/2 仍需 TTS 结果
@@ -198,13 +200,13 @@ pub async fn run_sde(
         );
     }
 
-    state.emit_progress(SdeProgressStep::Tts, 60.0, "配音生成完成");
+    state.emit_progress("tts", 60.0, "配音生成完成");
 
     // ============================================================
     //  步骤 5: 视频裁剪 (Clip)  —  70% → 75%
     //  D-29: OST=1 精确时间戳校正（find_precise_range）
     // ============================================================
-    state.emit_progress(SdeProgressStep::Clip, 70.0, "正在裁剪视频...");
+    state.emit_progress("clip", 70.0, "正在裁剪视频...");
 
     // D-29: OST=1 精确时间戳校正
     for clip in &mut state.script {
@@ -266,12 +268,12 @@ pub async fn run_sde(
     }
 
     state.total_duration = cumulative_time;
-    state.emit_progress(SdeProgressStep::Clip, 75.0, "视频裁剪完成");
+    state.emit_progress("clip", 75.0, "视频裁剪完成");
 
     // ============================================================
     //  步骤 6: 音频字幕合并 (MergeAudio)  —  80% → 85%
     // ============================================================
-    state.emit_progress(SdeProgressStep::MergeAudio, 80.0, "正在合并音频字幕...");
+    state.emit_progress("merge_audio", 80.0, "正在合并音频字幕...");
 
     let audio_out = state.task_dir.join("merger_audio.mp3");
     let merged_audio = merge_audio_files(
@@ -291,12 +293,12 @@ pub async fn run_sde(
     .await?;
     state.merged_subtitle_path = merged_sub;
 
-    state.emit_progress(SdeProgressStep::MergeAudio, 85.0, "音频字幕合并完成");
+    state.emit_progress("merge_audio", 85.0, "音频字幕合并完成");
 
     // ============================================================
     //  步骤 7: 视频拼接 (Concat)  —  90% → 95%
     // ============================================================
-    state.emit_progress(SdeProgressStep::Concat, 90.0, "正在拼接视频...");
+    state.emit_progress("concat", 90.0, "正在拼接视频...");
 
     let concat_list_path = state.task_dir.join("concat_list.txt");
     let mut concat_content = String::new();
@@ -383,13 +385,13 @@ pub async fn run_sde(
     })?;
 
     state.combined_video_path = Some(combined_path);
-    state.emit_progress(SdeProgressStep::Concat, 95.0, "视频拼接完成");
+    state.emit_progress("concat", 95.0, "视频拼接完成");
 
     // ============================================================
     //  步骤 8: 最终合成 (Composite)  —  95% → 100%
     //  参照 src/documentary/pipeline.rs step_composite 实现
     // ============================================================
-    state.emit_progress(SdeProgressStep::Composite, 95.0, "正在最终合成...");
+    state.emit_progress("composite", 95.0, "正在最终合成...");
 
     let merged_video = state
         .combined_video_path
@@ -602,7 +604,7 @@ pub async fn run_sde(
     })?;
 
     state.output_video_path = Some(final_path);
-    state.emit_progress(SdeProgressStep::Composite, 100.0, "最终合成完成");
+    state.emit_progress("composite", 100.0, "最终合成完成");
 
     // 返回结果
     state.output_video_path.ok_or_else(|| SdeError::Validation {

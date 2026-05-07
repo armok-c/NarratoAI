@@ -6,7 +6,7 @@ use crate::documentary::clip::clip_all_videos;
 use crate::documentary::error::PipelineError;
 use crate::documentary::subtitle::generate_srt_from_word_boundaries;
 use crate::documentary::timestamp::{parse_time_to_secs, secs_to_ffmpeg_time};
-use crate::documentary::types::{DocumentaryRequest, ProgressCallback, ProgressStep, TtsResult};
+use crate::documentary::types::{DocumentaryRequest, ProgressCallback, TtsResult};
 use crate::script::types::OstType;
 
 /// 流水线中间状态——贯穿 6 步
@@ -25,7 +25,7 @@ pub struct PipelineState {
 }
 
 impl PipelineState {
-    fn emit_progress(&self, step: ProgressStep, pct: f32, msg: &str) {
+    fn emit_progress(&self, step: &str, pct: f32, msg: &str) {
         if let Some(ref cb) = self.progress {
             cb(step, pct, msg);
         }
@@ -36,7 +36,7 @@ impl PipelineState {
 fn step_load_script(state: &mut PipelineState, script_path: &Path) -> Result<(), PipelineError> {
     let script = crate::script::load_script(script_path)?;
     tracing::info!("## 1. 加载视频脚本 — {} 个片段", script.len());
-    state.emit_progress(ProgressStep::LoadScript, 0.0, "加载视频脚本");
+    state.emit_progress("load_script", 0.0, "加载视频脚本");
     state.script = script;
     Ok(())
 }
@@ -92,7 +92,7 @@ pub(crate) async fn step_tts(
         );
     }
 
-    state.emit_progress(ProgressStep::Tts, 20.0, "TTS 生成完成");
+    state.emit_progress("tts", 20.0, "TTS 生成完成");
     Ok(())
 }
 
@@ -142,7 +142,7 @@ pub(crate) async fn step_clip(
     state.video_clips = video_clips;
     state.total_duration = cumulative_time;
 
-    state.emit_progress(ProgressStep::Clip, 60.0, "视频裁剪完成");
+    state.emit_progress("clip", 60.0, "视频裁剪完成");
     Ok(())
 }
 
@@ -173,7 +173,7 @@ pub(crate) async fn step_merge_audio_subtitle(
     .await?;
     state.merged_subtitle_path = merged_sub;
 
-    state.emit_progress(ProgressStep::MergeAudio, 70.0, "音频字幕合并完成");
+    state.emit_progress("merge_audio", 70.0, "音频字幕合并完成");
     Ok(())
 }
 
@@ -265,7 +265,7 @@ pub(crate) async fn step_concat(state: &mut PipelineState) -> Result<(), Pipelin
     .map_err(PipelineError::from)?;
 
     state.combined_video_path = Some(output_path);
-    state.emit_progress(ProgressStep::Concat, 80.0, "视频拼接完成");
+    state.emit_progress("concat", 80.0, "视频拼接完成");
     Ok(())
 }
 
@@ -463,7 +463,7 @@ pub(crate) async fn step_composite(
     .map_err(PipelineError::from)?;
 
     state.output_video_path = Some(output_path);
-    state.emit_progress(ProgressStep::Composite, 100.0, "最终合成完成");
+    state.emit_progress("composite", 100.0, "最终合成完成");
     Ok(())
 }
 
@@ -472,6 +472,7 @@ pub async fn run_documentary(
     request: DocumentaryRequest,
     config: &crate::config::types::AppConfig,
     proxy: Option<&crate::config::types::ProxySection>,
+    progress: Option<ProgressCallback>,
 ) -> Result<PathBuf, PipelineError> {
     request.validate().map_err(|e| PipelineError::Validation { details: e })?;
 
@@ -494,7 +495,7 @@ pub async fn run_documentary(
         combined_video_path: None,
         output_video_path: None,
         total_duration: 0.0,
-        progress: None,
+        progress,
     };
 
     // Step 1: Load script

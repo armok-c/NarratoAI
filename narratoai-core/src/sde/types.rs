@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::documentary::types::TtsResult;
 
 /// SDE 流水线请求参数
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdeRequest {
     pub subtitle_path: PathBuf,
     pub video_path: PathBuf,
@@ -109,8 +111,8 @@ pub enum SdeProgressStep {
     Composite,
 }
 
-/// SDE 进度回调类型
-pub type SdeProgressCallback = Box<dyn Fn(SdeProgressStep, f32, &str) + Send + Sync>;
+/// SDE 进度回调类型（字符串基——step_name, percent, message）
+pub type SdeProgressCallback = Box<dyn Fn(&str, f32, &str) + Send + Sync>;
 
 /// 字幕段落——解析后的 SRT 条目
 pub use crate::subtitle::types::SubtitleSegment;
@@ -159,7 +161,7 @@ impl SdePipelineState {
     }
 
     /// 触发进度回调（如果已注册）
-    pub fn emit_progress(&self, step: SdeProgressStep, pct: f32, msg: &str) {
+    pub fn emit_progress(&self, step: &str, pct: f32, msg: &str) {
         if let Some(ref cb) = self.progress {
             cb(step, pct, msg);
         }
