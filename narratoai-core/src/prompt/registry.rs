@@ -81,7 +81,7 @@ impl PromptRegistry {
     /// 防止模板引用了未声明的变量（WR-04），确保 `render_prompt` 中的 `Validation` 错误路径
     /// 覆盖所有可能的变量引用，避免用户收到与 `ParameterDef` 不一致的 `TemplateRender` 错误。
     fn validate_prompt_parameters(&self, prompt: &Prompt) -> Result<(), PromptError> {
-        let re = Regex::new(r"\$\{(\w+)\}").map_err(|e| {
+        let re = Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}").map_err(|e| {
             PromptError::TemplateRender(format!("正则编译失败: {}", e))
         })?;
 
