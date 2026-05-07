@@ -149,11 +149,12 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     let result = filter_re.replace_all(&result, |caps: &regex::Captures| {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        if let (Some(filter_fn), Some(value)) = (filters.get(filter_name), vars.get(var_name)) {
-            filter_fn(value)
-        } else {
-            // 过滤器未找到或变量不存在，保留原始文本
-            caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+        match (filters.get(filter_name), vars.get(var_name)) {
+            (Some(filter_fn), Some(value)) => filter_fn(value),
+            _ => unreachable!(
+                "filter '{}' and variable '{}' passed validation but not found during replacement",
+                filter_name, var_name
+            ),
         }
     });
 
