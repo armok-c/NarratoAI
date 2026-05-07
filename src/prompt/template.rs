@@ -50,7 +50,7 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 
     // json——JSON 转义字符串
     m.insert("json", |s: &str| {
-        serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s.replace('"', "\\\"")))
+        serde_json::to_string(s).expect("serializing &str to JSON string cannot fail")
     });
 
     m
