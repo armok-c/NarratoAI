@@ -158,10 +158,12 @@ pub async fn analyze_video_frames(
     let mut observations = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     let mut last_summary: Option<String> = None;
+    let mut success_count: usize = 0;
 
     for (idx, text) in raw_results.iter().enumerate() {
         match parse_and_retry(text) {
             Ok(batch) => {
+                success_count += 1;
                 observations.extend(batch.observations);
                 if batch.overall_activity_summary.is_some() {
                     last_summary = batch.overall_activity_summary;
@@ -177,7 +179,6 @@ pub async fn analyze_video_frames(
 
     // Step 8 — 空结果屏障（在线护栏，AI-SPEC Section 6）
     if observations.is_empty() && !errors.is_empty() {
-        let success_count = raw_results.len() - errors.len();
         return Err(VisualError::BatchPartial {
             analyzed_count: success_count,
             total_count: raw_results.len(),
@@ -209,7 +210,7 @@ pub async fn analyze_video_frames(
         observations,
         overall_activity_summary: last_summary,
         total_frames: frame_paths.len(),
-        analyzed_batches: raw_results.len() - errors.len(),
+        analyzed_batches: success_count,
         errors,
     })
 }
