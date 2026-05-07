@@ -467,10 +467,11 @@ fn rename_fast_path_frames(
 /// 将秒数转换为 HHMMSSmmm 格式字符串（9 位数字）
 #[allow(dead_code)]
 pub(crate) fn seconds_to_hhmmssmmm(total_secs: f64) -> String {
-    let hours = (total_secs / 3600.0) as u64;
-    let minutes = ((total_secs % 3600.0) / 60.0) as u64;
-    let secs = (total_secs % 60.0) as u64;
-    let millis = ((total_secs - total_secs.floor()) * 1000.0) as u64;
+    let total_millis = (total_secs * 1000.0).round() as u64;
+    let hours = total_millis / 3_600_000;
+    let minutes = (total_millis % 3_600_000) / 60_000;
+    let secs = (total_millis % 60_000) / 1000;
+    let millis = total_millis % 1000;
     format!("{:02}{:02}{:02}{:03}", hours, minutes, secs, millis)
 }
 
