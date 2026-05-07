@@ -18,4 +18,4 @@
 - on_screen_text: 文字内容（如有）
 - visual_salience: 显著性评分 0.0-1.0
 
-语言: ${language}
+输出语言: ${language}
