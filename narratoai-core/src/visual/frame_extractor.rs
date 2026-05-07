@@ -589,7 +589,7 @@ fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
     let mut child = match std::process::Command::new(ffmpeg_bin)
         .args(args)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
     {
         Ok(c) => c,
@@ -599,7 +599,19 @@ fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
         }
     };
     match child.wait() {
-        Ok(status) => status.success(),
+        Ok(status) => {
+            if !status.success() {
+                use std::io::Read;
+                let stderr = child.stderr.take()
+                    .and_then(|mut s| {
+                        let mut buf = String::new();
+                        s.read_to_string(&mut buf).ok().map(|_| buf)
+                    })
+                    .unwrap_or_default();
+                tracing::warn!("FFmpeg failed (exit={:?}): {}", status.code(), stderr.trim());
+            }
+            status.success()
+        }
         Err(e) => {
             tracing::warn!("FFmpeg wait 失败: {}", e);
             false
