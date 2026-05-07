@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
@@ -297,9 +296,7 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 /// 3. 获取数组（顶层数组或 items/clips 字段）
 /// 4. 逐项反序列化为 ScriptClip（缺失 OST 默认 0，无效项跳过）
 /// 5. 通过 crate::script::validate 校验
-///
-/// 注意：调用方负责将结果异步保存到 `task_dir/script_final.json`。
-pub fn parse_script(raw_json: &str, _task_dir: &Path) -> Result<Script, SdeError> {
+pub fn parse_script(raw_json: &str) -> Result<Script, SdeError> {
     let repaired = repair_json(raw_json);
 
     let value: serde_json::Value = serde_json::from_str(&repaired).map_err(|e| {
@@ -474,8 +471,7 @@ mod tests {
     #[test]
     fn test_parse_script_valid_items() {
         let json = make_items_json(r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#);
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let result = parse_script(&json, dir.path());
+        let result = parse_script(&json);
         assert!(result.is_ok(), "valid items should parse: {:?}", result.err());
         let clips = result.unwrap();
         assert_eq!(clips.len(), 1);
@@ -486,24 +482,21 @@ mod tests {
     #[test]
     fn test_parse_script_top_level_array() {
         let json = r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#;
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let result = parse_script(json, dir.path());
+        let result = parse_script(json);
         assert!(result.is_ok(), "top-level array should parse: {:?}", result.err());
     }
 
     #[test]
     fn test_parse_script_missing_ost_default() {
         let json = r#"{"items": [{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559"}]}"#;
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let clips = parse_script(json, dir.path()).expect("missing OST should default");
+        let clips = parse_script(json).expect("missing OST should default");
         assert_eq!(clips[0].ost, OstType::NarrationOnly, "missing OST should default to 0");
     }
 
     #[test]
     fn test_parse_script_empty_clips() {
         let json = r#"{"items": []}"#;
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let result = parse_script(json, dir.path());
+        let result = parse_script(json);
         assert!(result.is_err(), "empty clips should error");
         match result {
             Err(SdeError::ScriptGeneration { .. }) => {}
@@ -517,8 +510,7 @@ mod tests {
             {"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0},
             {"_id": "bad", "picture": "画面2", "narration": "解说2", "timestamp": "00:00-00:05", "OST": 0}
         ]}"#;
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let clips = parse_script(json, dir.path()).expect("invalid clips should be skipped");
+        let clips = parse_script(json).expect("invalid clips should be skipped");
         assert_eq!(clips.len(), 1, "only valid clip should remain");
         assert_eq!(clips[0]._id, 1);
     }
@@ -526,8 +518,7 @@ mod tests {
     #[test]
     fn test_parse_script_invalid_json() {
         let json = "not json at all";
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let result = parse_script(json, dir.path());
+        let result = parse_script(json);
         assert!(result.is_err(), "invalid JSON should error");
         match result {
             Err(SdeError::JsonRepair { .. }) => {}
