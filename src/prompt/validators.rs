@@ -32,7 +32,8 @@ fn validate_text(output: &str) -> Result<(), PromptError> {
 /// 使用 `serde_json::from_str::<serde_json::Value>` 验证是否为有效 JSON。
 /// 然后检查顶层是否为对象类型。
 fn validate_json(output: &str) -> Result<(), PromptError> {
-    let trimmed = output.trim();
+    let cleaned = crate::visual::types::strip_code_fence(output);
+    let trimmed = cleaned.trim();
 
     if trimmed.is_empty() {
         return Err(PromptError::Validation("JSON 输出为空".into()));
