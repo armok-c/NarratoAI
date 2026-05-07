@@ -78,12 +78,13 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("解说文案为空".into()));
     }
 
-    if normalized.chars().count() < MIN_NARRATION_CHARS {
+    let char_count = normalized.chars().count();
+    if char_count < MIN_NARRATION_CHARS {
         return Err(PromptError::Validation(format!(
             "解说文案过短: {} 字符（需要 >= {}）",
-            normalized.chars().count(),
+            char_count,
             MIN_NARRATION_CHARS,
-            normalized.chars().count()
+            char_count
         )));
     }
 
@@ -114,12 +115,13 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("剧情分析内容为空".into()));
     }
 
-    if trimmed.chars().count() < MIN_PLOT_ANALYSIS_CHARS {
+    let char_count = trimmed.chars().count();
+    if char_count < MIN_PLOT_ANALYSIS_CHARS {
         return Err(PromptError::Validation(format!(
             "剧情分析内容不足: {} 字符（需要 >= {}）",
-            trimmed.chars().count(),
+            char_count,
             MIN_PLOT_ANALYSIS_CHARS,
-            trimmed.chars().count()
+            char_count
         )));
     }
 
