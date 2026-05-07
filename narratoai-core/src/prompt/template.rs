@@ -1,14 +1,29 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use crate::prompt::error::PromptError;
 
 /// 过滤器函数类型
 type FilterFn = fn(&str) -> String;
 
-/// 返回内置过滤器映射表（6 个过滤器）
-fn builtin_filters() -> HashMap<&'static str, FilterFn> {
-    let mut m: HashMap<&'static str, FilterFn> = HashMap::new();
+/// 模板变量占位符正则：匹配 ${variable} 和 ${variable|filter}
+static TEMPLATE_VAR_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn template_var_regex() -> &'static Regex {
+    TEMPLATE_VAR_REGEX.get_or_init(|| {
+        Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}")
+            .expect("TEMPLATE_VAR_REGEX 编译失败")
+    })
+}
+
+/// 内置过滤器映射缓存
+static BUILTIN_FILTERS: OnceLock<HashMap<&'static str, FilterFn>> = OnceLock::new();
+
+/// 返回内置过滤器映射表（6 个过滤器，缓存到 OnceLock）
+fn builtin_filters() -> &'static HashMap<&'static str, FilterFn> {
+    BUILTIN_FILTERS.get_or_init(|| {
+        let mut m: HashMap<&'static str, FilterFn> = HashMap::new();
 
     // upper——转换为大写
     m.insert("upper", |s: &str| s.to_uppercase());
@@ -53,7 +68,8 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
         serde_json::to_string(s).expect("serializing &str to JSON string cannot fail")
     });
 
-    m
+        m
+    })
 }
 
 /// 渲染模板——单遍正则替换（变量 + 过滤器）
@@ -78,9 +94,7 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, PromptError> {
     // 同时匹配 ${variable} 和 ${variable|filter_name}
     // group 1 = variable name, group 2 = filter name (optional)
-    let re = Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}").map_err(|e| {
-        PromptError::TemplateRender(format!("正则编译失败: {}", e))
-    })?;
+    let re = template_var_regex();
 
     let filters = builtin_filters();
 
@@ -118,15 +132,12 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     // 第 2 步：在原始模板上一次性替换所有占位符
     let result = re.replace_all(template, |caps: &regex::Captures| {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let value = vars.get(var_name).copied().unwrap_or_else(|| {
-            unreachable!("variable '{}' passed validation but not found", var_name)
-        });
+        let value = vars.get(var_name).copied().unwrap_or("");
 
         match caps.get(2).map(|m| m.as_str()) {
             Some(filter_name) if !filter_name.is_empty() => {
-                let filter_fn = filters.get(filter_name).unwrap_or_else(|| {
-                    unreachable!("filter '{}' passed validation but not found", filter_name)
-                });
+                let filter_fn = filters.get(filter_name)
+                    .expect("filter passed validation but not found");
                 filter_fn(value)
             }
             _ => value.to_string(),
