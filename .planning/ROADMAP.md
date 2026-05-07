@@ -262,6 +262,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. SDE Pipeline | 0/4 | Planned | 2026-05-05 |
 | 8. SDP Pipeline | 0/5 | Gap closure | 2026-05-06 |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
-| 10. Tauri Command Layer | 2/2 | Complete   | 2026-05-07 |
+| 10. Tauri Command Layer | 2/2 | Complete    | 2026-05-07 |
 | 11. Extended Features | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |

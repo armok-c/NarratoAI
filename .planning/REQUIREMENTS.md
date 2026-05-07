@@ -91,9 +91,9 @@ Requirements for Rust rewrite milestone. Each maps to roadmap phases. Code-level
 
 ### Tauri Command Layer
 
-- [ ] **TAURI-01**: Tauri 2.0 命令注册——暴露所有 Rust 业务函数给前端
-- [ ] **TAURI-02**: 进度事件推送——通过 Tauri events 实时推送任务进度
-- [ ] **TAURI-03**: 文件对话框集成——视频/字幕文件选择
+- [x] **TAURI-01**: Tauri 2.0 命令注册——暴露所有 Rust 业务函数给前端
+- [x] **TAURI-02**: 进度事件推送——通过 Tauri events 实时推送任务进度
+- [x] **TAURI-03**: 文件对话框集成——视频/字幕文件选择
 
 ### Extended Features
 
@@ -180,9 +180,9 @@ Which phases cover which requirements.
 | SDP-02 | Phase 8: SDP Pipeline | Pending |
 | JYNG-01 | Phase 9: JianYing Export | Pending |
 | JYNG-02 | Phase 9: JianYing Export | Pending |
-| TAURI-01 | Phase 10: Tauri Command Layer | Pending |
-| TAURI-02 | Phase 10: Tauri Command Layer | Pending |
-| TAURI-03 | Phase 10: Tauri Command Layer | Pending |
+| TAURI-01 | Phase 10: Tauri Command Layer | Complete |
+| TAURI-02 | Phase 10: Tauri Command Layer | Complete |
+| TAURI-03 | Phase 10: Tauri Command Layer | Complete |
 | EXTD-01 | Phase 11: Extended Features | Pending |
 | EXTD-02 | Phase 11: Extended Features | Pending |
 | EXTD-03 | Phase 11: Extended Features | Pending |
