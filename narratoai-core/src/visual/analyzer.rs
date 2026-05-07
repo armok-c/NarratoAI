@@ -21,6 +21,7 @@ use crate::visual::error::VisualError;
 use crate::visual::frame_extractor::extract_frames;
 use crate::text_utils;
 use crate::visual::types::{BatchAnalysisResult, FrameObservation};
+use tokio_util::sync::CancellationToken;
 
 /// LLM 响应的顶层包装类型，匹配 prompt 中声明的 JSON schema
 ///
@@ -76,6 +77,7 @@ pub async fn analyze_video_frames(
     interval_seconds: Option<f64>,
     quality: Option<u32>,
     progress: Option<ProgressCallback>,
+    cancel: Option<CancellationToken>,
 ) -> Result<BatchAnalysisResult, VisualError> {
     // Step 1 — 进度汇报
     if let Some(ref cb) = progress {
@@ -97,7 +99,7 @@ pub async fn analyze_video_frames(
         interval_seconds.unwrap_or(3.0), // 默认 3 秒间隔
         quality,
         None, // progress: 帧提取进度已包含在 extract_frames 内部
-        None, // cancel
+        cancel, // cancel
     )
     .await
     .map_err(|e| {
