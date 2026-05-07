@@ -202,7 +202,13 @@ impl PromptRegistry {
                 .or_else(|| {
                     let fallback = names_map.get(name).and_then(|m| {
                         let mut versions: Vec<&String> = m.keys().collect();
-                        versions.sort();
+                        versions.sort_by(|a, b| {
+                            let a_num: u64 = a.trim_start_matches('v').split('.').next()
+                                .and_then(|s| s.parse().ok()).unwrap_or(0);
+                            let b_num: u64 = b.trim_start_matches('v').split('.').next()
+                                .and_then(|s| s.parse().ok()).unwrap_or(0);
+                            a_num.cmp(&b_num)
+                        });
                         versions.into_iter().next().cloned()
                     });
                     if let Some(ref v) = fallback {
