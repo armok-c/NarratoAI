@@ -1,167 +1,176 @@
 ---
 phase: 06-documentary-pipeline
-reviewed: 2026-05-07T12:00:00Z
+reviewed: 2026-05-07T14:45:00Z
 depth: standard
 files_reviewed: 12
 files_reviewed_list:
-  - src/documentary/mod.rs
-  - src/documentary/error.rs
-  - src/documentary/types.rs
-  - src/documentary/timestamp.rs
-  - src/documentary/subtitle.rs
-  - src/documentary/pipeline.rs
-  - src/documentary/clip.rs
   - src/documentary/audio.rs
+  - src/documentary/clip.rs
+  - src/documentary/error.rs
+  - src/documentary/mod.rs
+  - src/documentary/pipeline.rs
   - src/documentary/script_gen.rs
+  - src/documentary/subtitle.rs
+  - src/documentary/timestamp.rs
+  - src/documentary/types.rs
   - src/lib.rs
-  - tests/documentary_integration_test.rs
   - tests/common/mod.rs
+  - tests/documentary_integration_test.rs
 findings:
-  critical: 1
-  warning: 5
-  info: 3
-  total: 9
+  critical: 0
+  warning: 4
+  info: 4
+  total: 8
 status: issues_found
 previous_review:
-  date: 2026-05-05
-  iteration: 3
-  findings: 4 (0 CR + 0 WR + 4 IN)
-  status: clean
+  date: 2026-05-07
+  iteration: 4
+  findings: 6 (1 CR + 5 WR)
+  status: issues_found
+  fixes_applied: 5 fixed, 1 skipped (WR-05)
 ---
 
-# Phase 06: Code Review Report (Iteration 4)
+# Phase 06: Code Review Report (Iteration 5)
 
-**Reviewed:** 2026-05-07T12:00:00Z
+**Reviewed:** 2026-05-07T14:45:00Z
 **Depth:** standard
 **Files Reviewed:** 12
 **Status:** issues_found
 
 ## Summary
 
-Adversarial re-review of all 12 documentary pipeline source files. Previous iterations (1-3) found and fixed 2 critical, 4 warnings, and 4 info items. The code was declared "clean" in iteration 3.
+Adversarial re-review after iteration 4 fixes (5 of 6 applied; WR-05 sequential processing intentionally skipped). All 5 fixes verified in source:
 
-This adversarial pass surfaced 1 new critical bug (integer truncation in audio delay calculation causing potential audio-video desync), 5 warnings (misleading test data, missing validation bounds, silent skip of missing TTS results, unused parameter, sequential clip processing), and 3 info items. The code has solid error propagation and Chinese Display messages throughout. Security is adequate: FFmpeg arguments are built programmatically (no shell injection), subtitle paths are escaped, font names are sanitized, and color values are validated as hex.
+- CR-01 (audio delay truncation): `.round()` confirmed at `audio.rs:54`
+- WR-01 (test data values): `5_000_000`, `12_000_000`, `20_000_000` confirmed at `subtitle.rs:154-164`
+- WR-02 (font_size bounds): validation `[1, 200]` confirmed at `types.rs:77-82`
+- WR-03 (missing TTS error): `ok_or_else` confirmed at `audio.rs:46`
+- WR-04 (unused param doc): comment confirmed at `pipeline.rs:150-152`
 
-## Critical Issues
-
-### CR-01: Integer truncation in audio delay causes cumulative audio-video desync
-
-**File:** `src/documentary/audio.rs:47`
-**Issue:** The delay calculation `(cumulative_offset * 1000.0) as u64` performs a truncating cast from `f64` to `u64`, silently discarding fractional milliseconds. For a `cumulative_offset` of `5.9994` seconds, the result is `5999` ms instead of the correct `5999.4` ms. Over multiple clips, this truncation accumulates and causes progressive audio-video desynchronization. For example, with 10 clips each having a 0.5ms truncation error, the audio drifts by 5ms per clip, reaching 50ms total drift -- perceptible to users.
-
-The `adelay` FFmpeg filter accepts integer milliseconds, so some rounding is unavoidable, but `round()` would minimize error (truncation always rounds down; rounding halves the average error).
-
-**Fix:**
-```rust
-// Before (line 47):
-let delay_ms = (cumulative_offset * 1000.0) as u64;
-
-// After:
-let delay_ms = (cumulative_offset * 1000.0).round() as u64;
-```
+This pass found **0 critical**, **4 warnings**, and **4 info items** -- all new findings from deeper analysis. The codebase has solid error propagation, proper FFmpeg argument construction (no shell injection), path escaping for subtitle filters, and font name sanitization. No security vulnerabilities were identified.
 
 ## Warnings
 
-### WR-01: Misleading underscore separators and incorrect comments in subtitle test data
+### WR-01: Temporary keyframe directory never cleaned up on failure
 
-**File:** `src/documentary/subtitle.rs:153-165`
-**Issue:** Test helper `make_word_boundaries()` uses numeric literals `500_000_0`, `1_200_000_0`, and `2_000_000_0` with comments claiming "0.5s", "1.2s", and "2.0s" respectively. In Rust, underscores in numeric literals are visual separators only, so these equal `50000000`, `120000000`, and `200000000` in 100ns units. These represent 5.0s, 12.0s, and 20.0s -- not the commented durations. The tests pass only because they verify offset application (SRT contains `"00:00:10,000"` which is the offset, not the boundary duration), not absolute boundary timing. A developer relying on these comments would write incorrect code.
+**File:** `src/documentary/script_gen.rs:38-42`
+**Issue:** `analyze_video` creates a `keyframes_cache/{uuid}/` directory inside the video's parent directory. If any subsequent step fails (frame extraction, LLM analysis, JSON serialization), this directory and its contents are permanently orphaned on disk. There is no cleanup on any error path. Over time, repeated failures accumulate orphaned directories consuming disk space in the user's video directory.
+**Fix:** Use a cleanup guard or `tempfile::TempDir` for automatic cleanup on failure.
 
-**Fix:** Either fix the values to match comments or fix the comments to match the values:
 ```rust
-// Option A: Fix values to match comments (0.5s, 1.2s, 2.0s)
-end_offset: 5_000_000,    // 0.5s in 100ns units (5,000,000 * 100ns = 0.5s)
-start_offset: 5_000_000,
-end_offset: 12_000_000,   // 1.2s in 100ns units
-start_offset: 12_000_000,
-end_offset: 20_000_000,   // 2.0s in 100ns units
-```
+// Option A: tempfile::TempDir (removed on drop unless persisted)
+let output_dir = tempfile::tempdir_in(
+    request.video_path.parent().unwrap_or(Path::new("."))
+)?;
+let output_path = output_dir.path();
 
-### WR-02: `subtitle_font_size` has no upper or lower bound validation
-
-**File:** `src/documentary/types.rs:74-75`
-**Issue:** `validate()` checks numeric ranges for `voice_rate`, `voice_pitch`, `tts_volume`, `original_volume`, `bgm_volume`, and `threads`, but not `subtitle_font_size` (a `u32`). A value of `u32::MAX` passes validation and gets embedded in the FFmpeg `force_style` string as `FontSize=4294967295`, which would cause FFmpeg to produce garbled output or crash. A value of `0` produces invisible subtitles.
-
-**Fix:**
-```rust
-// Add to validate():
-if self.subtitle_font_size == 0 || self.subtitle_font_size > 200 {
-    return Err(format!(
-        "subtitle_font_size 超出有效范围 [1, 200]: {}",
-        self.subtitle_font_size
-    ));
+// Option B: Scope guard with manual cleanup
+struct CleanupOnDrop(PathBuf);
+impl Drop for CleanupOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
+let _guard = CleanupOnDrop(output_dir.clone());
 ```
 
-### WR-03: `merge_audio_files` silently skips OST=0/2 clips with missing TTS results
+### WR-02: Negative timestamps silently clamped to zero in SRT generation
 
-**File:** `src/documentary/audio.rs:46-58`
-**Issue:** For OST=0 (NarrationOnly) or OST=2 (Mixed) clips, if `tts_results.get(&clip._id)` returns `None`, the clip's audio is silently skipped -- no TTS audio is added, but `cumulative_offset` is still incremented by `clip_duration`. This creates a silent gap where narration was expected. While `clip_all_videos` in `clip.rs` would fail first for missing TTS (it uses `ok_or_else`), `merge_audio_files` does not enforce this invariant itself. If called from a different code path, or if TTS results are somehow removed between steps, the silent gap would go undetected.
+**File:** `src/documentary/subtitle.rs:22-24` and `src/documentary/timestamp.rs:83-85`
+**Issue:** If `offset_secs` is negative or `WordBoundary` offsets produce a negative total, `secs_to_srt_time` silently clamps to `"00:00:00,000"` without any warning or error. This hides calculation bugs in the caller, potentially producing SRT files with overlapping or zero-length subtitle blocks that are difficult to diagnose.
+**Fix:** Add validation in `generate_srt_from_word_boundaries` to detect and warn on negative timestamps.
 
-**Fix:**
 ```rust
-// Replace lines 46-56 with:
-if clip.ost != OstType::OriginalSound {
-    let tts = tts_results.get(&clip._id).ok_or_else(|| {
-        PipelineError::AudioMerge {
-            details: format!(
-                "OST={:?} 片段 {} 缺少 TTS 结果，无法合并音频",
-                clip.ost, clip._id
-            ),
+pub fn generate_srt_from_word_boundaries(
+    word_boundaries: &[WordBoundary],
+    offset_secs: f64,
+) -> String {
+    let mut blocks = Vec::new();
+    for (i, wb) in word_boundaries.iter().enumerate() {
+        let start_secs = offset_secs + wb.start_offset as f64 / 10_000_000.0;
+        let end_secs = offset_secs + wb.end_offset as f64 / 10_000_000.0;
+        if start_secs < 0.0 || end_secs < 0.0 {
+            tracing::warn!(
+                "Word boundary #{} produces negative timestamp (start={:.3}, end={:.3}, offset={:.3})",
+                i, start_secs, end_secs, offset_secs
+            );
         }
-    })?;
-    let delay_ms = (cumulative_offset * 1000.0).round() as u64;
-    let input_idx = mix_inputs.len();
-    input_args.push("-i".to_string());
-    input_args.push(tts.audio_path.to_string_lossy().to_string());
-    let label = format!("[{}:a]", input_idx);
-    filter_parts.push(format!("{}adelay={}|{}[tts{}]", label, delay_ms, delay_ms, clip._id));
-    mix_inputs.push(format!("[tts{}]", clip._id));
+        // ... rest unchanged
+    }
 }
 ```
 
-### WR-04: `step_merge_audio_subtitle` receives unused `_request` parameter
+### WR-03: SubtitleSegment.offset_secs always 0.0 -- misleading data flow
 
-**File:** `src/documentary/pipeline.rs:152`
-**Issue:** The `_request` parameter in `step_merge_audio_subtitle` is prefixed with underscore to suppress unused-variable warnings, but this function is `pub(crate)` and its signature is part of the module's API surface. An unused parameter in a public function is a code smell that indicates either incomplete implementation or API design drift.
+**File:** `src/documentary/audio.rs:155-162`
+**Issue:** In `merge_subtitle_files`, the cumulative offset is passed directly into `generate_srt_from_word_boundaries`, which bakes the offset into the SRT content. Then `SubtitleSegment { offset_secs: 0.0 }` is created, and `merge_srt_files` applies `0.0` offset (a no-op). The `SubtitleSegment.offset_secs` field suggests it carries the offset, but it is always zero in practice. This design is confusing for maintainers who might change one offset application path without realizing the other exists, introducing double-offset or zero-offset bugs.
+**Fix:** Apply the offset in exactly one place for clarity.
 
-**Fix:** Either remove the parameter (if truly not needed) or document why it is intentionally unused (if reserved for future use):
 ```rust
-// Option A: Remove the parameter and update the call site at line 510.
-// Option B: Add a doc comment:
-/// 步骤 4: 合并音频和字幕
-///
-/// Note: `_request` is currently unused but retained for future
-/// per-request audio volume control during merge.
+// Move offset to SubtitleSegment, generate SRT without offset:
+let srt_content = crate::documentary::subtitle::generate_srt_from_word_boundaries(
+    &tts.word_boundaries,
+    0.0,  // no offset baked in here
+);
+segments.push(SubtitleSegment {
+    srt_content,
+    offset_secs: cumulative_offset,  // offset applied during merge
+});
 ```
 
-### WR-05: `clip_all_videos` processes clips sequentially, missing parallelism opportunity
+### WR-04: No file-existence check for video_path and script_path
 
-**File:** `src/documentary/clip.rs:89-124`
-**Issue:** All clips are processed in a sequential `for` loop, each invoking FFmpeg via `await`. For a documentary with many clips (20-50 is common), this serializes all FFmpeg invocations. Since each clip is independent and FFmpeg primarily uses CPU/GPU, running 2-4 clip extractions concurrently could significantly reduce pipeline wall time. The `DocumentaryRequest::threads` field (validated as non-zero but currently unused per IN-04) could control this concurrency.
+**File:** `src/documentary/types.rs:52-58`
+**Issue:** `DocumentaryRequest::validate()` checks that `video_path` and `script_path` are non-empty strings but does not verify the files actually exist on disk. This defers "file not found" errors to deep pipeline steps (step 1 for script at `pipeline.rs:37`, step 3 for video via FFmpeg) where the error message is less specific and harder to trace back to user input.
+**Fix:** Add existence checks in validation for immediate, clear error reporting.
 
-**Fix:** This is a quality improvement, not a correctness bug. No immediate action required, but worth tracking.
+```rust
+pub fn validate(&self) -> Result<(), String> {
+    if self.video_path.as_os_str().is_empty() {
+        return Err("video_path 不能为空".to_string());
+    }
+    if !self.video_path.exists() {
+        return Err(format!("video_path 文件不存在: {}", self.video_path.display()));
+    }
+    if self.script_path.as_os_str().is_empty() {
+        return Err("script_path 不能为空".to_string());
+    }
+    if !self.script_path.exists() {
+        return Err(format!("script_path 文件不存在: {}", self.script_path.display()));
+    }
+    // ... rest unchanged
+}
+```
 
 ## Info
 
-### IN-01: `SubtitleSegment.offset_secs` always 0.0 -- redundant field in current usage
+### IN-01: FFmpeg-dependent integration tests are empty stubs
 
-**File:** `src/documentary/audio.rs:153-156`
-**Issue:** In `merge_subtitle_files`, `SubtitleSegment::offset_secs` is always `0.0`. The actual time offset is applied upstream in `generate_srt_from_word_boundaries` via the `cumulative_offset` parameter. The `offset_secs` field and `apply_offset_to_block` in `merge_srt_files` are effectively dead code for this call path. The `SubtitleSegment` struct and `merge_srt_files` function appear to have been designed for a different usage pattern where multiple SRT files with different offsets are merged, but the current pipeline applies offsets before creating segments.
+**File:** `tests/documentary_integration_test.rs:166-203`
+**Issue:** All four FFmpeg-dependent integration tests (`test_pipeline_mixed_ost_types`, `test_pipeline_ost0_narration_only`, `test_pipeline_ost1_original_sound`, `test_pipeline_ost2_mixed`) are marked `#[ignore]` and contain only a guard check with no actual test logic or assertions. These provide no coverage for the core 6-step pipeline flow.
+**Fix:** Implement these tests or remove them to avoid false confidence in test counts.
 
-### IN-02: `parse_time_to_secs` accepts fractional hour/minute components
+### IN-02: Test data uses non-standard timestamp format
 
-**File:** `src/documentary/timestamp.rs:41-59`
-**Issue:** The function parses hour/minute/second components as `f64` and validates ranges `[0, 23]`, `[0, 59]`, `[0, 59]`. This means `"00.5:00:00"` would parse as `0.5 * 3600 = 1800.0` seconds (30 minutes), which is a valid but unusual interpretation. Standard timestamp formats always use integer hour/minute/second components. This looseness does not cause bugs in practice since timestamps come from scripts with standard formatting, but it could lead to surprising behavior with malformed input.
+**File:** `src/documentary/script_gen.rs:488`
+**Issue:** Test data uses timestamps like `"00:00-00:05"` (MM:SS format) which would fail `parse_time_to_secs()` if processed through the pipeline. The tests only validate JSON parsing, not timestamp validity, so this is not a bug -- but it could mislead future test authors into thinking this timestamp format is supported in production.
+**Fix:** Use the expected `HH:MM:SS-HH:MM:SS` format in test data for consistency.
 
-### IN-03: `PipelineState.progress` is always `None` -- progress callbacks never fire
+### IN-03: Dead-code fallback on infallible `split().next()`
 
-**File:** `src/documentary/pipeline.rs:481`
-**Issue:** `PipelineState.progress` is hardcoded to `None` in `run_documentary`. The `emit_progress` method and all `ProgressStep`-based callback invocations are dead code until the pipeline is integrated with a caller that injects a progress callback. The `ProgressCallback` type and `ProgressStep` enum are well-designed and tested (see `test_progress_callback_receives_all_steps`), but unused in the current codebase.
+**File:** `src/documentary/clip.rs:22` and `src/documentary/clip.rs:77`
+**Issue:** `clip.timestamp.split('-').next().unwrap_or(&clip.timestamp)` -- `split().next()` always returns `Some(...)` because `split` yields at least one element. The `unwrap_or` fallback is dead code. Not a bug, but adds noise.
+**Fix:** Simplify to `.unwrap()` or use `let start_part = clip.timestamp.split('-').next().unwrap();`.
+
+### IN-04: PipelineState.progress always None -- progress infrastructure unused
+
+**File:** `src/documentary/pipeline.rs:500`
+**Issue:** `PipelineState.progress` is hardcoded to `None` in `run_documentary`. The `emit_progress` method and all `ProgressStep`-based callback invocations are dead code until the pipeline is integrated with a caller that injects a progress callback. The `ProgressCallback` type and `ProgressStep` enum are well-designed and tested, but unused in the current codebase.
+**Fix:** Accept as designed-for-future-use, or expose a builder method to inject the callback.
 
 ---
 
-_Reviewed: 2026-05-07T12:00:00Z_
+_Reviewed: 2026-05-07T14:45:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
-_Iteration: 4_
+_Iteration: 5_

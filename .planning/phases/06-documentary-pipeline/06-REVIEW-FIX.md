@@ -1,69 +1,60 @@
 ---
 phase: 06-documentary-pipeline
 fixed_date: 2026-05-07
-iteration: 4
-findings_in_scope: 6
-fixed: 5
-skipped: 1
-status: partial
+iteration: 5
+findings_in_scope: 4
+fixed: 4
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 06: Code Review Fix Report (Iteration 4)
+# Phase 06: Code Review Fix Report
 
 **Fixed at:** 2026-05-07
 **Source review:** .planning/phases/06-documentary-pipeline/06-REVIEW.md
-**Iteration:** 4
+**Iteration:** 5
 
 **Summary:**
-- Findings in scope: 6
-- Fixed: 5
-- Skipped: 1
+- Findings in scope: 4
+- Fixed: 4
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-01 + WR-03: Integer truncation in audio delay + silent skip of missing TTS
+### WR-01: Temporary keyframe directory never cleaned up on failure
 
-**Files modified:** `src/documentary/audio.rs`
-**Commit:** 66a7608
-**Applied fix:** Two changes applied atomically in the same code block:
-1. Changed `(cumulative_offset * 1000.0) as u64` to `(cumulative_offset * 1000.0).round() as u64` to minimize cumulative truncation error.
-2. Replaced `if let Some(tts) = tts_results.get(...)` with `ok_or_else` to return an explicit `PipelineError::AudioMerge` when a clip requiring TTS is missing its result, instead of silently skipping.
+**Files modified:** `src/documentary/script_gen.rs`
+**Commit:** 2779437
+**Applied fix:** Added RAII `CleanupOnDrop` guard struct that removes the keyframe cache directory when `analyze_video` fails. On success the guard is cancelled via `cancel()` so files are retained for user inspection. The guard activates on any early return (error path) and is explicitly disabled on the happy path.
 
-### WR-01: Misleading underscore separators in subtitle test data
+### WR-02: Negative timestamps silently clamped to zero in SRT generation
 
 **Files modified:** `src/documentary/subtitle.rs`
-**Commit:** 3719a2b
-**Applied fix:** Changed numeric literals in `make_word_boundaries()` to match their comments: `500_000_0` to `5_000_000` (0.5s), `1_200_000_0` to `12_000_000` (1.2s), `2_000_000_0` to `20_000_000` (2.0s).
+**Commit:** f15625b
+**Applied fix:** Added `tracing::warn!` in `generate_srt_from_word_boundaries` when `start_secs` or `end_secs` are negative, before the silent clamping in `secs_to_srt_time`. This surfaces calculation bugs to callers without changing the clamping behavior.
 
-### WR-02: Missing subtitle_font_size bounds validation
+### WR-03: SubtitleSegment.offset_secs always 0.0 -- misleading data flow
+
+**Files modified:** `src/documentary/audio.rs`
+**Commit:** e790735 (applied by parallel phase-04 fixer; fix verified in HEAD)
+**Applied fix:** Changed `merge_subtitle_files` to pass `0.0` offset to `generate_srt_from_word_boundaries` and store `cumulative_offset` in `SubtitleSegment.offset_secs` instead. This ensures offset is applied in exactly one place (`merge_srt_files`) and `offset_secs` carries the actual value.
+
+### WR-04: No file-existence check for video_path and script_path
 
 **Files modified:** `src/documentary/types.rs`
-**Commit:** 66ec5ce
-**Applied fix:** Added validation in `validate()` to ensure `subtitle_font_size` is within range [1, 200], returning a descriptive error message if outside bounds.
-
-### WR-04: Undocumented unused _request parameter
-
-**Files modified:** `src/documentary/pipeline.rs`
-**Commit:** 3cc747f
-**Applied fix:** Added doc comment explaining that `_request` is retained for future per-request audio volume control during merge.
-
-## Skipped Issues
-
-### WR-05: Sequential clip processing
-
-**File:** `src/documentary/clip.rs:89-124`
-**Reason:** Quality improvement (parallelism), not a correctness bug. No immediate action required per reviewer recommendation.
-**Original issue:** `clip_all_videos` processes clips sequentially in a for loop, missing parallelism opportunity for FFmpeg invocations.
+**Commit:** a66839e
+**Applied fix:** Added `self.video_path.exists()` and `self.script_path.exists()` checks in `DocumentaryRequest::validate()`, immediately after the empty-path checks. Returns clear error messages with the file path displayed.
 
 ## Verification
 
 | Check | Result |
 |-------|--------|
 | `cargo check` compiles clean | Zero errors (7 pre-existing warnings unrelated to fixes) |
+| `cargo test --lib documentary` | 57 passed, 0 failed |
 | All fixes re-read verified | Fix text present, surrounding code intact |
 
 ---
 
 _Fixed: 2026-05-07_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 4_
+_Iteration: 5_
