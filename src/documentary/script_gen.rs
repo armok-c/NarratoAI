@@ -27,6 +27,29 @@ pub struct FrameAnalysisResult {
     pub batches: Vec<crate::visual::types::BatchAnalysisResult>,
 }
 
+/// RAII guard: removes the directory on drop unless cancelled (i.e., on success)
+struct CleanupOnDrop {
+    path: std::path::PathBuf,
+    active: bool,
+}
+
+impl CleanupOnDrop {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path, active: true }
+    }
+    fn cancel(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for CleanupOnDrop {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 /// 分析视频帧——提取关键帧并通过视觉 LLM 分析
 pub async fn analyze_video(
     request: &ScriptGenRequest,
@@ -35,11 +58,13 @@ pub async fn analyze_video(
     let interval = request.frame_interval.unwrap_or(3.0);
 
     // Create output directory for keyframes
+    // On failure, clean up automatically via guard; on success, retain for user inspection
     let output_dir = request.video_path.parent()
         .unwrap_or(std::path::Path::new("."))
         .join("keyframes_cache")
         .join(uuid::Uuid::new_v4().to_string());
     std::fs::create_dir_all(&output_dir)?;
+    let mut _cleanup_guard = CleanupOnDrop::new(output_dir.clone());
 
     emit_progress(request, 10.0, "提取关键帧");
 
@@ -118,6 +143,9 @@ pub async fn analyze_video(
             source: crate::error::LLMError::Validation(format!("分析结果序列化失败: {}", e)),
         })?;
     std::fs::write(&analysis_json_path, &analysis_json)?;
+
+    // Success — cancel cleanup so files are retained for user inspection
+    _cleanup_guard.cancel();
 
     Ok(FrameAnalysisResult {
         analysis_json_path,
