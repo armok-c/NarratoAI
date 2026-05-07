@@ -1,127 +1,66 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: '2026-05-07T12:00:00Z'
+fixed_at: '2026-05-07T22:30:00Z'
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 1
-findings_in_scope: 16
-fixed: 12
-skipped: 4
-status: all_fixed
+iteration: 2
+findings_in_scope: 4
+fixed: 3
+skipped: 1
+status: partial
 ---
 
-# Phase 04: Code Review Fix Report (Iteration 1)
+# Phase 04: Code Review Fix Report (Iteration 2)
 
-**Fixed at:** 2026-05-07T12:00:00Z
+**Fixed at:** 2026-05-07T22:30:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 1
+**Iteration:** 2 (基于第二轮审查：0 critical, 4 warning, 5 info)
 
 **Summary:**
-- Findings in scope: 16
-- Fixed: 12
-- Skipped: 4
+- Findings in scope: 4 (warning only)
+- Fixed: 3
+- Skipped: 1
 
 ## Fixed Issues
 
-### WR-01: 正则表达式重复编译 (registry.rs)
+### WR-01: TEMPLATE_VAR_REGEX 重复定义导致双重编译
 
-**Files modified:** `narratoai-core/src/prompt/registry.rs`
-**Commit:** `c209e26`
-**Applied fix:** 提取模块级 `OnceLock<Regex>` 缓存正则实例，`validate_prompt_parameters` 使用 `template_var_regex()` 获取静态引用。
+**Files modified:** `narratoai-core/src/prompt/mod.rs`, `registry.rs`, `template.rs`
+**Commit:** `b3881ff fix(04): WR-01 deduplicate TEMPLATE_VAR_REGEX into shared prompt::template_var_regex`
+**Applied fix:** 在 `prompt/mod.rs` 新增共享 `pub(crate) fn template_var_regex()` 函数（单例 `OnceLock<Regex>`），`registry.rs` 和 `template.rs` 删除各自的本地定义，改用 `use super::template_var_regex;` 引用。
 
-### WR-02: 正则表达式重复编译 (template.rs)
-
-**Files modified:** `narratoai-core/src/prompt/template.rs`
-**Commit:** `062f7ea`
-**Applied fix:** 使用 `OnceLock<Regex>` 缓存正则实例，`render()` 不再每次调用编译正则。
-
-### WR-03: builtin_filters() 每次调用重建 HashMap
-
-**Files modified:** `narratoai-core/src/prompt/template.rs`
-**Commit:** `062f7ea`
-**Applied fix:** 将 `builtin_filters()` 返回值改为 `&'static HashMap`，通过 `OnceLock` 缓存。
-
-### WR-04: unreachable! 在 release 模式下产生 UB
-
-**Files modified:** `narratoai-core/src/prompt/template.rs`
-**Commit:** `062f7ea`
-**Applied fix:** 将 `unwrap_or_else(|| unreachable!(...))` 替换为 `unwrap_or("")` 和 `.expect("...")`。
-
-### WR-05: 版本排序 unwrap_or(0) 导致非解析版本号排序异常
-
-**Files modified:** `narratoai-core/src/prompt/registry.rs`
-**Commit:** `c209e26`
-**Applied fix:** 将 `unwrap_or(0)` 改为 `unwrap_or(u64::MAX)`，使无法解析的版本号排在最后。
-
-### WR-06: chars().count() 在 validate_narration_script 中重复计算
-
-**Files modified:** `narratoai-core/src/prompt/validators.rs`
-**Commits:** `de3edd3`, `d055645`
-**Applied fix:** 缓存 `normalized.chars().count()` 到局部变量 `char_count`，同时移除 format! 中多余的第三个参数（原代码 bug：3 个参数但只有 2 个格式占位符）。
-
-### WR-07: chars().count() 在 validate_plot_analysis 中重复计算
-
-**Files modified:** `narratoai-core/src/prompt/validators.rs`
-**Commits:** `de3edd3`, `d055645`
-**Applied fix:** 缓存 `trimmed.chars().count()` 到局部变量 `char_count`，移除多余的第三个参数。
-
-### WR-09: seconds_to_hhmmssmmm 对负数输入未防御
-
-**Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** `b432d21`
-**Applied fix:** 添加 `total_secs.max(0.0)` clamp 防止负数转 u64 产生溢出，同时添加 `debug_assert!(total_secs >= 0.0)`。
-
-### WR-10: total_frames 计算缺少上限检查
-
-**Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** `b432d21`
-**Applied fix:** 添加 `MAX_TOTAL_FRAMES = 100_000` 常量，超出时返回 `VisualError::FrameExtraction` 错误。
-
-### WR-13: 排序中 unwrap() 可能 panic
+### WR-02: collect_frame_paths 生产代码未使用
 
 **Files modified:** `narratoai-core/src/visual/analyzer.rs`
-**Commit:** `9449fd7`
-**Applied fix:** 将 `unwrap()` 替换为 `unwrap_or_else(|| { warn!(...); 0 })`，防御校验后文件被外部修改的极端情况。
+**Commit:** `0fd520a fix(04): WR-02 move dead collect_frame_paths into #[cfg(test)] module`
+**Applied fix:** 将 `collect_frame_paths()` 和 `extract_frame_number_from_keyframe()` 从生产代码移入 `#[cfg(test)] mod tests` 块。同步调整 `use std::path::PathBuf` 到测试模块内。
 
-### WR-14: 模板文件 language 措辞不一致
+### WR-03: strip_code_fence 不处理嵌套代码块
 
-**Files modified:** `narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md`
-**Commit:** `11ec77c`
-**Applied fix:** 统一为 `输出语言: ${language}`。
-
-### WR-15: 测试注释与断言不一致
-
-**Files modified:** `narratoai-core/src/prompt/register.rs`
-**Commit:** `6c2030b`
-**Applied fix:** 修改注释说明 `list_prompts` 返回 2 是因为按 name 去重，后续 `get()` 调用验证所有版本可精确获取。
+**Files modified:** `narratoai-core/src/text_utils.rs`
+**Commit:** `336d443 fix(04): WR-03 use line-based strip_code_fence to handle nested code blocks`
+**Applied fix:** 重写 `strip_code_fence()` 为逐行解析：仅在首行以 `` ``` `` 开头且末行为独立 `` ``` `` 时剥离，避免误切 JSON 内容中包含的反引号序列。函数签名不变（`&str -> &str`），下游 re-export 和所有测试兼容。
 
 ## Skipped Issues
 
-### WR-08: strip_code_fence 不处理嵌套代码块
+### WR-04: notify 依赖使用 RC 版本
 
-**Reason:** REVIEW 明确标注"当前实现对于典型 LLM 输出足够"，属于已知限制而非缺陷。
+**Reason:** `notify = "9.0.0-rc.3"` 为外部依赖预发布版本，无法在本项目源码内修复。需跟踪上游 notify 9.0.0 正式版发布后升级。当前不影响功能正确性。
 
-### WR-11: unwrap_or_default() 创建无主 CancellationToken
+## Verification
 
-**Reason:** 代码已有详细注释说明行为和替代方案（调用方应始终提供 CancellationToken），属于有意的 fire-and-forget 语义设计。
+- `cargo check` 通过，无新增编译错误或警告
+- 3 个预先存在的编译错误（`frame_extractor.rs` 非穷尽匹配、`documentary/script_gen.rs` 缺少参数、`sde/script_gen.rs` 未使用导入）均非本次修改引入
+- WR-02 修复消除了原来的 `unused import: PathBuf` 警告
 
-### WR-12: FrameObservation/BatchAnalysisResult 未使用 deny_unknown_fields
+## Iteration History
 
-**Reason:** REVIEW 明确标注"有意的容错设计，可接受"，兼容 LLM 返回额外字段的场景。
-
-### WR-16: notify 依赖使用 RC 版本
-
-**Reason:** 外部依赖版本问题，无法在源代码中修复。需跟踪 9.0.0 正式版发布后升级。
-
-## Notes
-
-- 编译验证通过（`cargo check`），所有修改未引入新的编译错误。
-- 2 个预存在的编译错误（`frame_extractor.rs:78` match 非穷尽、`documentary/script_gen.rs:108` 参数数量不匹配）与本次修复无关，未做修改。
-- WR-01 和 WR-05 因修改同一文件合并在同一个 commit 中。
-- WR-02、WR-03、WR-04 因修改同一文件合并在同一个 commit 中。
-- WR-06/WR-07 分两个 commit：第一个修复缓存，第二个修复随之暴露的 format! 多余参数问题。
+| Iteration | Scope | Fixed | Skipped | Status |
+|-----------|-------|-------|---------|--------|
+| 1 | 16 (critical+warning) | 12 | 4 | all_fixed |
+| 2 | 4 (warning) | 3 | 1 | partial |
 
 ---
 
-_Fixed: 2026-05-07T12:00:00Z_
+_Fixed: 2026-05-07T22:30:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
