@@ -1,364 +1,193 @@
 ---
+status: issues_found
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-07T20:00:00Z
+reviewed: 2026-05-07T12:00:00Z
 depth: standard
 files_reviewed: 20
 files_reviewed_list:
-  - narratoai-core/src/lib.rs
   - narratoai-core/src/prompt/mod.rs
   - narratoai-core/src/prompt/types.rs
   - narratoai-core/src/prompt/error.rs
+  - narratoai-core/src/prompt/registry.rs
+  - narratoai-core/src/prompt/template.rs
   - narratoai-core/src/prompt/manager.rs
   - narratoai-core/src/prompt/validators.rs
   - narratoai-core/src/prompt/register.rs
-  - narratoai-core/src/prompt/registry.rs
-  - narratoai-core/src/prompt/template.rs
   - narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md
   - narratoai-core/src/prompt/templates/documentary/narration_generation_v2.0.md
   - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
-  - narratoai-core/src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
-  - narratoai-core/src/prompt/templates/short_drama_narration/plot_analysis_v1.0.md
   - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v1.0.md
-  - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v2.0.md
   - narratoai-core/src/visual/mod.rs
   - narratoai-core/src/visual/error.rs
   - narratoai-core/src/visual/types.rs
   - narratoai-core/src/visual/frame_extractor.rs
   - narratoai-core/src/visual/analyzer.rs
-  - narratoai-core/src/llm/provider.rs
-  - narratoai-core/src/llm/types.rs
-  - narratoai-core/src/ffmpeg/command.rs
+  - narratoai-core/src/lib.rs
   - narratoai-core/src/text_utils.rs
+  - narratoai-core/Cargo.toml
 findings:
   critical: 0
-  warning: 0
-  info: 2
-  total: 2
-status: issues_found
+  warning: 4
+  info: 5
+  total: 9
 ---
 
-# Phase 4: Code Review Report (Iteration 3/3 -- Fix Verification)
+# Phase 04: Code Review Report
 
-**Reviewed:** 2026-05-07T20:00:00Z
+**Reviewed:** 2026-05-07T12:00:00Z
 **Depth:** standard
 **Files Reviewed:** 20
-**Status:** issues_found (2 new info items; all 14 previous findings resolved)
+**Status:** issues_found
 
 ## Summary
 
-Iteration 3/3 re-review verifying that all 14 findings from the previous review (2 critical, 7 warning, 5 info) have been correctly resolved in the source code. Each finding was traced against the actual source code by reading every changed file. Commit messages were not trusted -- the code was verified directly.
+本轮审查基于前次审查（40 个发现，16 WARNING / 24 INFO）的修复后代码进行。前次 16 个 WARNING 中 12 个已确认修复，4 个属于有意设计或低优先级保留。当前代码质量显著提升，未发现 CRITICAL 级别问题。剩余 4 个 WARNING 和 5 个 INFO 均为低优先级改进项。
 
-**All 14 previous findings are confirmed resolved.** Each fix was verified against the actual source code:
+**已修复确认（12/16）：**
+- WR-01/WR-02: 正则 OnceLock 缓存 (registry.rs + template.rs)
+- WR-03: BUILTIN_FILTERS OnceLock 缓存 (template.rs)
+- WR-04: unreachable! 替换为 expect 含描述性消息 (template.rs)
+- WR-05: 版本排序 fallback 改为 u64::MAX (registry.rs)
+- WR-06/WR-07: chars().count() 缓存到局部变量 (validators.rs)
+- WR-09: seconds_to_hhmmssmmm 添加 .max(0.0) clamp (frame_extractor.rs)
+- WR-10: MAX_TOTAL_FRAMES = 100_000 上限检查 (frame_extractor.rs)
+- WR-13: 排序 unwrap_or_else + warn 日志 (analyzer.rs)
+- WR-14: 模板措辞统一为"输出语言" (frame_analysis_v1.0.md)
+- WR-15: 测试注释更新为准确描述 (register.rs)
 
-- CR-01: `cancel: Option<CancellationToken>` parameter added to `analyze_images` trait method
-- CR-02: `Vec<FrameObservation>` third fallback added to `parse_and_retry`
-- WR-01: `run_ffmpeg_with_cancel` now pipes and reads stderr on failure
-- WR-02: `extract_frames` returns `(usize, Vec<PathBuf>)` eliminating directory re-scan
-- WR-03: Fast path match has three distinct arms (separate Err/Ok(0))
-- WR-04: Docstring reads "2-31" matching code validation
-- WR-05: No `#[allow(dead_code)]` on `seconds_to_hhmmssmmm` (changed to `pub(crate)`)
-- WR-06: `BatchPartial` uses joined `String`, not Debug formatting
-- WR-07: Version fallback parsing uses numeric `u64` comparison, not lexical
-- IN-01: Shared `iterate_dir_files` helper consolidates directory iteration
-- IN-02: Magic values extracted as named constants in analyzer.rs and validators.rs
-- IN-03: Two-tier validation design documented in manager.rs
-- IN-04: `debug_assert!` for NaN added to `seconds_to_hhmmssmmm`
-- IN-05: Re-export documented in types.rs
+**有意保留（4/16）：**
+- WR-08: strip_code_fence 嵌套代码块 — 当前实现足够
+- WR-11: 无主 CancellationToken — 已添加文档说明
+- WR-12: LLM 结构体不使用 deny_unknown_fields — 容错设计
+- WR-16: notify RC 版本 — 已标注风险
 
-Two pre-existing info-level code quality issues were identified that were not part of the previous finding set and were not introduced by the fixes.
+## Warnings
 
----
+### WR-01: TEMPLATE_VAR_REGEX 重复定义导致双重编译 (registry.rs + template.rs)
 
-## Previous Finding Verifications
+**File:** `narratoai-core/src/prompt/registry.rs:10`, `narratoai-core/src/prompt/template.rs:11`
+**Issue:** `TEMPLATE_VAR_REGEX` 在两个文件中各定义了一个独立的 `OnceLock<Regex>` 实例，使用相同的正则模式 `r"\$\{(\w+)(?:\|(\w+))?\}"`。虽然每个 `OnceLock` 只编译一次，但整个程序生命周期内会编译两次相同的正则。更重要的是，如果未来需要修改正则模式，必须同时更新两处，容易遗漏导致不一致。
 
-### CR-01: `analyze_images` trait has cancel param
-**Status: RESOLVED**
-
-`src/llm/provider.rs:44-55` -- The `analyze_images` trait method signature includes `cancel: Option<CancellationToken>` as its final parameter:
+**Fix:**
 ```rust
-async fn analyze_images(
-    &self,
-    images: &[PathBuf],
-    prompt: &str,
-    system_prompt: Option<&str>,
-    batch_size: Option<usize>,
-    max_concurrency: Option<usize>,
-    response_format: Option<LlmResponseFormat>,
-    temperature: Option<f32>,
-    max_tokens: Option<u32>,
-    cancel: Option<CancellationToken>,
-) -> Result<Vec<String>, LLMError>;
+// 在 prompt/mod.rs 或一个共享位置定义一次
+pub(crate) mod template_var_regex {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    static RE: OnceLock<Regex> = OnceLock::new();
+
+    pub fn get() -> &'static Regex {
+        RE.get_or_init(|| {
+            Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}")
+                .expect("TEMPLATE_VAR_REGEX 编译失败")
+        })
+    }
+}
 ```
-
-In `analyzer.rs:180`, the token is forwarded: `cancel_after_extract.clone()` is passed as the `cancel` parameter to `analyze_images`.
-
----
-
-### CR-02: `parse_and_retry` has `Vec<FrameObservation>` fallback
-**Status: RESOLVED**
-
-`src/visual/analyzer.rs:269-311` -- `parse_and_retry` now attempts three deserialization strategies in order:
-
-1. `BatchResponse` (line 273) -- standard wrapped schema
-2. `FrameObservation` (line 286) -- single object fallback (LLM returns one at a time)
-3. `Vec<FrameObservation>` (line 293) -- bare JSON array fallback
-
-Only when all three fail does it return `VisualError::Analysis`. The third fallback handles the common LLM failure mode of returning a bare `[{...}, {...}]` array.
+然后在 `registry.rs` 和 `template.rs` 中统一引用 `crate::prompt::template_var_regex::get()`。
 
 ---
 
-### WR-01: `run_ffmpeg_with_cancel` captures stderr
-**Status: RESOLVED**
+### WR-02: collect_frame_paths 生产代码未使用 (analyzer.rs)
 
-`src/visual/frame_extractor.rs:632-668` -- Key changes:
+**File:** `narratoai-core/src/visual/analyzer.rs:321`
+**Issue:** `collect_frame_paths()` 函数及其辅助函数 `extract_frame_number_from_keyframe()` 在生产代码中未被调用。`analyze_video_frames()` 使用 `extract_frames()` 返回的路径列表，而非自己收集。这两个函数仅在测试模块中使用，属于死代码。
 
-- Line 640: `.stderr(std::process::Stdio::piped())` -- stderr is now piped (not null)
-- Lines 651-658: On non-zero exit code, `child.stderr.take()` reads the piped stderr via `read_to_string` and logs it via `tracing::warn!`
-- Line 661: Returns `status.success()` (the boolean, not the exit code)
+虽然函数签名是 `fn`（私有），不会增加 API 表面积，但它们增加了编译产物大小和维护负担。如果未来有人修改了这些函数但未发现它们未被使用，可能引入回归。
 
-The function correctly handles the case where `child.stderr` is `None` (post-take) via `.unwrap_or_default()`.
+**Fix:** 将 `collect_frame_paths` 和 `extract_frame_number_from_keyframe` 移入 `#[cfg(test)] mod tests` 块内，或添加 `#[cfg(test)]` 属性。
 
 ---
 
-### WR-02: `extract_frames` returns `Vec<PathBuf>`
-**Status: RESOLVED**
+### WR-03: strip_code_fence 不处理嵌套代码块 (text_utils.rs)
 
-`src/visual/frame_extractor.rs:44` -- Return type is `Result<(usize, Vec<PathBuf>), VisualError>` instead of just `Result<usize, VisualError>`.
+**File:** `narratoai-core/src/text_utils.rs:7-18`
+**Issue:** `strip_code_fence` 使用简单的 `strip_prefix`/`strip_suffix` 剥离 markdown 代码块。如果 LLM 返回的 JSON 内容中恰好包含 `` ``` `` 字符串（例如 JSON 字符串值包含反引号），`strip_suffix("```")` 会错误剥离内容尾部。
 
-All three fast-path match arms collect paths:
-- Line 88: `let paths = collect_keyframe_paths_from_dir(output_dir); Ok((count, paths))`
-- Line 103: same pattern in Err arm
-- Line 118: same pattern in Ok(0) arm
+实际场景中，LLM 返回的 JSON 内部包含裸反引号序列的概率较低，但并非不可能（如 JSON 中嵌入的代码片段）。
 
-In `analyzer.rs:121`, the call site destructures: `let (frame_count, frame_paths) = extract_frames(...)`.
-In `analyzer.rs:256`, `total_frames: frame_paths.len()` uses the returned paths directly.
-
----
-
-### WR-03: Fast path match has separate `Err`/`Ok(0)` arms
-**Status: RESOLVED**
-
-`src/visual/frame_extractor.rs:84-121` -- The match on `extract_frames_fast_path` result has three distinct arms:
-
-1. `Ok(count) if count > 0` (line 84) -- success, collect and return
-2. `Err(e)` (line 91) -- fallback; logs `"Fast path failed, falling back: {}"` with error detail
-3. `Ok(0)` (line 106) -- fallback; logs `"Fast path produced 0 frames, falling back"` with no error
-
-Both fallback arms consistently call `cleanup_fast_path_files(output_dir)` then `extract_frames_fallback(...)`.
-
-The Rust compiler's NLL (non-lexical lifetimes) handles the `cancel: Option<CancellationToken>` variable correctly across the mutually exclusive arms. The `cancel.clone()` at line 80 preserves the original for the Err and Ok(0) arms.
-
----
-
-### WR-04: Docstring says 2-31 not 1-31
-**Status: RESOLVED**
-
-`src/visual/frame_extractor.rs:33` -- Docstring reads:
-```
-/// `quality`: 输出 JPEG 质量，`q:v` 值范围 2-31，越小质量越高，默认 5
-```
-
-The validation at line 46-48 uses `!(2..=31).contains(&quality_val)`, which is consistent.
-
-The `analyze_video_frames` docstring at `analyzer.rs:86` reads:
-```
-/// - `quality` — JPEG 压缩质量（2-31，值越小质量越高，默认 5），None 使用 `extract_frames` 内置默认值
-```
-This is also consistent.
-
----
-
-### WR-05: No `#[allow(dead_code)]` on `seconds_to_hhmmssmmm`
-**Status: RESOLVED**
-
-`src/visual/frame_extractor.rs:511` -- The function is declared as `pub(crate) fn seconds_to_hhmmssmmm(...)`. There is no `#[allow(dead_code)]` annotation. The `pub(crate)` visibility naturally suppresses dead_code warnings.
-
-It is called at:
-- Line 259: `seconds_to_hhmmssmmm(timestamp_secs)` in `extract_frames_fallback`
-- Line 493: `seconds_to_hhmmssmmm(total_secs)` in `rename_fast_path_frames`
-- Line 725: in test code
-
----
-
-### WR-06: `BatchPartial` uses joined string not Debug
-**Status: RESOLVED**
-
-`src/visual/error.rs:15-20`:
+**Fix:** 当前实现对于绝大多数 LLM 输出足够健壮。如需更严格处理，可使用逐行状态机：
 ```rust
-#[error("部分批次失败: 已分析 {analyzed_count}/{total_count} 批次，{errors}")]
-BatchPartial {
-    analyzed_count: usize,
-    total_count: usize,
-    errors: String,
-},
+pub fn strip_code_fence(text: &str) -> &str {
+    let trimmed = text.trim();
+    let lines: Vec<&str> = trimmed.lines().collect();
+    if lines.len() >= 2 && lines[0].starts_with("```") && lines.last().unwrap_or(&"").trim() == "```" {
+        let start = lines[0].find('\n').map(|i| i + 1).unwrap_or(lines[0].len());
+        let end = text.len() - lines.last().unwrap().len();
+        text[start..end].trim()
+    } else {
+        trimmed
+    }
+}
 ```
-
-The `errors` field is `String` (not `Vec<String>`). The `{errors}` in the format string displays the string directly (not Debug-formatted).
-
-In `analyzer.rs:225-229`:
-```rust
-return Err(VisualError::BatchPartial {
-    analyzed_count: success_count,
-    total_count: raw_results.len(),
-    errors: errors.join("; "),
-});
-```
-
-The `Vec<String>` is joined with `"; "` before being stored, producing clean output like `"批次 2 解析失败: ...; 批次 5 解析失败: ..."`.
 
 ---
 
-### WR-07: Version sorting is numeric not lexicographic
-**Status: RESOLVED**
+### WR-04: notify 依赖使用 RC 版本 (Cargo.toml)
 
-`src/prompt/registry.rs:205-211`:
-```rust
-versions.sort_by(|a, b| {
-    let a_num: u64 = a.trim_start_matches('v').split('.').next()
-        .and_then(|s| s.parse().ok()).unwrap_or(0);
-    let b_num: u64 = b.trim_start_matches('v').split('.').next()
-        .and_then(|s| s.parse().ok()).unwrap_or(0);
-    a_num.cmp(&b_num)
-});
-```
+**File:** `narratoai-core/Cargo.toml:23`
+**Issue:** `notify = "9.0.0-rc.3"` 是预发布版本，其 API 在 9.0.0 正式版中可能发生破坏性变更。代码中已通过注释标注此风险，但使用 RC 版本在生产环境中仍有供应链稳定性风险。
 
-The major version is extracted by stripping the leading `'v'`, splitting on `'.'`, taking the first segment, and parsing as `u64`. The comparison uses `a_num.cmp(&b_num)` for numeric ordering. This correctly handles multi-digit versions (`"v10.0"` sorts after `"v9.0"`).
+**Fix:** 跟踪 notify 9.0.0 正式版发布，优先升级。当前不影响功能正确性。
 
----
+## Info
 
-### IN-01: Shared `iterate_dir_files` helper exists
-**Status: RESOLVED**
+### IN-01: collect_keyframe_paths_from_dir 使用字典序排序 (frame_extractor.rs)
 
-`src/visual/frame_extractor.rs:575-612` -- The `iterate_dir_files` helper consolidates three previously-duplicated directory iteration patterns:
+**File:** `narratoai-core/src/visual/frame_extractor.rs:625-633`
+**Issue:** `collect_keyframe_paths_from_dir` 使用 `paths.sort()`（字典序）。由于帧号格式化为 `{:06}` 零填充 6 位，且 `MAX_TOTAL_FRAMES = 100_000`，字典序在当前约束下等价于数字序。但如果未来放宽帧数限制（帧号超过 999999），字典序将出错。
 
-- `extract_frames` stale cleanup (lines 68-72): deletes `keyframe_*.jpg` before extraction
-- `rename_fast_path_frames` (lines 461-470): collects `fastframe_*.jpg` files
-- `cleanup_fast_path_files` (lines 523-526): deletes `fastframe_*.jpg` on cleanup
-- `collect_keyframe_paths_from_dir` (lines 617-621): collects `keyframe_*.jpg` files after extraction
+这不是当前 bug，仅作为防御性记录。
 
-The helper supports prefix/suffix filtering, a callback, and silent error mode. All callers converge on this single implementation.
+**Fix:** 如果未来放宽帧数限制，改用 `analyzer.rs` 中 `collect_frame_paths` 的数字排序逻辑（或提取为共享函数）。
 
 ---
 
-### IN-02: Magic values extracted as const
-**Status: RESOLVED**
+### IN-02: truncate 过滤器魔法数字 (template.rs)
 
-In `src/visual/analyzer.rs:31-39`:
+**File:** `narratoai-core/src/prompt/template.rs:56-63`
+**Issue:** `truncate` 过滤器中 `100` 和 `97` 硬编码。语义上 "100 字符上限、97 字符内容 + 3 字符省略号" 不够直观。
+
+**Fix:**
 ```rust
-const DEFAULT_INTERVAL_SECONDS: f64 = 3.0;
-const ANALYSIS_TEMPERATURE: f32 = 0.1_f32;
-const ANALYSIS_MAX_TOKENS: u32 = 4096;
+const TRUNCATE_MAX_CHARS: usize = 100;
+const TRUNCATE_ELLIPSIS_LEN: usize = 3;
+let keep = TRUNCATE_MAX_CHARS - TRUNCATE_ELLIPSIS_LEN; // 97
 ```
-
-In `src/prompt/validators.rs:9-16`:
-```rust
-const MIN_PLOT_ANALYSIS_CHARS: usize = 100;
-const MIN_NARRATION_CHARS: usize = 50;
-const MIN_NARRATION_PARAGRAPHS: usize = 3;
-```
-
-All constants are used in place of the original magic values in their respective functions.
 
 ---
 
-### IN-03: Two-tier validation comment in manager.rs
-**Status: RESOLVED**
+### IN-03: RwLock 中毒处理策略 (manager.rs)
 
-`src/prompt/manager.rs:62-73` -- A comprehensive Chinese comment block ("两阶段校验设计（IN-03）") documents the design rationale:
+**File:** `narratoai-core/src/prompt/manager.rs:42-44`, `111-113`, `119-121`, `138-140`, `147-149`
+**Issue:** 所有 `RwLock` 获取操作使用 `.map_err(|e| PromptError::LockFailure(...))` 将 `PoisonError` 转换为业务错误。这意味着如果某个线程 panic 导致锁中毒，后续所有操作都会返回 `LockFailure` 错误而非恢复或终止。这是合理的防御性选择，但调用方需要意识到锁中毒是不可恢复的。
 
-- Tier 1 (manager.rs): Validates that all required ParameterDefs with no default are present in caller vars. Returns a clear `Validation` error naming the missing parameters.
-- Tier 2 (template::render): Defensively checks that all `${variable}` references in the template have corresponding values in the merged variable map. Catches ParameterDef/template content drift.
-
-Both testing paths (line 248-272 for missing variable in render, and line 383-409 for missing required param) confirm the tiered behavior.
+当前处理方式合理，仅作为文档记录。
 
 ---
 
-### IN-04: `debug_assert` for NaN in `seconds_to_hhmmssmmm`
-**Status: RESOLVED**
+### IN-04: tokio features = ["full"] 可精简 (Cargo.toml)
 
-`src/visual/frame_extractor.rs:512`:
-```rust
-debug_assert!(!total_secs.is_nan(), "seconds_to_hhmmssmmm called with NaN");
+**File:** `narratoai-core/Cargo.toml:15`
+**Issue:** `tokio = { version = "1.52.1", features = ["full"] }` 启用了所有 tokio 功能，包括 `full` 隐含的 `net`、`io-util`、`io-std`、`fs`、`signal`、`process` 等。实际使用的功能仅为 `rt-multi-thread`、`macros`、`sync` 和 `time`。`features = ["full"]` 增加编译时间和二进制大小。
+
+**Fix:** 按需启用：
+```toml
+tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
 ```
-
-This is the first executable line of the function, providing a debug-mode assertion before any arithmetic. It fires in debug builds (tests) while having zero runtime overhead in release builds.
 
 ---
 
-### IN-05: Re-export documented in types.rs
-**Status: RESOLVED**
+### IN-05: progress callback 在 extract_frames 回退路径中已消费 (frame_extractor.rs)
 
-`src/visual/types.rs:55-57`:
-```rust
-// strip_code_fence 已提取到 crate::text_utils
-// 此 re-export 仅被本文件 test 模块使用，生产代码通过 crate::text_utils 直接导入（IN-05）
-pub(crate) use crate::text_utils::strip_code_fence;
-```
+**File:** `narratoai-core/src/visual/frame_extractor.rs:94-108`, `109-124`
+**Issue:** 当快路径失败并回退到 `extract_frames_fallback` 时，`progress` callback 被传递给 fallback 函数。但如果快路径成功（`Ok(count) if count > 0`），progress callback 仅在 `cb(Some(1.0), "帧提取完成")` 时被调用一次，跳过了中间进度。快路径中 FFmpeg 进度事件未被转发给 callback。
 
-The comment explains that production code imports directly from `crate::text_utils`, and the re-export exists only for the test module in the same file.
+这是已知的局限性，不影响功能正确性。
 
 ---
 
-## Info Issues (New)
-
-### IN-06: Dead production code in analyzer.rs
-
-**File:** `src/visual/analyzer.rs:321-397`
-
-**Issue:** Two functions are defined but never called from production code:
-
-1. `collect_frame_paths` (line 321) -- Collects `keyframe_*.jpg` files from a directory, validates filenames, and sorts numerically. Production code uses the paths returned directly from `extract_frames` (which internally calls `collect_keyframe_paths_from_dir` in `frame_extractor.rs:615-623`).
-
-2. `extract_frame_number_from_keyframe` (line 372) -- Extracts frame number from `keyframe_XXXXXX_*.jpg` filenames. Only called by `collect_frame_paths` and test code.
-
-Both functions are reachable from `#[cfg(test)]` modules, which is why the Rust compiler does not emit dead_code warnings. However, they are unreachable in production builds. The two implementations (`collect_frame_paths` with numeric sort vs. `collect_keyframe_paths_from_dir` with lexical sort) represent a maintenance hazard: any developer modifying one may expect it to affect behavior.
-
-**Fix:** Remove `collect_frame_paths` and `extract_frame_number_from_keyframe` from production code. If numeric sorting (as opposed to lexical via `paths.sort()`) is desired, port the `extract_frame_number_from_keyframe` logic into `collect_keyframe_paths_from_dir` and delete the duplicates from `analyzer.rs`.
-
----
-
-### IN-07: Duplicate unused format arguments in validators.rs
-
-**File:** `src/prompt/validators.rs:86, 98, 119`
-
-**Issue:** Three `format!` calls pass 3 arguments for 2 format placeholders. The third argument is silently ignored by the Rust `format!` macro -- this is valid Rust but indicates a copy-paste pattern.
-
-Line 86:
-```rust
-format!(
-    "解说文案过短: {} 字符（需要 >= {}）",
-    normalized.chars().count(),
-    MIN_NARRATION_CHARS,
-    normalized.chars().count()  // duplicate of arg 1, ignored
-)
-```
-
-Line 98:
-```rust
-format!(
-    "解说文案段落数不足: {} 段（需要 >= {}）",
-    paragraphs.len(),
-    MIN_NARRATION_PARAGRAPHS,
-    paragraphs.len()  // duplicate of arg 1, ignored
-)
-```
-
-Line 119:
-```rust
-format!(
-    "剧情分析内容不足: {} 字符（需要 >= {}）",
-    trimmed.chars().count(),
-    MIN_PLOT_ANALYSIS_CHARS,
-    trimmed.chars().count()  // duplicate of arg 1, ignored
-)
-```
-
-No runtime error results from this (extra args are silently discarded by `format!`). However, the pattern is a latent defect indicator: if someone later expands the format string to use a third placeholder, and the intent was for the third argument to be `MIN_PLOT_ANALYSIS_CHARS`, the duplicated value would produce incorrect output. The duplicated `.chars().count()` calls also represent wasted computation.
-
-**Fix:** Remove the redundant third argument from each `format!` call.
-
----
-
-_Reviewed: 2026-05-07T20:00:00Z_
+_Reviewed: 2026-05-07T12:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
