@@ -1,60 +1,49 @@
 ---
 phase: 06-documentary-pipeline
 fixed_date: 2026-05-07
-iteration: 5
-findings_in_scope: 4
-fixed: 4
+iteration: 6
+findings_in_scope: 2
+fixed: 2
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 06: Code Review Fix Report
+# Phase 06: Code Review Fix Report (Iteration 6)
 
 **Fixed at:** 2026-05-07
 **Source review:** .planning/phases/06-documentary-pipeline/06-REVIEW.md
-**Iteration:** 5
+**Iteration:** 6
 
 **Summary:**
-- Findings in scope: 4
-- Fixed: 4
+- Findings in scope: 2 (Critical + Warning)
+- Fixed: 2
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: Temporary keyframe directory never cleaned up on failure
+### WR-01: Negative timestamp bypass -- block emitted despite warning
 
-**Files modified:** `src/documentary/script_gen.rs`
-**Commit:** 2779437
-**Applied fix:** Added RAII `CleanupOnDrop` guard struct that removes the keyframe cache directory when `analyze_video` fails. On success the guard is cancelled via `cancel()` so files are retained for user inspection. The guard activates on any early return (error path) and is explicitly disabled on the happy path.
+**File:** `src/documentary/subtitle.rs:25-31`
+**Commit:** 574902c
+**Applied fix:** Added `continue;` after the `tracing::warn!` for negative timestamps in `generate_srt_from_word_boundaries`, so invalid SRT blocks are skipped rather than emitted with clamped timestamps. Updated warn message to include "skipping" for clarity. Now consistent with `apply_offset_to_block` which returns `Err` for the same condition.
 
-### WR-02: Negative timestamps silently clamped to zero in SRT generation
+### WR-02: FFmpeg-dependent integration tests remain empty stubs
 
-**Files modified:** `src/documentary/subtitle.rs`
-**Commit:** f15625b
-**Applied fix:** Added `tracing::warn!` in `generate_srt_from_word_boundaries` when `start_secs` or `end_secs` are negative, before the silent clamping in `secs_to_srt_time`. This surfaces calculation bugs to callers without changing the clamping behavior.
-
-### WR-03: SubtitleSegment.offset_secs always 0.0 -- misleading data flow
-
-**Files modified:** `src/documentary/audio.rs`
-**Commit:** e790735 (applied by parallel phase-04 fixer; fix verified in HEAD)
-**Applied fix:** Changed `merge_subtitle_files` to pass `0.0` offset to `generate_srt_from_word_boundaries` and store `cumulative_offset` in `SubtitleSegment.offset_secs` instead. This ensures offset is applied in exactly one place (`merge_srt_files`) and `offset_secs` carries the actual value.
-
-### WR-04: No file-existence check for video_path and script_path
-
-**Files modified:** `src/documentary/types.rs`
-**Commit:** a66839e
-**Applied fix:** Added `self.video_path.exists()` and `self.script_path.exists()` checks in `DocumentaryRequest::validate()`, immediately after the empty-path checks. Returns clear error messages with the file path displayed.
+**File:** `tests/documentary_integration_test.rs`
+**Commit:** 3c0e59a
+**Applied fix:** Removed four empty `#[ignore]` stub test functions (`test_pipeline_mixed_ost_types`, `test_pipeline_ost0_narration_only`, `test_pipeline_ost1_original_sound`, `test_pipeline_ost2_mixed`) that provided zero coverage. Cleaned up now-unused imports (`OstType`, `ScriptClip`, `HashMap`, `PathBuf`, `secs_to_srt_time`). The `ffmpeg_available()` helper in `tests/common/mod.rs` is retained for future use.
 
 ## Verification
 
 | Check | Result |
 |-------|--------|
-| `cargo check` compiles clean | Zero errors (7 pre-existing warnings unrelated to fixes) |
+| `cargo check --tests` | Clean (0 errors) |
 | `cargo test --lib documentary` | 57 passed, 0 failed |
-| All fixes re-read verified | Fix text present, surrounding code intact |
+| WR-01 diff verified | `continue;` + "skipping" message present |
+| WR-02 diff verified | 4 stub functions removed, unused imports cleaned |
 
 ---
 
 _Fixed: 2026-05-07_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 5_
+_Iteration: 6_
