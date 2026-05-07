@@ -72,8 +72,8 @@ pub async fn analyze_video(
 
     emit_progress(request, 10.0, "提取关键帧");
 
-    // Extract frames
-    let frame_count = crate::visual::frame_extractor::extract_frames(
+    // Extract frames (returns (count, sorted path list))
+    let (frame_count, keyframe_files) = crate::visual::frame_extractor::extract_frames(
         &request.video_path,
         &output_dir,
         interval,
@@ -94,8 +94,7 @@ pub async fn analyze_video(
 
     emit_progress(request, 30.0, "初始化分析器");
 
-    // Collect keyframe paths
-    let keyframe_files = collect_keyframe_paths(&output_dir)?;
+    // extract_frames already returned the keyframe paths -- no re-scan needed
 
     // Analyze frames using vision LLM
     let batch_size = request.vision_batch_size.unwrap_or(5);

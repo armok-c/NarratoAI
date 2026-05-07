@@ -103,7 +103,7 @@ pub async fn analyze_video_frames(
     // Step 2 — 帧提取（调用方指定 output_dir, D-23）
     let cancel_after_extract = cancel.clone();
 
-    let frame_count = extract_frames(
+    let (frame_count, frame_paths) = extract_frames(
         video_path,
         output_dir,
         interval_seconds.unwrap_or(3.0), // 默认 3 秒间隔
@@ -130,9 +130,6 @@ pub async fn analyze_video_frames(
             "未提取到任何帧".into(),
         ));
     }
-
-    // Step 4 — 收集帧文件路径
-    let frame_paths = collect_frame_paths(output_dir)?;
 
     // Step 5 — 进度汇报
     if let Some(ref cb) = shared_progress {
@@ -240,7 +237,7 @@ pub async fn analyze_video_frames(
     Ok(BatchAnalysisResult {
         observations,
         overall_activity_summary: last_summary,
-        total_frames: frame_paths.len(),
+        total_frames: frame_paths.len(), // use paths.len() as source of truth (WR-02)
         analyzed_batches: success_count,
         errors,
     })

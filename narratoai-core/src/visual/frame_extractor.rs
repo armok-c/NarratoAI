@@ -27,6 +27,8 @@ use crate::visual::error::VisualError;
 /// 先尝试快路径（单条 ffmpeg fps filter 命令），如果快路径返回 0 帧
 /// 则自动清理快路径残留文件并回退到逐帧提取（4 级输出格式回退）。
 ///
+/// 返回 (帧数, 排序后的帧文件路径列表)。
+///
 /// `interval_seconds`: 帧提取间隔，默认 3.0 秒
 /// `quality`: 输出 JPEG 质量，`q:v` 值范围 2-31，越小质量越高，默认 5
 /// `output_dir`: 帧文件输出目录（不存在时自动创建）
@@ -39,7 +41,7 @@ pub async fn extract_frames(
     quality: Option<u32>,
     progress: Option<ProgressCallback>,
     cancel: Option<CancellationToken>,
-) -> Result<usize, VisualError> {
+) -> Result<(usize, Vec<PathBuf>), VisualError> {
     let quality_val = quality.unwrap_or(5);
     if !(2..=31).contains(&quality_val) {
         return Err(VisualError::FrameExtraction(
@@ -91,13 +93,14 @@ pub async fn extract_frames(
             if let Some(ref cb) = progress {
                 cb(Some(1.0), "帧提取完成");
             }
-            Ok(count)
+            let paths = collect_keyframe_paths_from_dir(output_dir);
+            Ok((count, paths))
         }
         _ => {
             // Clean up fast-path artifacts
             cleanup_fast_path_files(output_dir);
             // Fallback to per-frame extraction
-            extract_frames_fallback(
+            let count = extract_frames_fallback(
                 video_path,
                 output_dir,
                 interval_seconds,
@@ -105,7 +108,9 @@ pub async fn extract_frames(
                 progress,
                 cancel,
             )
-            .await
+            .await?;
+            let paths = collect_keyframe_paths_from_dir(output_dir);
+            Ok((count, paths))
         }
     }
 }
@@ -572,6 +577,25 @@ fn get_video_duration(video_path: &str) -> Result<f64, VisualError> {
 /// 检查文件是否存在且大小 > 0
 fn file_is_valid(path: &Path) -> bool {
     path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
+}
+
+/// 从 output_dir 收集所有 keyframe_*.jpg 文件并排序
+fn collect_keyframe_paths_from_dir(output_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(mut reader) = std::fs::read_dir(output_dir) {
+        while let Some(Ok(entry)) = reader.next() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if name.starts_with("keyframe_") && name.ends_with(".jpg") {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    paths
 }
 
 /// 运行 ffmpeg 命令，启动前检查取消令牌
