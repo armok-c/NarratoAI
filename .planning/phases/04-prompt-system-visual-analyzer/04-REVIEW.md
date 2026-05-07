@@ -1,8 +1,9 @@
 ---
-status: issues_found
+status: clean
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-07T12:00:00Z
+reviewed: 2026-05-07T23:59:00Z
 depth: standard
+iteration: 3
 files_reviewed: 20
 files_reviewed_list:
   - narratoai-core/src/prompt/mod.rs
@@ -15,8 +16,11 @@ files_reviewed_list:
   - narratoai-core/src/prompt/register.rs
   - narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md
   - narratoai-core/src/prompt/templates/documentary/narration_generation_v2.0.md
+  - narratoai-core/src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
   - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
+  - narratoai-core/src/prompt/templates/short_drama_narration/plot_analysis_v1.0.md
   - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v1.0.md
+  - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v2.0.md
   - narratoai-core/src/visual/mod.rs
   - narratoai-core/src/visual/error.rs
   - narratoai-core/src/visual/types.rs
@@ -27,167 +31,106 @@ files_reviewed_list:
   - narratoai-core/Cargo.toml
 findings:
   critical: 0
-  warning: 4
+  warning: 1
   info: 5
-  total: 9
+  total: 6
 ---
 
-# Phase 04: Code Review Report
+# Phase 04: Code Review Report (3rd Pass)
 
-**Reviewed:** 2026-05-07T12:00:00Z
+**Reviewed:** 2026-05-07T23:59:00Z
 **Depth:** standard
-**Files Reviewed:** 20
-**Status:** issues_found
+**Iteration:** 3
+**Files Reviewed:** 20 (+ 3 auxiliary: lib.rs, text_utils.rs, Cargo.toml)
+**Status:** clean (no new actionable issues)
 
 ## Summary
 
-本轮审查基于前次审查（40 个发现，16 WARNING / 24 INFO）的修复后代码进行。前次 16 个 WARNING 中 12 个已确认修复，4 个属于有意设计或低优先级保留。当前代码质量显著提升，未发现 CRITICAL 级别问题。剩余 4 个 WARNING 和 5 个 INFO 均为低优先级改进项。
+本轮为第 3 次审查，基于第 2 次审查后的修复代码进行。第 2 次审查的 3 个修复（WR-01 正则去重、WR-02 死代码移入测试、WR-03 逐行代码块剥离）均已验证正确且无回归。
 
-**已修复确认（12/16）：**
-- WR-01/WR-02: 正则 OnceLock 缓存 (registry.rs + template.rs)
-- WR-03: BUILTIN_FILTERS OnceLock 缓存 (template.rs)
-- WR-04: unreachable! 替换为 expect 含描述性消息 (template.rs)
-- WR-05: 版本排序 fallback 改为 u64::MAX (registry.rs)
-- WR-06/WR-07: chars().count() 缓存到局部变量 (validators.rs)
-- WR-09: seconds_to_hhmmssmmm 添加 .max(0.0) clamp (frame_extractor.rs)
-- WR-10: MAX_TOTAL_FRAMES = 100_000 上限检查 (frame_extractor.rs)
-- WR-13: 排序 unwrap_or_else + warn 日志 (analyzer.rs)
-- WR-14: 模板措辞统一为"输出语言" (frame_analysis_v1.0.md)
-- WR-15: 测试注释更新为准确描述 (register.rs)
+**修复验证结果（3/3 通过）：**
+- WR-01: `template_var_regex()` 共享单例在 `prompt/mod.rs` 中定义，`registry.rs` 和 `template.rs` 均通过 `use super::template_var_regex` 引用，编译期保证一致性。
+- WR-02: `collect_frame_paths()` 和 `extract_frame_number_from_keyframe()` 已移入 `analyzer.rs` 的 `#[cfg(test)] mod tests` 块，生产代码中不再存在。
+- WR-03: `strip_code_fence()` 重写为逐行解析，仅在首行 `starts_with("```")` 且末行 `trim() == "```"` 时剥离，正确处理嵌套反引号内容。Windows \r\n 行尾和混合行尾均已验证安全。
 
-**有意保留（4/16）：**
-- WR-08: strip_code_fence 嵌套代码块 — 当前实现足够
-- WR-11: 无主 CancellationToken — 已添加文档说明
-- WR-12: LLM 结构体不使用 deny_unknown_fields — 容错设计
-- WR-16: notify RC 版本 — 已标注风险
+**新增发现：无。** 所有 WARNING 和 INFO 均为已知遗留项。
 
 ## Warnings
-
-### WR-01: TEMPLATE_VAR_REGEX 重复定义导致双重编译 (registry.rs + template.rs)
-
-**File:** `narratoai-core/src/prompt/registry.rs:10`, `narratoai-core/src/prompt/template.rs:11`
-**Issue:** `TEMPLATE_VAR_REGEX` 在两个文件中各定义了一个独立的 `OnceLock<Regex>` 实例，使用相同的正则模式 `r"\$\{(\w+)(?:\|(\w+))?\}"`。虽然每个 `OnceLock` 只编译一次，但整个程序生命周期内会编译两次相同的正则。更重要的是，如果未来需要修改正则模式，必须同时更新两处，容易遗漏导致不一致。
-
-**Fix:**
-```rust
-// 在 prompt/mod.rs 或一个共享位置定义一次
-pub(crate) mod template_var_regex {
-    use regex::Regex;
-    use std::sync::OnceLock;
-
-    static RE: OnceLock<Regex> = OnceLock::new();
-
-    pub fn get() -> &'static Regex {
-        RE.get_or_init(|| {
-            Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}")
-                .expect("TEMPLATE_VAR_REGEX 编译失败")
-        })
-    }
-}
-```
-然后在 `registry.rs` 和 `template.rs` 中统一引用 `crate::prompt::template_var_regex::get()`。
-
----
-
-### WR-02: collect_frame_paths 生产代码未使用 (analyzer.rs)
-
-**File:** `narratoai-core/src/visual/analyzer.rs:321`
-**Issue:** `collect_frame_paths()` 函数及其辅助函数 `extract_frame_number_from_keyframe()` 在生产代码中未被调用。`analyze_video_frames()` 使用 `extract_frames()` 返回的路径列表，而非自己收集。这两个函数仅在测试模块中使用，属于死代码。
-
-虽然函数签名是 `fn`（私有），不会增加 API 表面积，但它们增加了编译产物大小和维护负担。如果未来有人修改了这些函数但未发现它们未被使用，可能引入回归。
-
-**Fix:** 将 `collect_frame_paths` 和 `extract_frame_number_from_keyframe` 移入 `#[cfg(test)] mod tests` 块内，或添加 `#[cfg(test)]` 属性。
-
----
-
-### WR-03: strip_code_fence 不处理嵌套代码块 (text_utils.rs)
-
-**File:** `narratoai-core/src/text_utils.rs:7-18`
-**Issue:** `strip_code_fence` 使用简单的 `strip_prefix`/`strip_suffix` 剥离 markdown 代码块。如果 LLM 返回的 JSON 内容中恰好包含 `` ``` `` 字符串（例如 JSON 字符串值包含反引号），`strip_suffix("```")` 会错误剥离内容尾部。
-
-实际场景中，LLM 返回的 JSON 内部包含裸反引号序列的概率较低，但并非不可能（如 JSON 中嵌入的代码片段）。
-
-**Fix:** 当前实现对于绝大多数 LLM 输出足够健壮。如需更严格处理，可使用逐行状态机：
-```rust
-pub fn strip_code_fence(text: &str) -> &str {
-    let trimmed = text.trim();
-    let lines: Vec<&str> = trimmed.lines().collect();
-    if lines.len() >= 2 && lines[0].starts_with("```") && lines.last().unwrap_or(&"").trim() == "```" {
-        let start = lines[0].find('\n').map(|i| i + 1).unwrap_or(lines[0].len());
-        let end = text.len() - lines.last().unwrap().len();
-        text[start..end].trim()
-    } else {
-        trimmed
-    }
-}
-```
-
----
 
 ### WR-04: notify 依赖使用 RC 版本 (Cargo.toml)
 
 **File:** `narratoai-core/Cargo.toml:23`
-**Issue:** `notify = "9.0.0-rc.3"` 是预发布版本，其 API 在 9.0.0 正式版中可能发生破坏性变更。代码中已通过注释标注此风险，但使用 RC 版本在生产环境中仍有供应链稳定性风险。
+**Status:** 已知遗留，无法在项目内修复
+**Issue:** `notify = "9.0.0-rc.3"` 是预发布版本。9.0.0 正式版 API 可能发生破坏性变更。
 
-**Fix:** 跟踪 notify 9.0.0 正式版发布，优先升级。当前不影响功能正确性。
+**Fix:** 跟踪 notify 9.0.0 正式版发布后升级。已标注注释。
 
 ## Info
 
 ### IN-01: collect_keyframe_paths_from_dir 使用字典序排序 (frame_extractor.rs)
 
 **File:** `narratoai-core/src/visual/frame_extractor.rs:625-633`
-**Issue:** `collect_keyframe_paths_from_dir` 使用 `paths.sort()`（字典序）。由于帧号格式化为 `{:06}` 零填充 6 位，且 `MAX_TOTAL_FRAMES = 100_000`，字典序在当前约束下等价于数字序。但如果未来放宽帧数限制（帧号超过 999999），字典序将出错。
-
-这不是当前 bug，仅作为防御性记录。
-
-**Fix:** 如果未来放宽帧数限制，改用 `analyzer.rs` 中 `collect_frame_paths` 的数字排序逻辑（或提取为共享函数）。
-
----
+**Issue:** 使用 `paths.sort()`（字典序）。当前帧号格式为 `{:06}` 零填充 6 位且 `MAX_TOTAL_FRAMES = 100_000`，字典序等价于数字序。若未来放宽帧数限制需改用数字排序。
 
 ### IN-02: truncate 过滤器魔法数字 (template.rs)
 
-**File:** `narratoai-core/src/prompt/template.rs:56-63`
-**Issue:** `truncate` 过滤器中 `100` 和 `97` 硬编码。语义上 "100 字符上限、97 字符内容 + 3 字符省略号" 不够直观。
-
-**Fix:**
-```rust
-const TRUNCATE_MAX_CHARS: usize = 100;
-const TRUNCATE_ELLIPSIS_LEN: usize = 3;
-let keep = TRUNCATE_MAX_CHARS - TRUNCATE_ELLIPSIS_LEN; // 97
-```
-
----
+**File:** `narratoai-core/src/prompt/template.rs:47-55`
+**Issue:** `100` 和 `97` 硬编码。建议提取为 `const TRUNCATE_MAX_CHARS` 和 `const TRUNCATE_ELLIPSIS_LEN`。
 
 ### IN-03: RwLock 中毒处理策略 (manager.rs)
 
-**File:** `narratoai-core/src/prompt/manager.rs:42-44`, `111-113`, `119-121`, `138-140`, `147-149`
-**Issue:** 所有 `RwLock` 获取操作使用 `.map_err(|e| PromptError::LockFailure(...))` 将 `PoisonError` 转换为业务错误。这意味着如果某个线程 panic 导致锁中毒，后续所有操作都会返回 `LockFailure` 错误而非恢复或终止。这是合理的防御性选择，但调用方需要意识到锁中毒是不可恢复的。
-
-当前处理方式合理，仅作为文档记录。
-
----
+**File:** `narratoai-core/src/prompt/manager.rs:42-44,111-113,119-121,138-140,147-149`
+**Issue:** 所有 `RwLock` 获取将 `PoisonError` 转换为 `PromptError::LockFailure`。锁中毒后所有后续操作均失败，属于不可恢复错误。当前处理方式合理，仅作文档记录。
 
 ### IN-04: tokio features = ["full"] 可精简 (Cargo.toml)
 
 **File:** `narratoai-core/Cargo.toml:15`
-**Issue:** `tokio = { version = "1.52.1", features = ["full"] }` 启用了所有 tokio 功能，包括 `full` 隐含的 `net`、`io-util`、`io-std`、`fs`、`signal`、`process` 等。实际使用的功能仅为 `rt-multi-thread`、`macros`、`sync` 和 `time`。`features = ["full"]` 增加编译时间和二进制大小。
+**Issue:** 实际使用功能为 `rt-multi-thread`、`macros`、`sync`、`time`、`process`。`full` 增加编译时间和二进制大小。低优先级优化项。
 
-**Fix:** 按需启用：
-```toml
-tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
-```
+### IN-05: 快路径不报告中间进度 (frame_extractor.rs)
+
+**File:** `narratoai-core/src/visual/frame_extractor.rs:87-89`
+**Issue:** 快路径成功时仅在完成时报告 100%，不转发 FFmpeg 进度事件。回退路径有逐帧进度。已知限制，不影响功能正确性。
+
+## Cross-File Analysis
+
+### 模板变量一致性
+
+所有 7 个模板的 `${variable}` 引用均与 `register.rs` 中对应的 `ParameterDef` 声明一致。`registry.rs` 的 `validate_prompt_parameters()` 在注册时进行编译期校验。
+
+| Template | Variables | Declared | Match |
+|----------|-----------|----------|-------|
+| frame_analysis_v1.0 | video_description, language | 2 | ✓ |
+| narration_generation_v2.0 | video_title, frame_analysis_json, style, language | 4 | ✓ |
+| subtitle_analysis_v2.0 | subtitle_content, custom_clips | 2 | ✓ |
+| plot_extraction_v2.0 | subtitle_content, plot_summary, plot_titles | 3 | ✓ |
+| plot_analysis_v1.0 | subtitle_content | 1 | ✓ |
+| script_generation_v1.0 | plot_analysis, language, style | 3 | ✓ |
+| script_generation_v2.0 | drama_name, plot_analysis, subtitle_content | 3 | ✓ |
+
+### 错误处理链完整性
+
+- `PromptError` 5 变体完整覆盖：TemplateRender / NotFound / LockFailure / Registration / Validation
+- `VisualError` 3 变体完整覆盖：FrameExtraction / Analysis / BatchPartial
+- 两套错误枚举通过 `thiserror` 宏提供中文消息，`Display` trait 一致
+
+### 安全性
+
+- 模板注入防护：单遍 `replace_all` 防止变量值中的 `${...}` 被重新解释
+- FFmpeg 命令注入防护：使用 `std::process::Command` 参数数组，无 shell 拼接
+- 路径安全：所有路径参数由调用方控制，本层不处理用户输入
+- DoS 防护：`MAX_TOTAL_FRAMES = 100_000` 限制帧数，正则 `\w+` 保证线性复杂度
+
+## Iteration History
+
+| Iteration | Critical | Warning | Info | Fixed | Status |
+|-----------|----------|---------|------|-------|--------|
+| 1 | 0 | 16 | 24 | 16 | all_fixed |
+| 2 | 0 | 4 | 5 | 3 | partial (1 skipped) |
+| 3 (this) | 0 | 1 | 5 | 0 | clean |
 
 ---
-
-### IN-05: progress callback 在 extract_frames 回退路径中已消费 (frame_extractor.rs)
-
-**File:** `narratoai-core/src/visual/frame_extractor.rs:94-108`, `109-124`
-**Issue:** 当快路径失败并回退到 `extract_frames_fallback` 时，`progress` callback 被传递给 fallback 函数。但如果快路径成功（`Ok(count) if count > 0`），progress callback 仅在 `cb(Some(1.0), "帧提取完成")` 时被调用一次，跳过了中间进度。快路径中 FFmpeg 进度事件未被转发给 callback。
-
-这是已知的局限性，不影响功能正确性。
-
----
-
-_Reviewed: 2026-05-07T12:00:00Z_
+_Reviewed: 2026-05-07T23:59:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Iteration: 3_
