@@ -1,69 +1,80 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-05-06T23:15:00Z
+fixed_at: 2026-05-07T10:50:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 17
-findings_in_scope: 1
-fixed: 0
-skipped: 1
-status: all_fixed
+iteration: 18
+findings_in_scope: 7
+fixed: 5
+skipped: 2
+status: partial
 ---
 
-# Phase 04: Code Review Fix Report (Iteration 17)
+# Phase 04: Code Review Fix Report (Iteration 18)
 
-**Fixed at:** 2026-05-06T23:15:00Z
+**Fixed at:** 2026-05-07T10:50:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 17
+**Iteration:** 18
 
 **Summary:**
 - Fix scope: critical + warning
-- Findings in scope: 1 (1 WARNING, 0 CRITICAL)
-- Fixed: 0
-- Skipped: 1 (false positive — not a real bug)
+- Findings in scope: 7 (2 CRITICAL, 5 WARNING)
+- Fixed: 5
+- Skipped: 2 (1 false positive, 1 already covered by another fix)
 
-## Skipped
+## Fixed Issues
 
-| ID | File | Description | Reason |
-|----|------|-------------|--------|
-| WR-17-01 | src/visual/analyzer.rs:109-116 | format! 对 prompt_template 的所谓 panic 风险 | **误报** — 见下方详细分析 |
+### CR-02: `$variable` regex false-matches dollar signs in template content
 
-## WR-17-01 详细分析
+**Files modified:** `src/prompt/template.rs`
+**Commit:** 5f8b598 (worktree), 95fc3ec (main)
+**Applied fix:** Removed the bare `\$(\w+)` branch from the variable regex, keeping only `\$\{(\w+)\}`. Updated doc comments to document single-syntax support and added safety notice about caller responsibility for variable value validation. Updated 2 unit tests that used bare `$variable` syntax to use `${variable}`.
 
-**审查结论：** `format!("{}", prompt_template)` 在 `prompt_template` 包含 `{}` 或 `{:?}` 时会 panic。
+### WR-01: No validation of `batch_size`/`max_concurrency` inputs
 
-**实际情况：** 这是不正确的。`prompt_template` 是 `format!` 宏的**值参数**（第二个参数），不是格式化字符串。Rust 的 `format!` 宏在编译时解析格式化字符串字面量（第一个参数），`{}` 是占位符，被替换为值参数的 `Display` 表示。`prompt_template` 的内容通过 `&str` 的 `Display` trait 直接输出，其中的 `{}`、`{:?}` 等字符不会被二次解释为格式化说明符。
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** 45f810e (worktree), fc56734 (main)
+**Applied fix:** Added input validation at the top of `analyze_video_frames` body (after Step 1 progress callback, before Step 2 frame extraction). Returns `VisualError::Analysis` with Chinese error message for zero values.
 
-```rust
-// 当前代码（安全，无需修改）
-let rendered_prompt = format!(
-    "{}\n\nIMPORTANT: ...",   // ← 格式化字符串（编译时常量）
-    prompt_template            // ← 值参数，内容不会被解释为格式说明符
-);
-```
+### WR-02: `analyzed_batches` misleading count
 
-**验证方式：** 以下代码编译通过且运行正常：
-```rust
-let prompt_template = "hello {} world {:?}";
-let result = format!("prefix: {}", prompt_template);
-// result == "prefix: hello {} world {:?}"  — 无 panic
-```
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** cac8935 (worktree), 641c7b1 (main)
+**Applied fix:** Changed `analyzed_batches` value from `raw_results.len()` to `raw_results.len() - errors.len()` so the field only counts successfully analyzed batches.
 
-`format!` 只会在**格式化字符串本身**包含无效格式说明符时 panic，而格式化字符串是编译时常量，编译器会直接拒绝无效格式。值参数的内容不可能触发 panic。
+### WR-04: RwLock reentrancy documentation
 
-**结论：** 不需要修改代码。
+**Files modified:** `src/prompt/manager.rs`
+**Commit:** 9cd8f37 (worktree), 43f297f (main)
+**Applied fix:** Added `# 线程安全` section to `PromptManager` struct doc comment warning that methods must not be called reentrantly from the same thread due to `std::sync::RwLock` deadlock risk.
 
-## Scope Explanation
+### WR-05: Dead code `parse_frame_number_from_name`
 
-REVIEW.md (iteration 17) 包含 1 个 WARNING 和 5 个 INFO 发现。
-- WR-17-01 经评估为误报，跳过（无需代码修改）。
-- 5 个 INFO 发现不在默认修复范围内（`critical_warning` scope）。
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 8718b0b (worktree), 50767a7 (main)
+**Applied fix:** Refactored `rename_fast_path_frames` to call `parse_frame_number_from_name` instead of duplicating inline parsing logic. Removed `#[allow(dead_code)]` annotation since the function is now used in production code.
 
-如需修复 INFO 级别发现，请使用 `--all` 重新运行：
-```
-/gsd-code-review-fix 4 --all
-```
+## Skipped Issues
+
+### CR-01: `format!` macro will panic if prompt_template contains `{` or `}` characters
+
+**File:** `src/visual/analyzer.rs:109-116`
+**Reason:** False positive. `format!("{}", prompt_template)` is safe -- `prompt_template` is the value parameter (second argument), not the format string. Rust's `format!` macro parses the format string literal (first argument) at compile time. The `Display` trait for `&str` outputs the string as-is. Content like `{`, `}`, `{:?}` in `prompt_template` will NOT cause panics. This was confirmed in previous fix iteration 17.
+**Original issue:** The `format!` call was reported as potentially panicking if `prompt_template` contains literal braces.
+
+### WR-03: Template injection -- user-supplied values not sanitized
+
+**File:** `src/prompt/template.rs:75-108`
+**Reason:** Already covered by CR-02 fix. The safety documentation (`# 安全性` section) was added as part of the CR-02 commit (5f8b598/95fc3ec), which included the doc comment: "调用方负责验证变量值的合法性；本函数不执行任何清理或转义。"
+**Original issue:** The template renderer performs pure string substitution without sanitization of variable values.
+
+## Verification
+
+All fixes verified with:
+1. Tier 1: Re-read modified file sections to confirm changes present and surrounding code intact
+2. Tier 2: `cargo check --lib` passed with 0 new warnings (7 pre-existing warnings unrelated to changes)
+3. Template tests: All 15 `prompt::template` tests passed after CR-02 fix
 
 ---
-_Fixed: 2026-05-06T23:15:00Z_
+_Fixed: 2026-05-07T10:50:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 17_
+_Iteration: 18_
