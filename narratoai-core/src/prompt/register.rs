@@ -169,7 +169,8 @@ mod tests {
         // 验证 short_drama_editing 分类下两个 prompt 均已注册
         assert!(registry.get("short_drama_editing", "subtitle_analysis", Some("v2.0")).is_ok());
         assert!(registry.get("short_drama_editing", "plot_extraction", Some("v2.0")).is_ok());
-        // 验证 short_drama_narration 分类下三个 prompt 版本均已注册
+        // 验证 short_drama_narration 分类下所有版本均可按 name+version 精确获取
+        // （list_prompts 返回 2 是因为按 name 去重：plot_analysis + script_generation）
         assert!(registry.get("short_drama_narration", "plot_analysis", Some("v1.0")).is_ok());
         assert!(registry.get("short_drama_narration", "script_generation", Some("v1.0")).is_ok());
         assert!(registry.get("short_drama_narration", "script_generation", Some("v2.0")).is_ok());
