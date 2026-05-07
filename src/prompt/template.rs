@@ -110,7 +110,9 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
             .get(1)
             .map(|m| m.as_str())
             .unwrap_or("");
-        vars.get(name).copied().unwrap_or("")
+        vars.get(name).copied().unwrap_or_else(|| {
+            unreachable!("variable '{}' passed validation in pass 1 but not found in pass 2", name)
+        })
     });
 
     // 第 3 遍：过滤器应用——处理 ${variable|filter_name} 格式
