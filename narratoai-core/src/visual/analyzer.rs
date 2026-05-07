@@ -10,7 +10,7 @@
 //! - `parse_and_retry()` — JSON 反序列化含 markdown 剥离和重试
 //! - `collect_frame_paths()` — 收集帧文件路径匹配 `keyframe_*.jpg`
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tracing::{error, info, warn};
 
@@ -310,90 +310,6 @@ fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 帧文件收集
-// ---------------------------------------------------------------------------
-
-/// 收集指定目录下匹配 `keyframe_*.jpg` 模式的帧文件（D-24）
-///
-/// 按文件名字典序排序（帧序号自然排序），
-/// 如果没有匹配文件则返回 `VisualError::FrameExtraction`。
-fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
-    let mut paths: Vec<PathBuf> = Vec::new();
-
-    let dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
-        VisualError::FrameExtraction(format!("读取帧目录失败: {}", e))
-    })?;
-
-    for entry in dir_reader {
-        let entry = entry.map_err(|e| {
-            VisualError::FrameExtraction(format!("读取目录项失败: {}", e))
-        })?;
-
-        let path = entry.path();
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-
-        if file_name.starts_with("keyframe_") && file_name.ends_with(".jpg") {
-            paths.push(path);
-        }
-    }
-
-    if paths.is_empty() {
-        return Err(VisualError::FrameExtraction(
-            "没有匹配 keyframe_*.jpg 的文件".into(),
-        ));
-    }
-
-    // 先校验所有文件名均可解析，防止 unparseable 文件名静默排序到 0（WR-02）
-    for path in &paths {
-        extract_frame_number_from_keyframe(path).map_err(|e| {
-            warn!("无法解析帧文件名: {}", e);
-            e
-        })?;
-    }
-
-    // 按文件名中的帧序号数字排序（避免超过 6 位时字典排序错误）
-    // 文件已在上面通过校验，使用 unwrap_or 防御外部修改等意外情况
-    paths.sort_by(|a, b| {
-        let a_num = extract_frame_number_from_keyframe(a).unwrap_or_else(|e| {
-            warn!("排序时无法解析帧序号: {}, 使用 0", e);
-            0
-        });
-        let b_num = extract_frame_number_from_keyframe(b).unwrap_or_else(|e| {
-            warn!("排序时无法解析帧序号: {}, 使用 0", e);
-            0
-        });
-        a_num.cmp(&b_num)
-    });
-    Ok(paths)
-}
-
-/// 从 keyframe_XXXXXX_*.jpg 文件名中提取帧序号
-///
-/// 返回 `Result` 而非默认回退 0，确保无法解析的文件名被及早发现
-/// 而不是静默排序到最前面导致帧顺序错乱（WR-02）。
-fn extract_frame_number_from_keyframe(path: &Path) -> Result<u64, VisualError> {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    let num_str = name
-        .strip_prefix("keyframe_")
-        .and_then(|s| s.split('_').next())
-        .ok_or_else(|| {
-            VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", name))
-        })?;
-    num_str.parse::<u64>().map_err(|_| {
-        VisualError::FrameExtraction(format!(
-            "帧序号不是有效数字: {} (from {})",
-            num_str, name
-        ))
-    })
-}
-
 /// 按字符边界截断字符串，避免在多字节 UTF-8 字符中间切割导致 panic
 fn truncate_str(s: &str, max_chars: usize) -> &str {
     match s.char_indices().nth(max_chars) {
@@ -409,6 +325,76 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn extract_frame_number_from_keyframe(path: &Path) -> Result<u64, VisualError> {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let num_str = name
+            .strip_prefix("keyframe_")
+            .and_then(|s| s.split('_').next())
+            .ok_or_else(|| {
+                VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", name))
+            })?;
+        num_str.parse::<u64>().map_err(|_| {
+            VisualError::FrameExtraction(format!(
+                "帧序号不是有效数字: {} (from {})",
+                num_str, name
+            ))
+        })
+    }
+
+    fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
+        let mut paths: Vec<PathBuf> = Vec::new();
+
+        let dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
+            VisualError::FrameExtraction(format!("读取帧目录失败: {}", e))
+        })?;
+
+        for entry in dir_reader {
+            let entry = entry.map_err(|e| {
+                VisualError::FrameExtraction(format!("读取目录项失败: {}", e))
+            })?;
+
+            let path = entry.path();
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+
+            if file_name.starts_with("keyframe_") && file_name.ends_with(".jpg") {
+                paths.push(path);
+            }
+        }
+
+        if paths.is_empty() {
+            return Err(VisualError::FrameExtraction(
+                "没有匹配 keyframe_*.jpg 的文件".into(),
+            ));
+        }
+
+        for path in &paths {
+            extract_frame_number_from_keyframe(path).map_err(|e| {
+                warn!("无法解析帧文件名: {}", e);
+                e
+            })?;
+        }
+
+        paths.sort_by(|a, b| {
+            let a_num = extract_frame_number_from_keyframe(a).unwrap_or_else(|e| {
+                warn!("排序时无法解析帧序号: {}, 使用 0", e);
+                0
+            });
+            let b_num = extract_frame_number_from_keyframe(b).unwrap_or_else(|e| {
+                warn!("排序时无法解析帧序号: {}, 使用 0", e);
+                0
+            });
+            a_num.cmp(&b_num)
+        });
+        Ok(paths)
+    }
 
     /// Test: 有效 JSON 字符串（单个 FrameObservation）应正确解析
     #[test]
