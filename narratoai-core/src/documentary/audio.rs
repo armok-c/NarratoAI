@@ -68,8 +68,8 @@ pub async fn merge_audio_files(
     let input_count = mix_inputs.len();
     if input_count > 1 {
         filter_parts.push(format!(
-            "{}amix=inputs={}:duration=longest[aout]",
-            amix_inputs, input_count
+            "{}amix=inputs={}:duration=longest,volume={}[aout]",
+            amix_inputs, input_count, input_count
         ));
     } else {
         filter_parts.push(format!("{}volume=1[aout]", amix_inputs));
