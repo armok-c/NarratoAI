@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::event::FfmpegEvent;
+use ffmpeg_sidecar::ffprobe::ffprobe_path;
+use ffmpeg_sidecar::paths::ffmpeg_path;
 use tokio_util::sync::CancellationToken;
 
 use crate::ffmpeg::command::ProgressCallback;
@@ -520,16 +522,11 @@ fn cleanup_fast_path_files(output_dir: &Path) {
 
 /// 通过 ffprobe 获取视频时长（秒）
 ///
-/// # 系统要求
-///
-/// 需要 `ffprobe` 二进制文件在系统 PATH 中可用。`ffprobe` 通常随 FFmpeg 一起安装。
-/// 在 Docker 镜像中已内置；本地开发需自行安装 FFmpeg（包含 ffprobe）。
-///
-/// **限制：** 此函数直接调用系统 PATH 中的 `ffprobe`，不使用 `ffmpeg_sidecar` 的二进制发现。
-/// 当快路径使用 `ffmpeg_sidecar`（可能通过 download-ffmpeg feature 自动安装）时，
-/// 如果系统 PATH 中没有 ffprobe，此回退路径将静默失败。
+/// 使用 `ffmpeg_sidecar::ffprobe::ffprobe_path()` 获取 ffprobe 二进制路径，
+/// 与快路径使用相同的二进制发现策略（优先 ffmpeg_sidecar 管理的 ffprobe）。
 fn get_video_duration(video_path: &str) -> Result<f64, VisualError> {
-    let output = std::process::Command::new("ffprobe")
+    let ffprobe_bin = ffprobe_path();
+    let output = std::process::Command::new(ffprobe_bin)
         .args([
             "-v",
             "error",
@@ -568,14 +565,14 @@ fn file_is_valid(path: &Path) -> bool {
 /// 使用阻塞 `wait()` 替代忙等轮询，取消检查在调用点（帧间/回退级别间）进行，
 /// 避免每秒 20 次无效唤醒。
 ///
-/// **限制：** 此函数直接调用系统 PATH 中的 `ffmpeg`，不使用 `ffmpeg_sidecar` 的二进制发现。
-/// 当快路径使用 `ffmpeg_sidecar`（可能通过 download-ffmpeg feature 自动安装）时，
-/// 如果系统 PATH 中没有 ffmpeg，此回退路径将静默失败。
+/// 使用 `ffmpeg_sidecar::paths::ffmpeg_path()` 获取 ffmpeg 二进制路径，
+/// 与快路径使用相同的二进制发现策略（优先 ffmpeg_sidecar 管理的 ffmpeg）。
 fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
     if cancel.is_cancelled() {
         return false;
     }
-    let mut child = match std::process::Command::new("ffmpeg")
+    let ffmpeg_bin = ffmpeg_path();
+    let mut child = match std::process::Command::new(ffmpeg_bin)
         .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
