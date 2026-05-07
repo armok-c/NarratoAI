@@ -25,8 +25,10 @@ use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
 ///
 /// LLM 返回 `{"frame_observations": [...], "overall_activity_summary": "..."}` 格式，
 /// 需要先反序列化为该类型再提取内部的观察列表。
+///
+/// 未知字段被静默忽略，兼容 LLM 返回额外字段的场景（D-15）。
+/// 与 `FrameObservation` 保持一致的容错策略，不使用 `deny_unknown_fields`。
 #[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BatchResponse {
     #[serde(rename = "frame_observations")]
     observations: Vec<FrameObservation>,
@@ -329,6 +331,26 @@ mod tests {
         assert_eq!(batch.observations[0].scene_description, "场景A");
         assert_eq!(batch.observations[1].scene_description, "场景B");
         assert_eq!(batch.overall_activity_summary, Some("测试摘要".to_string()));
+    }
+
+    /// Test: 带额外字段的 BatchResponse JSON 应被正确解析（静默忽略未知字段）
+    #[test]
+    fn test_parse_and_retry_batch_with_extra_fields() {
+        let json = r#"{
+            "frame_observations": [
+                {"frame_number": 0, "timestamp": "00:00:00.000", "scene_description": "场景A", "objects": ["obj"], "actions": ["act"]}
+            ],
+            "overall_activity_summary": "带额外字段的响应",
+            "extra_field": "should be ignored",
+            "model_version": "gpt-4o-2024-05-13",
+            "confidence": 0.95
+        }"#;
+        let result = parse_and_retry(json);
+        assert!(result.is_ok(), "带额外字段的 BatchResponse 应解析成功");
+        let batch = result.unwrap();
+        assert_eq!(batch.observations.len(), 1);
+        assert_eq!(batch.observations[0].scene_description, "场景A");
+        assert_eq!(batch.overall_activity_summary, Some("带额外字段的响应".to_string()));
     }
 
     /// Test: ```json ... ``` 包裹的 JSON 应被剥离后解析
