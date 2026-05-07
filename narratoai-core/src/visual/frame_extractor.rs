@@ -63,6 +63,20 @@ pub async fn extract_frames(
             .map_err(|e| VisualError::FrameExtraction(format!("创建输出目录失败: {}", e)))?;
     }
 
+    // Clean stale keyframe files from previous runs (WR-03)
+    if let Ok(mut reader) = std::fs::read_dir(output_dir) {
+        while let Some(Ok(entry)) = reader.next() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if name.starts_with("keyframe_") && name.ends_with(".jpg") {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
     // Fast path: single ffmpeg fps filter command
     match extract_frames_fast_path(
         video_path,
