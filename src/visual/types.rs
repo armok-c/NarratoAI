@@ -50,13 +50,7 @@ pub(crate) fn strip_code_fence(text: &str) -> &str {
     let content = after_prefix.unwrap_or(trimmed);
     content
         .strip_suffix("```")
-        .map(|s| {
-            if s.ends_with(|c: char| c.is_whitespace()) {
-                s.trim_end()
-            } else {
-                content
-            }
-        })
+        .map(|s| s.trim_end())
         .unwrap_or(content)
 }
 
