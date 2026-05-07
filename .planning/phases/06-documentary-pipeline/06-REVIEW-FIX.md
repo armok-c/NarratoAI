@@ -1,68 +1,69 @@
 ---
-status: partial
 phase: 06-documentary-pipeline
-review_date: 2026-05-05
-fix_date: 2026-05-05
-findings_in_scope: 2
-fixed: 2
-skipped: 0
-iteration: 3
-fixer: gsd-code-fixer
-previous_fix: 2026-05-05 (Re-Fix #9 — CR-01/CR-02/WR-01/WR-03/WR-04/IN-04/IN-05 fixed)
+fixed_date: 2026-05-07
+iteration: 4
+findings_in_scope: 6
+fixed: 5
+skipped: 1
+status: partial
 ---
 
-# Code Review Fix Report: Phase 06 — Documentary Pipeline (Re-Fix #10, Re-Review #2)
+# Phase 06: Code Review Fix Report (Iteration 4)
 
-## Summary
+**Fixed at:** 2026-05-07
+**Source review:** .planning/phases/06-documentary-pipeline/06-REVIEW.md
+**Iteration:** 4
 
-第十次修复：基于 Re-Review #2 的 2 项 Warning 发现，全部修复。通过 `cargo check` 和全部测试验证。
+**Summary:**
+- Findings in scope: 6
+- Fixed: 5
+- Skipped: 1
 
-## Fixes Applied
+## Fixed Issues
 
-### WR-01: `original_volume` validated but never applied in composite step — **已修复**
+### CR-01 + WR-03: Integer truncation in audio delay + silent skip of missing TTS
 
-- **提交**: `8177521`
-- **变更**: `src/documentary/pipeline.rs:286-287,313-356,385` — 在 `step_composite` 中将视频原始音频 `[0:a]volume={original_volume}[orig]` 加入 `amix` 混音链
-- **逻辑**: 通过 `state.script` 检测是否存在非 `NarrationOnly` 片段，仅在有原始音频时加入混音，避免无音频流时的 FFmpeg 错误。新增 `amix_input_count` 统一管理混音输入数（含原始音频），`external_audio_count` 仅用于计算外部输入的 FFmpeg index
+**Files modified:** `src/documentary/audio.rs`
+**Commit:** 66a7608
+**Applied fix:** Two changes applied atomically in the same code block:
+1. Changed `(cumulative_offset * 1000.0) as u64` to `(cumulative_offset * 1000.0).round() as u64` to minimize cumulative truncation error.
+2. Replaced `if let Some(tts) = tts_results.get(...)` with `ok_or_else` to return an explicit `PipelineError::AudioMerge` when a clip requiring TTS is missing its result, instead of silently skipping.
 
-### WR-02: `video_aspect` field defined but never used — **已修复**
+### WR-01: Misleading underscore separators in subtitle test data
 
-- **提交**: `8177521`
-- **变更**: `src/documentary/types.rs:23,46` — 移除 `video_aspect` 字段及其 Default 值（`"9:16"`）
-- **原因**: 该字段从未在 pipeline.rs 或 clip.rs 中使用，`-aspect` 标志仅设置元数据会导致拉伸问题，正确的宽高比缩放需要设计决策（目标分辨率、pad 策略），因此移除死代码
+**Files modified:** `src/documentary/subtitle.rs`
+**Commit:** 3719a2b
+**Applied fix:** Changed numeric literals in `make_word_boundaries()` to match their comments: `500_000_0` to `5_000_000` (0.5s), `1_200_000_0` to `12_000_000` (1.2s), `2_000_000_0` to `20_000_000` (2.0s).
+
+### WR-02: Missing subtitle_font_size bounds validation
+
+**Files modified:** `src/documentary/types.rs`
+**Commit:** 66ec5ce
+**Applied fix:** Added validation in `validate()` to ensure `subtitle_font_size` is within range [1, 200], returning a descriptive error message if outside bounds.
+
+### WR-04: Undocumented unused _request parameter
+
+**Files modified:** `src/documentary/pipeline.rs`
+**Commit:** 3cc747f
+**Applied fix:** Added doc comment explaining that `_request` is retained for future per-request audio volume control during merge.
+
+## Skipped Issues
+
+### WR-05: Sequential clip processing
+
+**File:** `src/documentary/clip.rs:89-124`
+**Reason:** Quality improvement (parallelism), not a correctness bug. No immediate action required per reviewer recommendation.
+**Original issue:** `clip_all_videos` processes clips sequentially in a for loop, missing parallelism opportunity for FFmpeg invocations.
 
 ## Verification
 
-| 验收条件 | 结果 |
-|----------|------|
-| `cargo check` 编译通过 | ✅ 零 error（1 warning：`get_azure_voices` 不在审查范围） |
-| `cargo test --lib documentary` | ✅ 58 passed, 0 failed |
-| `cargo test --test documentary_integration_test` | ✅ 9 passed, 4 ignored, 0 failed |
-| WR-01 修复: 原始音频加入 amix | ✅ pipeline.rs:315-317 `[0:a]volume={orig_vol}[orig]` |
-| WR-02 修复: video_aspect 字段移除 | ✅ types.rs 已移除 |
-
-## Previous Fix Verification
-
-| ID | 问题 | 修复状态 | 验证结果 |
-|----|------|----------|----------|
-| CR-01 | BGM aloop + amix 超长输出 | ✅ 已修复 (Re-Fix #9) | 保持不变 |
-| CR-02 | SRT 路径分号注入 | ✅ 已修复 (Re-Fix #9) | 保持不变 |
-| WR-01→WR-01 | original_volume 未应用 | ✅ 已修复 (本次) | pipeline.rs:315-317 |
-| WR-02→WR-03→WR-02 | video_aspect 未使用 | ✅ 已修复 (本次) | types.rs 已移除 |
-| WR-04 | collect_keyframe_paths 静默错误 | ✅ 已修复 (Re-Fix #9) | 保持不变 |
-| IN-04 | 极端 f64 时间值 | ✅ 已修复 (Re-Fix #9) | 保持不变 |
-| IN-05 | FFmpeg Progress 事件忽略 | ✅ 已修复 (Re-Fix #9) | 保持不变 |
-
-## Outstanding (Info-level, not in fix scope)
-
-| ID | 问题 | 说明 |
-|----|------|------|
-| IN-01 | `SubtitleSegment.offset_secs` 始终为 0.0 | 设计决策：双偏移模式需统一 |
-| IN-02 | `PipelineState.progress` 硬编码 None | 功能补全：需添加 progress 字段并传播 |
-| IN-03 | 4 个集成测试被 ignore 且体为空 | 功能补全：需创建合成视频和完整测试体 |
-| IN-04 | `threads` 字段未传递给 FFmpeg | 设计决策：需决定是否传递 `-threads` |
+| Check | Result |
+|-------|--------|
+| `cargo check` compiles clean | Zero errors (7 pre-existing warnings unrelated to fixes) |
+| All fixes re-read verified | Fix text present, surrounding code intact |
 
 ---
 
-_Fixed: 2026-05-05_
+_Fixed: 2026-05-07_
 _Fixer: Claude (gsd-code-fixer)_
+_Iteration: 4_
