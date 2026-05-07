@@ -1,6 +1,6 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-07T12:30:00Z
+reviewed: 2026-05-07T15:20:00Z
 depth: standard
 files_reviewed: 19
 files_reviewed_list:
@@ -24,182 +24,137 @@ files_reviewed_list:
   - src/visual/frame_extractor.rs
   - src/visual/analyzer.rs
 findings:
-  critical: 2
-  warning: 5
+  critical: 1
+  warning: 4
   info: 4
-  total: 11
-status: all_fixed
+  total: 9
+status: issues_found
 ---
 
 # Phase 4: Code Review Report
 
-**Reviewed:** 2026-05-07T12:30:00Z
+**Reviewed:** 2026-05-07T15:20:00Z
 **Depth:** standard
 **Files Reviewed:** 19
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Prompt System (types, registry, template engine, manager, validators, registration, 4 prompt templates) and Visual Analyzer (frame extractor, analyzer, types, error) across 19 source files at standard depth. The overall architecture is well-structured: clean error enums with thiserror, proper `RwLock` usage with poison handling, a correct 3-level registry index, and a reasonable 4-level FFmpeg fallback strategy. Template variables in all .md files are consistent with their `ParameterDef` declarations in `register.rs`.
+Reviewed the Prompt System (types, registry, template engine, manager, validators, registration, 4 prompt templates) and Visual Analyzer (frame extractor, analyzer, types, error) across 19 source files at standard depth.
 
-Found 2 critical issues and 5 warnings. The critical issues are: (1) a busy-wait polling loop in `run_ffmpeg_with_cancel` that wastes CPU for the entire lifetime of each FFmpeg process invocation, multiplied by up to 4x per frame in the fallback path; (2) `extract_frames_fast_path` proceeds to rename partial frames even after cancellation was detected and the FFmpeg child was killed. Warnings cover a fragile `json` filter fallback, shared temp directory paths in tests, missing cancellation checks between fallback levels, lexical sort that breaks for very large frame counts, and an absent upper-bound validation on `interval_seconds`.
+The architecture is well-structured: clean error enums with thiserror, proper `RwLock` usage with poison handling, correct 3-level registry index, sensible 4-level FFmpeg fallback with per-level cancellation checks, and numeric frame sorting. Template variables in all .md files are consistent with their `ParameterDef` declarations in `register.rs`. Previous review findings (CR-01 busy-wait, WR-02 shared temp dirs, WR-03 lexical sort, WR-04 interval upper bound, WR-05 missing cancel checks) have all been fixed.
+
+Found 1 critical issue and 4 warnings. The critical issue is a logic error in `strip_code_fence` that fails to strip the closing ` ``` ` when JSON content abuts the fence without trailing whitespace. This causes downstream JSON deserialization to fail on affected LLM responses. Warnings cover O(n^2) duplicate detection in template rendering, an empty-result blind spot in the analysis pipeline, missing code-fence stripping in the JSON validator, and an uncanceled FFmpeg event loop in the fast path.
 
 ## Critical Issues
 
-### CR-01: Busy-wait polling loop in `run_ffmpeg_with_cancel` wastes CPU across hundreds of process invocations
+### CR-01: `strip_code_fence` fails to strip closing fence when JSON abuts ` ``` ` without trailing whitespace
 
-**File:** `src/visual/frame_extractor.rs:535-557`
+**File:** `src/visual/types.rs:51-60`
+**Classification:** BLOCKER
 
-**Issue:** The function uses `child.try_wait()` in a `loop` with `std::thread::sleep(Duration::from_millis(50))`. This is a classic busy-wait pattern: the thread wakes 20 times per second for the entire lifetime of each FFmpeg process. In the fallback path (`extract_single_frame`), this function is called up to 4 times per frame (one per output format level). For a video with 300 frames that all require full fallback, this is 1200 FFmpeg invocations, each holding a `spawn_blocking` thread that polls at 20Hz for the full process duration.
+**Issue:** The function strips the opening ` ```json ` or ` ``` ` correctly, but when stripping the closing ` ``` ` suffix, it has a flawed conditional: if the remaining string after stripping ` ``` ` does NOT end with whitespace, it returns `content` (the unstripped version with ` ``` ` still attached). This means LLM responses like `` ```json\n{"key":"value"}``` `` (where JSON closes directly against the fence with no newline before ` ``` `) will not have the closing fence removed.
 
-Additionally, the 50ms polling interval introduces up to 50ms latency before detecting child exit, meaning each frame extraction incurs up to 200ms (4 levels x 50ms) of pure overhead on top of actual FFmpeg execution time.
+Trace for input `` "```json\n{}```" ``:
+1. `strip_prefix("```json")` = `Some("\n{}```")`
+2. `trim_start()` = `Some("{}```")`
+3. `content = "{}```"`
+4. `content.strip_suffix("```")` = `Some("{}")` (correctly stripped)
+5. `s = "{}"`, `s.ends_with(|c| c.is_whitespace())` = **false**
+6. Returns `content = "{}```"` -- **closing fence preserved, deserialization will fail**
 
-**Fix:** Use blocking `child.wait()` instead of polling, and check cancellation at the call site (between fallback levels and between frames). The outer loop in `extract_frames_fallback` already checks cancellation between frames. Add cancellation checks between fallback levels inside `extract_single_frame`:
+The `else` branch on line 57 is the bug: it should return `s` (the stripped version), not `content`.
+
+**Fix:**
 
 ```rust
-fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
-    let mut child = match std::process::Command::new("ffmpeg")
-        .args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    // Blocking wait -- cancellation is checked between frames/levels at call site
-    match child.wait() {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    }
+pub(crate) fn strip_code_fence(text: &str) -> &str {
+    let trimmed = text.trim();
+    let after_prefix = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(|s| s.trim_start());
+    let content = after_prefix.unwrap_or(trimmed);
+    content
+        .strip_suffix("```")
+        .map(|s| s.trim_end())
+        .unwrap_or(content)
 }
 ```
 
-In `extract_single_frame`, add between each level:
-
-```rust
-if cancel.is_cancelled() {
-    return Err(VisualError::FrameExtraction("帧提取被取消".into()));
-}
-```
-
-### CR-02: `extract_frames_fast_path` renames partial frames after cancellation kill
-
-**File:** `src/visual/frame_extractor.rs:147-161`
-
-**Issue:** After the FFmpeg event loop, if cancellation was detected (line 148-151: `cancel.is_cancelled()` triggers `child.kill()` and returns error), the function correctly returns an error. However, there is a race condition: the event iterator (`child.iter()`) processes events including `FfmpegEvent::Error`. If FFmpeg writes partial frames before being killed, these files exist on disk. The error return propagates to `extract_frames`, which then calls `cleanup_fast_path_files` on line 76. But if the kill + error return path on line 151 is taken, the function returns `Err(...)` and `rename_fast_path_frames` on line 158 is NOT called. The cleanup happens at the call site. This is actually handled correctly.
-
-**Revised finding:** On re-inspection, the cancellation path correctly returns early with an error, skipping `rename_fast_path_frames`. The call site in `extract_frames` (line 59-88) catches the error and calls `cleanup_fast_path_files`. This is correct behavior.
-
-**Actual CR-02 -- same function, different issue:** The event loop on lines 147-156 iterates events and logs errors but does NOT check cancellation until the next event arrives. If FFmpeg stalls (e.g., seeking to a very late timestamp), the loop blocks on `iter.next()` indefinitely without checking the cancellation token. The cancellation check only runs when a new event is produced by FFmpeg. For large videos or slow I/O, this means cancellation can be delayed by seconds or minutes.
-
-```rust
-for event in iter {
-    if cancel.is_cancelled() {  // <-- only checked when event arrives
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
-    }
-    if let FfmpegEvent::Error(e) = event {
-        tracing::warn!("FFmpeg 快路径错误: {}", e);
-    }
-}
-```
-
-**Fix:** There is no straightforward fix with `ffmpeg_sidecar`'s iterator design. A workaround is to run the event iteration in a separate thread and check cancellation with a timeout, or use the raw `spawn_blocking` + manual FFmpeg invocation approach (as done in the fallback path) which gives full control over process lifecycle. At minimum, document this limitation.
+The fix simplifies the logic: if we can strip the closing fence, trim trailing whitespace from the remainder and return it. If not, return content as-is.
 
 ## Warnings
 
-### WR-01: `json` filter fallback produces invalid JSON for strings with backslashes or newlines
+### WR-01: O(n^2) duplicate detection in template variable validation
 
-**File:** `src/prompt/template.rs:52-53`
+**File:** `src/prompt/template.rs:96`
+**Classification:** WARNING
 
-**Issue:** The `json` filter has a fallback when `serde_json::to_string` fails:
+**Issue:** The `render` function uses `missing.contains(&name.to_string())` to deduplicate missing variable names. This is an O(n) scan inside an O(n) loop (where n = number of template variables), giving O(n^2) worst case. For templates with many unique variables this degrades, though typical templates have fewer than 20 variables so practical impact is low.
+
+The same pattern is repeated for filter variables on line 128.
+
+**Fix:** Use a `HashSet<String>` for the missing set:
 
 ```rust
-serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s.replace('"', "\\\"")))
+let mut missing: HashSet<String> = HashSet::new();
+for caps in var_re.captures_iter(template) {
+    let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+    if !name.is_empty() && !vars.contains_key(name) {
+        missing.insert(name.to_string());
+    }
+}
 ```
 
-The fallback only escapes double quotes. It does not escape backslashes (`\`), newlines (`\n`), tabs (`\t`), or control characters. For a string containing `hello\world`, the fallback produces `"hello\world"` -- this is valid JSON (the backslash is followed by `w`, not a JSON escape code, which is technically valid but semantically wrong). For a string with an actual newline byte, the fallback produces a multi-line string literal which IS invalid JSON.
+### WR-02: Empty-result blind spot -- zero observations with zero errors succeeds silently
 
-While `serde_json::to_string(&str)` should never fail (serializing a Rust `&str` is infallible in serde_json), the fallback code contains a correctness bug that would surface if the assumption ever breaks.
+**File:** `src/visual/analyzer.rs:177-205`
+**Classification:** WARNING
 
-**Fix:** Remove the fallback since `serde_json::to_string(&str)` is infallible:
+**Issue:** The empty-result barrier on line 178 checks `observations.is_empty() && !errors.is_empty()`. If all LLM batches succeed but every batch returns an empty `frame_observations` array, then `observations` is empty and `errors` is also empty. The function returns a `BatchAnalysisResult` with 0 observations, 0 errors, and `analyzed_batches == raw_results.len()`. The caller receives a "success" that contains no useful data.
 
-```rust
-m.insert("json", |s: &str| {
-    serde_json::to_string(s).expect("serializing &str to JSON string cannot fail")
-});
-```
+This scenario can occur if the LLM returns valid JSON like `{"frame_observations": [], "overall_activity_summary": "no frames detected"}`.
 
-Or fix the fallback to properly escape all JSON special characters.
-
-### WR-02: Tests use hardcoded shared temp directory paths -- race condition under parallel test execution
-
-**File:** `src/visual/frame_extractor.rs:599,632,667,704,733,767` and `src/visual/analyzer.rs:424,454,479`
-
-**Issue:** Multiple tests use hardcoded temp directory names like `std::env::temp_dir().join("narratoai_test_rename")`. When tests run in parallel (default `cargo test` behavior), different test processes share the same directory, causing non-deterministic failures. Tests that cleanup with `remove_dir_all` at the end can delete files being used by concurrent tests.
-
-The `tempfile` crate is already in `[dev-dependencies]` but is not used in these tests.
-
-**Fix:** Use `tempfile::tempdir()` for isolated temporary directories:
+**Fix:** Add a check after the barrier:
 
 ```rust
-let temp = tempfile::tempdir().expect("should create temp dir");
-let temp_dir = temp.path();
-// ... use temp_dir for test operations ...
-// automatic cleanup when temp is dropped
-```
-
-### WR-03: Lexical sort in `collect_frame_paths` breaks for frame counts exceeding 6 digits
-
-**File:** `src/visual/analyzer.rs:290`
-
-**Issue:** The comment states "Sort by frame number (lexical sort on zero-padded prefix)" and uses `paths.sort()`. Frame names use `{:06}` format (6 zero-padded digits). Lexical sort is correct for frame numbers 0-999999. However, if `interval_seconds` is very small (e.g., 0.01) and the video is long (> 10000 seconds), frame numbers exceed 999999. The name `keyframe_1000000_*.jpg` would sort before `keyframe_999999_*.jpg` lexicographically, producing incorrect frame order for analysis.
-
-While this edge case is unlikely in typical usage (it would produce over 1M frames), the sort assumption is fragile and undocumented.
-
-**Fix:** Add numeric sort on the frame number portion, or document the frame count limitation:
-
-```rust
-paths.sort_by(|a, b| {
-    let a_num = extract_frame_number(a);
-    let b_num = extract_frame_number(b);
-    a_num.cmp(&b_num)
-});
-```
-
-### WR-04: No upper-bound validation on `interval_seconds` -- accepts absurdly large values
-
-**File:** `src/visual/frame_extractor.rs:48-49`
-
-**Issue:** The validation only checks `interval_seconds <= 0.0` and `is_nan()`. Extremely large values like `f64::MAX` or `1e10` are accepted. With `interval_seconds = 1e10`, the FFmpeg command `fps=1/10000000000` would extract 0 frames, causing the function to fall through to the fallback path. The fallback computes `total_frames = (duration / 1e10).ceil() as usize = 0` and returns `Ok(0)`. The caller in `analyze_video_frames` then fails at the "0 frames" guard with a misleading error message ("未提取到任何帧") instead of flagging the invalid interval.
-
-**Fix:** Add an upper bound:
-
-```rust
-if interval_seconds > 86400.0 {
-    return Err(VisualError::FrameExtraction(
-        format!("帧提取间隔过大: {}s (最大 86400s/1天)", interval_seconds)
+if observations.is_empty() {
+    return Err(VisualError::Analysis(
+        "所有批次返回空观察结果".into(),
     ));
 }
 ```
 
-### WR-05: Missing cancellation checks between fallback levels in `extract_single_frame`
+### WR-03: `validate_json` does not strip code fences before parsing
 
-**File:** `src/visual/frame_extractor.rs:263-392`
+**File:** `src/prompt/validators.rs:34-53`
+**Classification:** WARNING
 
-**Issue:** The 4-level fallback function `extract_single_frame` does not check `cancel.is_cancelled()` between levels. If cancellation is requested during Level 1, the function continues through Levels 2, 3, and 4 before returning. Each level spawns a new FFmpeg process (with the busy-wait from CR-01). In the worst case, cancellation is delayed by up to 4x the FFmpeg process timeout.
+**Issue:** The JSON validator calls `serde_json::from_str(trimmed)` on the trimmed output, but does not strip ` ```json...``` ` code fences. The codebase already has `strip_code_fence` in `visual/types.rs`, and the `parse_and_retry` function in `analyzer.rs` correctly strips fences before deserializing. However, the `validate_output` function used in `sde/script_gen.rs:117` does not strip fences first.
 
-The outer loop in `extract_frames_fallback` checks cancellation between frames, but within a single frame's 4-level fallback, there is no escape.
+If an LLM returns JSON wrapped in a code fence, the validator will reject it with "JSON format invalid", even though the actual JSON is valid. The `visual/types::strip_code_fence` function is `pub(crate)`, so it is accessible from the validators module.
 
-**Fix:** Add cancellation checks between each fallback level:
+**Fix:** Strip code fence before JSON validation:
 
 ```rust
-if cancel.is_cancelled() {
-    return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+fn validate_json(output: &str) -> Result<(), PromptError> {
+    let cleaned = crate::visual::types::strip_code_fence(output);
+    let trimmed = cleaned.trim();
+    // ... rest unchanged
 }
 ```
+
+### WR-04: Fast-path FFmpeg event loop blocks indefinitely on stalled FFmpeg
+
+**File:** `src/visual/frame_extractor.rs:157-166`
+**Classification:** WARNING
+
+**Issue:** The fast path iterates `child.iter()` inside a `for event in iter` loop. Cancellation is only checked when a new event arrives (`if cancel.is_cancelled()` on line 158). If FFmpeg stalls (e.g., seeking to a very late timestamp, or I/O hang), the thread blocks on `iter.next()` inside `spawn_blocking` without checking the cancellation token. This can delay cancellation by minutes for large videos or slow I/O.
+
+The code comment on lines 153-156 already documents this limitation. The fallback path avoids this by using blocking `child.wait()` with cancellation checks between calls. No fix is required beyond the existing documentation, but callers should be aware that `CancellationToken` is best-effort for the fast path.
+
+**Fix:** No code change required (limitation is documented). If stronger cancellation is needed, the fast path should be converted to use `std::process::Command` directly with `child.wait()`, similar to the fallback path's `run_ffmpeg_with_cancel`.
 
 ## Info
 
@@ -207,7 +162,7 @@ if cancel.is_cancelled() {
 
 **File:** `src/prompt/template.rs:85-87,119-121`
 
-**Issue:** Two `Regex::new()` calls compile the same patterns on every `render()` invocation. Since these are compile-time-constant patterns, use `std::sync::OnceLock<Regex>` or `lazy_static!` to compile once.
+**Issue:** Two `Regex::new()` calls compile the same patterns (`r"\$\{(\w+)\}"` and `r"\$\{(\w+)\|(\w+)\}"`) on every `render()` invocation. Use `std::sync::OnceLock<Regex>` or `lazy_static!` to compile once.
 
 ### IN-02: `builtin_filters()` allocates new `HashMap` on every `render()` call
 
@@ -215,20 +170,20 @@ if cancel.is_cancelled() {
 
 **Issue:** The 6-entry filter HashMap is recreated on every template render. Use `OnceLock` for lazy one-time initialization.
 
-### IN-03: `script_generation` v2.0 silently overrides v1.0 default status
-
-**File:** `src/prompt/register.rs:131-144`
-
-**Issue:** Both `script_generation` v1.0 (line 115) and v2.0 (line 131) are registered with `is_default: true`. The second registration silently overrides the first's default. This is intentional (v2.0 should be the default), but the behavior is implicit. A comment would make the intent clear.
-
-### IN-04: `validate_narration_script` paragraph validation may reject valid single-paragraph scripts
+### IN-03: `validate_narration_script` paragraph minimum may reject valid single-paragraph outputs
 
 **File:** `src/prompt/validators.rs:74-83`
 
-**Issue:** The validator requires at least 3 paragraphs (split by `\n\n`). Some LLM outputs may produce valid narration as a single continuous paragraph without double-newline separators. This strict requirement could cause false rejection of valid outputs. The validation is intentionally strict per the spec, but the 3-paragraph minimum is a heuristic that may need tuning based on actual LLM output patterns.
+**Issue:** The validator requires at least 3 paragraphs (split by `\n\n`). Some LLMs may produce valid narration as a single continuous paragraph. The 3-paragraph minimum is a heuristic that may need tuning based on actual LLM output patterns.
+
+### IN-04: `script_generation` v2.0 silently overrides v1.0 default status
+
+**File:** `src/prompt/register.rs:115-144`
+
+**Issue:** Both `script_generation` v1.0 and v2.0 are registered with `is_default: true`. The second registration silently overrides the first's default. This is intentional (v2.0 should be the default), but the behavior is implicit. A comment clarifying intent would help future maintainers.
 
 ---
 
-_Reviewed: 2026-05-07T12:30:00Z_
+_Reviewed: 2026-05-07T15:20:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
