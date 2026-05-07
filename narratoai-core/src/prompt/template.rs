@@ -1,4 +1,3 @@
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
@@ -7,15 +6,7 @@ use crate::prompt::error::PromptError;
 /// 过滤器函数类型
 type FilterFn = fn(&str) -> String;
 
-/// 模板变量占位符正则：匹配 ${variable} 和 ${variable|filter}
-static TEMPLATE_VAR_REGEX: OnceLock<Regex> = OnceLock::new();
-
-fn template_var_regex() -> &'static Regex {
-    TEMPLATE_VAR_REGEX.get_or_init(|| {
-        Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}")
-            .expect("TEMPLATE_VAR_REGEX 编译失败")
-    })
-}
+use super::template_var_regex;
 
 /// 内置过滤器映射缓存
 static BUILTIN_FILTERS: OnceLock<HashMap<&'static str, FilterFn>> = OnceLock::new();

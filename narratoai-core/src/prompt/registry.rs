@@ -1,20 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock, RwLock};
-
-use regex::Regex;
+use std::sync::{Arc, RwLock};
 
 use crate::prompt::error::PromptError;
 use crate::prompt::types::Prompt;
 
-/// 模板变量占位符正则：匹配 ${variable} 和 ${variable|filter}
-static TEMPLATE_VAR_REGEX: OnceLock<Regex> = OnceLock::new();
-
-fn template_var_regex() -> &'static Regex {
-    TEMPLATE_VAR_REGEX.get_or_init(|| {
-        Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}")
-            .expect("TEMPLATE_VAR_REGEX 编译失败")
-    })
-}
+use super::template_var_regex;
 
 /// 共享的 Prompt 注册表——Arc<RwLock<PromptRegistry>> 提供线程安全访问
 pub type SharedPromptRegistry = Arc<RwLock<PromptRegistry>>;
