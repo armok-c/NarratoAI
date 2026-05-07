@@ -24,9 +24,10 @@ pub fn generate_srt_from_word_boundaries(
         let end_secs = offset_secs + wb.end_offset as f64 / 10_000_000.0;
         if start_secs < 0.0 || end_secs < 0.0 {
             tracing::warn!(
-                "Word boundary #{} produces negative timestamp (start={:.3}, end={:.3}, offset={:.3})",
+                "Word boundary #{} produces negative timestamp (start={:.3}, end={:.3}, offset={:.3}), skipping",
                 i, start_secs, end_secs, offset_secs
             );
+            continue;
         }
         let start_str = secs_to_srt_time(start_secs);
         let end_str = secs_to_srt_time(end_secs);
