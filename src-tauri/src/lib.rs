@@ -1,4 +1,6 @@
-use narratoai_core;
+pub mod error;
+pub mod models;
+pub mod commands;
 
 /// Tauri 应用入口——启动桌面应用
 ///
@@ -8,5 +10,5 @@ use narratoai_core;
 /// - 命令注册
 pub fn run() {
     println!("NarratoAI Tauri app starting...");
-    // Plan 02 将替换为完整 tauri::Builder::default() 调用
+    // Plan 02 Task 3 将替换为完整 tauri::Builder::default() 调用
 }
