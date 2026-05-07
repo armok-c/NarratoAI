@@ -273,6 +273,9 @@ fn extract_single_frame(
         .ok_or_else(|| VisualError::FrameExtraction("输出路径无效".into()))?;
 
     // Level 1: Hardware accelerated JPEG
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
     let level1_ok = run_ffmpeg_with_cancel(&[
         "-hwaccel",
         "auto",
@@ -294,6 +297,9 @@ fn extract_single_frame(
     }
 
     // Level 2: Software JPEG
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
     let level2_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
@@ -315,6 +321,9 @@ fn extract_single_frame(
     }
 
     // Level 3: PNG -> JPEG conversion
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
     let png_path = output_path.with_extension("png");
     let png_str = png_path
         .to_str()
@@ -350,6 +359,9 @@ fn extract_single_frame(
     }
 
     // Level 4: BMP -> JPEG conversion
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
     let bmp_path = output_path.with_extension("bmp");
     let bmp_str = bmp_path
         .to_str()
