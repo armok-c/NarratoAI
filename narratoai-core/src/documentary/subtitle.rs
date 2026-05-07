@@ -22,6 +22,13 @@ pub fn generate_srt_from_word_boundaries(
     for (i, wb) in word_boundaries.iter().enumerate() {
         let start_secs = offset_secs + wb.start_offset as f64 / 10_000_000.0;
         let end_secs = offset_secs + wb.end_offset as f64 / 10_000_000.0;
+        if start_secs < 0.0 || end_secs < 0.0 {
+            tracing::warn!(
+                "Word boundary #{} produces negative timestamp (start={:.3}, end={:.3}, offset={:.3}), skipping",
+                i, start_secs, end_secs, offset_secs
+            );
+            continue;
+        }
         let start_str = secs_to_srt_time(start_secs);
         let end_str = secs_to_srt_time(end_secs);
         blocks.push(format!(
@@ -151,17 +158,17 @@ mod tests {
         vec![
             WordBoundary {
                 start_offset: 0,
-                end_offset: 500_000_0, // 0.5s in 100ns units
+                end_offset: 5_000_000, // 0.5s in 100ns units
                 text: "你好".to_string(),
             },
             WordBoundary {
-                start_offset: 500_000_0,
-                end_offset: 1_200_000_0, // 1.2s
+                start_offset: 5_000_000,
+                end_offset: 12_000_000, // 1.2s
                 text: "世界".to_string(),
             },
             WordBoundary {
-                start_offset: 1_200_000_0,
-                end_offset: 2_000_000_0, // 2.0s
+                start_offset: 12_000_000,
+                end_offset: 20_000_000, // 2.0s
                 text: "测试".to_string(),
             },
         ]

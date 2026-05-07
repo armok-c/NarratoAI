@@ -4,13 +4,11 @@ use narratoai_core::documentary::subtitle::{
     generate_srt_from_word_boundaries, merge_srt_files, SubtitleSegment,
 };
 use narratoai_core::documentary::timestamp::{
-    parse_time_to_secs, parse_timestamp_range, secs_to_srt_time,
+    parse_time_to_secs, parse_timestamp_range,
 };
 use narratoai_core::documentary::{DocumentaryRequest, PipelineError, ProgressStep};
-use narratoai_core::script::types::{OstType, ScriptClip};
+
 use narratoai_core::tts::WordBoundary;
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 // --- Timestamp parsing tests ---
 
@@ -159,47 +157,6 @@ fn test_progress_callback_receives_all_steps() {
 
     // Verify final is 100
     assert_eq!(r.last().unwrap().1, 100.0);
-}
-
-// --- FFmpeg-dependent tests (skipped if FFmpeg unavailable) ---
-
-#[test]
-#[ignore = "需要 FFmpeg"]
-fn test_pipeline_mixed_ost_types() {
-    if !common::ffmpeg_available() {
-        eprintln!("跳过: FFmpeg 不可用");
-        return;
-    }
-    // This test would create a synthetic video, build a script with
-    // OST=0, OST=1, OST=2 clips, and run the full pipeline.
-    // Requires real FFmpeg binary.
-}
-
-#[test]
-#[ignore = "需要 FFmpeg"]
-fn test_pipeline_ost0_narration_only() {
-    if !common::ffmpeg_available() {
-        eprintln!("跳过: FFmpeg 不可用");
-        return;
-    }
-}
-
-#[test]
-#[ignore = "需要 FFmpeg"]
-fn test_pipeline_ost1_original_sound() {
-    if !common::ffmpeg_available() {
-        eprintln!("跳过: FFmpeg 不可用");
-        return;
-    }
-}
-
-#[test]
-#[ignore = "需要 FFmpeg"]
-fn test_pipeline_ost2_mixed() {
-    if !common::ffmpeg_available() {
-        eprintln!("跳过: FFmpeg 不可用");
-        return;
-    }
 }
 
 // --- Module structure verification ---

@@ -22,6 +22,21 @@ pub struct FrameObservation {
     pub visual_salience: Option<f64>,
 }
 
+impl FrameObservation {
+    /// 验证字段值是否在合法范围内
+    ///
+    /// 当前检查 visual_salience 是否在 [0.0, 1.0] 范围内。
+    /// 调用方应在反序列化后调用此方法进行后验证。
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(s) = self.visual_salience {
+            if !(0.0..=1.0).contains(&s) {
+                return Err(format!("visual_salience 超出范围 [0,1]: {}", s));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// 批次分析结果（对齐 Python 版 frame_batch_result）
 ///
 /// 汇总多个单帧观察结果、总体摘要和错误统计（D-14/D-15）
@@ -37,17 +52,8 @@ pub struct BatchAnalysisResult {
     pub errors: Vec<String>,
 }
 
-/// 从 JSON 字符串剥离 markdown 代码块包裹
-///
-/// 某些 LLM 即使设置 response_format=JsonObject 仍返回 ` ```json ` 包裹，
-/// 此函数提取代码块内的纯净 JSON。
-pub(crate) fn strip_code_fence(text: &str) -> &str {
-    text.trim()
-        .strip_prefix("```json")
-        .or_else(|| text.trim().strip_prefix("```"))
-        .map(|s| s.trim().trim_end_matches("```").trim())
-        .unwrap_or(text.trim())
-}
+// strip_code_fence 已提取到 crate::text_utils，通过 re-export 保持兼容
+pub(crate) use crate::text_utils::strip_code_fence;
 
 #[cfg(test)]
 mod tests {

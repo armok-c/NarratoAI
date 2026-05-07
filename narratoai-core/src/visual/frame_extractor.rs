@@ -49,6 +49,12 @@ pub async fn extract_frames(
         return Err(VisualError::FrameExtraction("帧提取间隔必须 > 0".into()));
     }
 
+    if interval_seconds > 86400.0 {
+        return Err(VisualError::FrameExtraction(
+            format!("帧提取间隔过大: {}s (最大 86400s/1天)", interval_seconds)
+        ));
+    }
+
     // Create output dir if not exists
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)
@@ -108,6 +114,9 @@ pub(crate) async fn extract_frames_fast_path(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
+    // 当调用方未提供取消令牌时，创建无主令牌。spawn_blocking 任务将运行至完成，
+    // 即使调用方的异步任务被丢弃（fire-and-forget 语义）。
+    // 如需响应式取消，调用方应始终提供 CancellationToken。
     let cancel = cancel.unwrap_or_default();
 
     tokio::task::spawn_blocking(move || -> Result<usize, VisualError> {
@@ -144,6 +153,10 @@ pub(crate) async fn extract_frames_fast_path(
             .iter()
             .map_err(|e| VisualError::FrameExtraction(format!("FFmpeg 事件迭代失败: {}", e)))?;
 
+        // 注意：ffmpeg_sidecar 的 iter() 会阻塞等待下一个事件。
+        // 如果 FFmpeg 停滞（如 seek 到远端时间戳），取消检测可能延迟数秒。
+        // 此限制是 ffmpeg_sidecar 迭代器设计的固有限制。
+        // 替代方案见 extract_single_frame（使用 spawn + blocking wait）。
         for event in iter {
             if cancel.is_cancelled() {
                 let _ = child.kill();
@@ -155,7 +168,6 @@ pub(crate) async fn extract_frames_fast_path(
             }
         }
 
-        let _ = child.wait();
         rename_fast_path_frames(&output, interval_seconds)
     })
     .await
@@ -182,6 +194,9 @@ async fn extract_frames_fallback(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
+    // 当调用方未提供取消令牌时，创建无主令牌。spawn_blocking 任务将运行至完成，
+    // 即使调用方的异步任务被丢弃（fire-and-forget 语义）。
+    // 如需响应式取消，调用方应始终提供 CancellationToken。
     let cancel = cancel.unwrap_or_default();
     let progress = progress.map(Arc::new);
 
@@ -218,7 +233,7 @@ async fn extract_frames_fallback(
             );
             let frame_path = output.join(&frame_name);
 
-            match extract_single_frame(video_str, &frame_path, timestamp_secs, quality) {
+            match extract_single_frame(video_str, &frame_path, timestamp_secs, quality, &cancel) {
                 Ok(_) => {
                     extracted_count += 1;
                 }
@@ -266,6 +281,7 @@ fn extract_single_frame(
     output_path: &Path,
     timestamp_secs: f64,
     quality: u32,
+    cancel: &CancellationToken,
 ) -> Result<(), VisualError> {
     let timestamp = format!("{:.3}", timestamp_secs);
     let output_str = output_path
@@ -273,7 +289,10 @@ fn extract_single_frame(
         .ok_or_else(|| VisualError::FrameExtraction("输出路径无效".into()))?;
 
     // Level 1: Hardware accelerated JPEG
-    let level1_ok = run_ffmpeg(&[
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
+    let level1_ok = run_ffmpeg_with_cancel(&[
         "-hwaccel",
         "auto",
         "-ss",
@@ -288,13 +307,16 @@ fn extract_single_frame(
         "yuv420p",
         "-y",
         output_str,
-    ]);
+    ], cancel);
     if level1_ok && file_is_valid(output_path) {
         return Ok(());
     }
 
     // Level 2: Software JPEG
-    let level2_ok = run_ffmpeg(&[
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
+    let level2_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
         "-i",
@@ -309,17 +331,20 @@ fn extract_single_frame(
         "make_zero",
         "-y",
         output_str,
-    ]);
+    ], cancel);
     if level2_ok && file_is_valid(output_path) {
         return Ok(());
     }
 
     // Level 3: PNG -> JPEG conversion
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
     let png_path = output_path.with_extension("png");
     let png_str = png_path
         .to_str()
         .ok_or_else(|| VisualError::FrameExtraction("PNG 输出路径无效".into()))?;
-    let level3_ok = run_ffmpeg(&[
+    let level3_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
         "-i",
@@ -332,7 +357,7 @@ fn extract_single_frame(
         "image2",
         "-y",
         png_str,
-    ]);
+    ], cancel);
     if level3_ok && file_is_valid(&png_path) {
         match convert_image_to_jpeg(&png_path, output_path, quality) {
             Ok(_) => {
@@ -350,11 +375,14 @@ fn extract_single_frame(
     }
 
     // Level 4: BMP -> JPEG conversion
+    if cancel.is_cancelled() {
+        return Err(VisualError::FrameExtraction("帧提取被取消".into()));
+    }
     let bmp_path = output_path.with_extension("bmp");
     let bmp_str = bmp_path
         .to_str()
         .ok_or_else(|| VisualError::FrameExtraction("BMP 输出路径无效".into()))?;
-    let level4_ok = run_ffmpeg(&[
+    let level4_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
         "-i",
@@ -367,7 +395,7 @@ fn extract_single_frame(
         "rgb24",
         "-y",
         bmp_str,
-    ]);
+    ], cancel);
     if level4_ok && file_is_valid(&bmp_path) {
         match convert_image_to_jpeg(&bmp_path, output_path, quality) {
             Ok(_) => {
@@ -466,10 +494,11 @@ fn rename_fast_path_frames(
 /// 将秒数转换为 HHMMSSmmm 格式字符串（9 位数字）
 #[allow(dead_code)]
 pub(crate) fn seconds_to_hhmmssmmm(total_secs: f64) -> String {
-    let hours = (total_secs / 3600.0) as u64;
-    let minutes = ((total_secs % 3600.0) / 60.0) as u64;
-    let secs = (total_secs % 60.0) as u64;
-    let millis = ((total_secs - total_secs.floor()) * 1000.0) as u64;
+    let total_millis = (total_secs * 1000.0).round() as u64;
+    let hours = total_millis / 3_600_000;
+    let minutes = (total_millis % 3_600_000) / 60_000;
+    let secs = (total_millis % 60_000) / 1000;
+    let millis = total_millis % 1000;
     format!("{:02}{:02}{:02}{:03}", hours, minutes, secs, millis)
 }
 
@@ -490,6 +519,15 @@ fn cleanup_fast_path_files(output_dir: &Path) {
 }
 
 /// 通过 ffprobe 获取视频时长（秒）
+///
+/// # 系统要求
+///
+/// 需要 `ffprobe` 二进制文件在系统 PATH 中可用。`ffprobe` 通常随 FFmpeg 一起安装。
+/// 在 Docker 镜像中已内置；本地开发需自行安装 FFmpeg（包含 ffprobe）。
+///
+/// **限制：** 此函数直接调用系统 PATH 中的 `ffprobe`，不使用 `ffmpeg_sidecar` 的二进制发现。
+/// 当快路径使用 `ffmpeg_sidecar`（可能通过 download-ffmpeg feature 自动安装）时，
+/// 如果系统 PATH 中没有 ffprobe，此回退路径将静默失败。
 fn get_video_duration(video_path: &str) -> Result<f64, VisualError> {
     let output = std::process::Command::new("ffprobe")
         .args([
@@ -525,13 +563,37 @@ fn file_is_valid(path: &Path) -> bool {
     path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
 }
 
-/// 运行 ffmpeg 命令并检查退出状态
-fn run_ffmpeg(args: &[&str]) -> bool {
-    std::process::Command::new("ffmpeg")
+/// 运行 ffmpeg 命令，启动前检查取消令牌
+///
+/// 使用阻塞 `wait()` 替代忙等轮询，取消检查在调用点（帧间/回退级别间）进行，
+/// 避免每秒 20 次无效唤醒。
+///
+/// **限制：** 此函数直接调用系统 PATH 中的 `ffmpeg`，不使用 `ffmpeg_sidecar` 的二进制发现。
+/// 当快路径使用 `ffmpeg_sidecar`（可能通过 download-ffmpeg feature 自动安装）时，
+/// 如果系统 PATH 中没有 ffmpeg，此回退路径将静默失败。
+fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
+    if cancel.is_cancelled() {
+        return false;
+    }
+    let mut child = match std::process::Command::new("ffmpeg")
         .args(args)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("FFmpeg spawn 失败: {}", e);
+            return false;
+        }
+    };
+    match child.wait() {
+        Ok(status) => status.success(),
+        Err(e) => {
+            tracing::warn!("FFmpeg wait 失败: {}", e);
+            false
+        }
+    }
 }
 
 /// 使用 image crate 将任意格式图片转换为 JPEG
@@ -574,9 +636,8 @@ mod tests {
     /// 验证 rename_fast_path_frames 将 fastframe_ 文件正确重命名为 keyframe_ 格式
     #[test]
     fn test_rename_fast_path_frames() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_rename");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create mock fastframe files
         for i in 0..3 {
@@ -585,7 +646,7 @@ mod tests {
             std::fs::write(&path, [0xFFu8; 200]).expect("应能写入测试文件");
         }
 
-        let result = rename_fast_path_frames(&temp_dir, 3.0).expect("应重命名成功");
+        let result = rename_fast_path_frames(temp_dir, 3.0).expect("应重命名成功");
         assert_eq!(result, 3, "应重命名 3 个文件");
 
         // Verify all renamed files exist with correct naming pattern
@@ -599,8 +660,7 @@ mod tests {
             );
         }
 
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证关键帧命名格式符合 `keyframe_\d{6}_\d{9}\.jpg`
@@ -643,14 +703,13 @@ mod tests {
     /// 空目录应返回 Ok(0)
     #[test]
     fn test_fast_path_noop_when_no_frames() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_noop");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
-        let result = rename_fast_path_frames(&temp_dir, 3.0).expect("空目录应成功");
+        let result = rename_fast_path_frames(temp_dir, 3.0).expect("空目录应成功");
         assert_eq!(result, 0, "空目录应返回 0");
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证 seconds_to_hhmmssmmm 格式转换正确性
@@ -681,8 +740,8 @@ mod tests {
     /// 验证 output_dir_creation — extract_frames 创建 output_dir
     #[tokio::test]
     async fn test_output_dir_creation() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_dir_creation");
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path().to_path_buf();
 
         // Call extract_frames with a non-existent video path
         // The function should create the output dir before attempting extraction
@@ -702,15 +761,14 @@ mod tests {
         // But extraction should fail (video doesn't exist)
         assert!(result.is_err(), "不存在的视频文件应返回错误");
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证 cleanup_fast_path_files 删除 fastframe_ 文件
     #[test]
     fn test_cleanup_fast_path_files() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_cleanup");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create some fastframe files and a normal file
         std::fs::write(temp_dir.join("fastframe_000000.jpg"), b"data").unwrap();
@@ -719,7 +777,7 @@ mod tests {
         // 非 .jpg 扩展名的 fastframe_ 文件应保留
         std::fs::write(temp_dir.join("fastframe_log.txt"), b"log data").unwrap();
 
-        cleanup_fast_path_files(&temp_dir);
+        cleanup_fast_path_files(temp_dir);
 
         // fastframe .jpg files should be deleted
         assert!(!temp_dir.join("fastframe_000000.jpg").exists());
@@ -729,7 +787,7 @@ mod tests {
         // 非 .jpg 的 fastframe_ 文件应保留
         assert!(temp_dir.join("fastframe_log.txt").exists());
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证 get_video_duration 在不存在的视频上返回错误
@@ -742,9 +800,8 @@ mod tests {
     /// 验证 file_is_valid 对空文件和不存在文件的处理
     #[test]
     fn test_file_is_valid() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_valid");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         let existing = temp_dir.join("exists.jpg");
         std::fs::write(&existing, b"data").unwrap();
@@ -757,6 +814,6 @@ mod tests {
         let nonexistent = temp_dir.join("nonexistent.jpg");
         assert!(!file_is_valid(&nonexistent));
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 }

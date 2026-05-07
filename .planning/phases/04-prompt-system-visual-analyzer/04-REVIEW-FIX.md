@@ -1,54 +1,71 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-05-07T14:30:00Z
+fixed_at: 2026-05-07T17:00:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 19
-findings_in_scope: 3
-fixed: 3
+iteration: 4
+findings_in_scope: 6
+fixed: 6
 skipped: 0
 status: all_fixed
 ---
 
-# Phase 04: Code Review Fix Report (Iteration 19)
+# Phase 4: Code Review Fix Report
 
-**Fixed at:** 2026-05-07T14:30:00Z
+**Fixed at:** 2026-05-07T17:00:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 19
+**Iteration:** 4
 
 **Summary:**
-- Fix scope: warning
-- Findings in scope: 3 (3 WARNING)
-- Fixed: 3
+- Findings in scope: 6 (1 CRITICAL + 5 WARNING)
+- Fixed: 6
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: BatchResponse uses deny_unknown_fields, contradicting the LLM-tolerance strategy
+### CR-01: Cross-module dependency -- prompt validators import from visual types
+
+**Files modified:** `src/text_utils.rs` (new), `src/lib.rs`, `src/visual/types.rs`, `src/prompt/validators.rs`, `src/visual/analyzer.rs`
+**Commit:** 4a79788
+**Applied fix:** Extracted `strip_code_fence` to a new shared `src/text_utils.rs` module. Updated `lib.rs` to register the new module. Changed `validators.rs` to import from `crate::text_utils`. Changed `types.rs` to re-export via `pub(crate) use` for backward compatibility within visual module. Updated `analyzer.rs` call site to use `text_utils::strip_code_fence`.
+
+### WR-01: `run_ffmpeg_with_cancel` silently swallows all FFmpeg errors
+
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 1b5458b
+**Applied fix:** Added `tracing::warn!` logging in both `Err` branches of `run_ffmpeg_with_cancel` (spawn failure and wait failure), providing error context for production debugging.
+
+### WR-02: Inconsistent FFmpeg binary discovery between fast path and fallback path
+
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 1b5458b
+**Applied fix:** Added documentation comments to both `get_video_duration` and `run_ffmpeg_with_cancel` explaining the limitation: fallback path uses system PATH directly, not `ffmpeg_sidecar` binary discovery.
+
+### WR-03: `analyzed_batches` computed by subtraction instead of explicit counter
 
 **Files modified:** `src/visual/analyzer.rs`
-**Commit:** 9f2a65f
-**Applied fix:** 移除 `#[serde(deny_unknown_fields)]` 属性，添加与 `FrameObservation` 一致的设计决策注释（说明未知字段被静默忽略以兼容 LLM 额外字段）。新增测试 `test_parse_and_retry_batch_with_extra_fields` 验证带额外字段的 BatchResponse JSON 能正确解析。
+**Commit:** 64f1219
+**Applied fix:** Introduced explicit `success_count: usize` counter incremented in the `Ok` branch. Replaced both `raw_results.len() - errors.len()` computations (error path and success path) with `success_count`.
 
-### WR-02: analyze_video_frames hardcodes interval_seconds=3.0 and quality
+### WR-04: `visual_salience` accepts out-of-range f64 values without validation
 
-**Files modified:** `src/visual/analyzer.rs`
-**Commit:** b221b4b
-**Applied fix:** 在 `analyze_video_frames` 函数签名中添加 `interval_seconds: Option<f64>` 和 `quality: Option<u32>` 可选参数（位于 `max_concurrency` 之后、`progress` 之前）。`extract_frames` 调用改为 `interval_seconds.unwrap_or(3.0)` 替代硬编码 `3.0`，`quality` 直接传入。更新了函数 doc comment 的参数列表说明。
+**Files modified:** `src/visual/types.rs`
+**Commit:** 64f1219
+**Applied fix:** Added `FrameObservation::validate()` method that checks `visual_salience` is within [0.0, 1.0] range. Returns `Result<(), String>`. Existing deserialization remains permissive; callers opt into validation.
 
-### WR-03: template.rs render() two-pass regex validation is fragile
+### WR-05: `cancel.unwrap_or_default()` creates unowned token that prevents cancellation on task drop
 
-**Files modified:** `src/prompt/template.rs`
-**Commit:** d753b0b
-**Applied fix:** 在 `render` 函数 doc comment 的 `# 注意` 部分添加约束说明：第 1/2 遍正则和第 3 遍正则是两套独立验证路径，添加新语法（如链式过滤器）时必须同时更新两处正则，否则新语法的变量会跳过必需参数检查。
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 1b5458b
+**Applied fix:** Added inline documentation comments at both `unwrap_or_default()` call sites explaining the fire-and-forget semantics and recommending callers provide a `CancellationToken` for responsive cancellation.
 
 ## Verification
 
 All fixes verified with:
-1. Tier 1: Re-read modified file sections to confirm changes present and surrounding code intact
-2. Tier 2: `cargo check --lib` passed after each fix (0 new warnings, 7 pre-existing warnings unrelated to changes)
-3. `cargo test --lib`: 554 passed, 0 failed, 1 ignored (pre-existing)
+1. `cargo check` passed after each commit (0 new errors, 7 pre-existing warnings)
+2. Targeted test suite: 34 tests passed across `visual::types` (10/10), `visual::analyzer` (10/10), `prompt::validators` (14/14), including strip_code_fence tests via re-export
 
 ---
-_Fixed: 2026-05-07T14:30:00Z_
+
+_Fixed: 2026-05-07T17:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 19_
+_Iteration: 4_

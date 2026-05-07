@@ -105,19 +105,19 @@ impl PromptRegistry {
 
     /// 搜索 prompt——在 name/tags/category 中模糊匹配（不区分大小写）
     pub fn search(&self, query: &str) -> Vec<&Prompt> {
-        let query_lower = query.to_lowercase();
+        let query_lower = query.to_ascii_lowercase();
         let mut results = Vec::new();
 
         for cat_prompts in self.prompts.values() {
             for ver_prompts in cat_prompts.values() {
                 for prompt in ver_prompts.values() {
                     let meta = &prompt.metadata;
-                    if meta.name.to_lowercase().contains(&query_lower)
-                        || meta.category.to_lowercase().contains(&query_lower)
+                    if meta.name.to_ascii_lowercase().contains(&query_lower)
+                        || meta.category.to_ascii_lowercase().contains(&query_lower)
                         || meta
                             .tags
                             .iter()
-                            .any(|t| t.to_lowercase().contains(&query_lower))
+                            .any(|t| t.to_ascii_lowercase().contains(&query_lower))
                     {
                         results.push(prompt);
                     }

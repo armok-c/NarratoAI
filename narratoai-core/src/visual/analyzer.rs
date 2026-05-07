@@ -19,7 +19,8 @@ use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::visual::error::VisualError;
 use crate::visual::frame_extractor::extract_frames;
-use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
+use crate::text_utils;
+use crate::visual::types::{BatchAnalysisResult, FrameObservation};
 
 /// LLM 响应的顶层包装类型，匹配 prompt 中声明的 JSON schema
 ///
@@ -157,10 +158,12 @@ pub async fn analyze_video_frames(
     let mut observations = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     let mut last_summary: Option<String> = None;
+    let mut success_count: usize = 0;
 
     for (idx, text) in raw_results.iter().enumerate() {
         match parse_and_retry(text) {
             Ok(batch) => {
+                success_count += 1;
                 observations.extend(batch.observations);
                 if batch.overall_activity_summary.is_some() {
                     last_summary = batch.overall_activity_summary;
@@ -176,12 +179,18 @@ pub async fn analyze_video_frames(
 
     // Step 8 — 空结果屏障（在线护栏，AI-SPEC Section 6）
     if observations.is_empty() && !errors.is_empty() {
-        let success_count = raw_results.len() - errors.len();
         return Err(VisualError::BatchPartial {
             analyzed_count: success_count,
             total_count: raw_results.len(),
             errors,
         });
+    }
+
+    // Step 8b — 所有批次成功但均返回空观察结果的盲区检查
+    if observations.is_empty() {
+        return Err(VisualError::Analysis(
+            "所有批次返回空观察结果".into(),
+        ));
     }
 
     // Step 9 — 返回结果
@@ -201,7 +210,7 @@ pub async fn analyze_video_frames(
         observations,
         overall_activity_summary: last_summary,
         total_frames: frame_paths.len(),
-        analyzed_batches: raw_results.len() - errors.len(),
+        analyzed_batches: success_count,
         errors,
     })
 }
@@ -215,14 +224,19 @@ pub async fn analyze_video_frames(
 /// 先尝试按 LLM schema（`BatchResponse` 包装）解析，失败后回退尝试
 /// 直接解析单个 `FrameObservation`（兼容只返回单个对象的 LLM 响应）。
 fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
-    let cleaned = types::strip_code_fence(json_text);
+    let cleaned = text_utils::strip_code_fence(json_text);
 
     // 尝试按 BatchResponse schema 解析（匹配 prompt 中声明的结构）
-    if let Ok(resp) = serde_json::from_str::<BatchResponse>(cleaned) {
-        return Ok(ParsedBatch {
-            observations: resp.observations,
-            overall_activity_summary: resp.overall_activity_summary,
-        });
+    match serde_json::from_str::<BatchResponse>(cleaned) {
+        Ok(resp) => {
+            return Ok(ParsedBatch {
+                observations: resp.observations,
+                overall_activity_summary: resp.overall_activity_summary,
+            });
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "BatchResponse parse failed, falling back to single");
+        }
     }
 
     // 回退：尝试解析为单个 FrameObservation（兼容单对象响应）
@@ -281,9 +295,24 @@ fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
         ));
     }
 
-    // Sort by frame number (lexical sort on zero-padded prefix)
-    paths.sort();
+    // 按文件名中的帧序号数字排序（避免超过 6 位时字典排序错误）
+    paths.sort_by(|a, b| {
+        let a_num = extract_frame_number_from_keyframe(a);
+        let b_num = extract_frame_number_from_keyframe(b);
+        a_num.cmp(&b_num)
+    });
     Ok(paths)
+}
+
+/// 从 keyframe_XXXXXX_*.jpg 文件名中提取帧序号
+fn extract_frame_number_from_keyframe(path: &Path) -> u64 {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .strip_prefix("keyframe_")
+        .and_then(|s| s.split('_').next())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 /// 按字符边界截断字符串，避免在多字节 UTF-8 字符中间切割导致 panic
@@ -416,9 +445,8 @@ mod tests {
     /// Test: 创建临时目录写入模拟帧文件，验证收集正确
     #[test]
     fn test_collect_frame_paths() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_collect");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create mock keyframe files
         let files = [
@@ -430,7 +458,7 @@ mod tests {
             std::fs::write(temp_dir.join(f), b"mock frame data").expect("应能写入测试文件");
         }
 
-        let result = collect_frame_paths(&temp_dir);
+        let result = collect_frame_paths(temp_dir);
         assert!(result.is_ok(), "应成功收集帧文件");
         let paths = result.unwrap();
         assert_eq!(paths.len(), 3, "应收集到 3 个帧文件");
@@ -441,17 +469,16 @@ mod tests {
             "应按帧序号排序"
         );
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// Test: 空目录返回错误
     #[test]
     fn test_collect_frame_paths_empty() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_collect_empty");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
-        let result = collect_frame_paths(&temp_dir);
+        let result = collect_frame_paths(temp_dir);
         assert!(
             result.is_err(),
             "空目录应返回错误"
@@ -466,15 +493,14 @@ mod tests {
             panic!("应返回 VisualError::FrameExtraction");
         }
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// Test: 非 keyframe 前缀的文件被过滤
     #[test]
     fn test_collect_frame_paths_filters_non_matching() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_filter");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create keyframe and non-keyframe files
         std::fs::write(
@@ -487,11 +513,11 @@ mod tests {
         std::fs::write(temp_dir.join("notes.txt"), b"not a frame")
             .expect("应能写入测试文件");
 
-        let result = collect_frame_paths(&temp_dir);
+        let result = collect_frame_paths(temp_dir);
         assert!(result.is_ok(), "应成功收集帧文件");
         let paths = result.unwrap();
         assert_eq!(paths.len(), 1, "应只收集到 1 个 keyframe 文件");
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 }

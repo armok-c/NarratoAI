@@ -1,8 +1,8 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-07T14:30:00Z
+reviewed: 2026-05-07T16:30:00Z
 depth: standard
-files_reviewed: 18
+files_reviewed: 20
 files_reviewed_list:
   - Cargo.toml
   - src/lib.rs
@@ -18,114 +18,56 @@ files_reviewed_list:
   - src/prompt/templates/documentary/narration_generation_v2.0.md
   - src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
   - src/prompt/templates/short_drama_narration/script_generation_v1.0.md
+  - src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
+  - src/prompt/templates/short_drama_narration/plot_analysis_v1.0.md
+  - src/prompt/templates/short_drama_narration/script_generation_v2.0.md
   - src/visual/mod.rs
   - src/visual/error.rs
   - src/visual/types.rs
   - src/visual/frame_extractor.rs
   - src/visual/analyzer.rs
 findings:
-  critical: 4
-  warning: 7
-  info: 5
-  total: 16
+  critical: 1
+  warning: 5
+  info: 4
+  total: 10
 status: issues_found
 ---
 
-# Phase 04: Code Review Report
+# Phase 4: Code Review Report
 
-**Reviewed:** 2026-05-07T14:30:00Z
+**Reviewed:** 2026-05-07T16:30:00Z
 **Depth:** standard
-**Files Reviewed:** 18
+**Files Reviewed:** 20 (prompt system + visual analyzer + 7 templates)
 **Status:** issues_found
 
 ## Summary
 
-Reviewed all 18 source files from Phase 04 (Prompt Subsystem + Visual Analyzer) at standard depth. The architecture is sound: clean error types with thiserror, proper RwLock usage, and a well-structured 3-level registry. Template variables in all .md files are consistent with their register.rs ParameterDef declarations.
+Re-reviewed 20 source files at standard depth covering the prompt system (types, error, registry, template engine, manager, validators, registration, 7 prompt templates) and visual analyzer (error, types, frame extractor, batch analyzer). Previous round's findings (CR-01 strip_code_fence logic bug, WR-02 empty-observations blind spot, WR-03 missing code-fence stripping in JSON validator) have been fixed. The fixes are verified correct in the current code.
 
-Found 4 critical issues, 7 warnings, and 5 info items. The critical issues center on silent failure modes in the template renderer and visual subsystem: empty-string substitution hiding missing variables, orphan FFmpeg processes on cancellation, and incorrect code-fence stripping that can corrupt JSON.
+Found 1 new critical issue and 5 warnings. The critical issue is a cross-module architectural coupling where `prompt/validators.rs` imports from `visual/types.rs`, creating an inappropriate dependency from the prompt module to the visual module. Warnings cover silent error swallowing in FFmpeg, inconsistent FFmpeg binary discovery between fast/fallback paths, fragile success-count computation, out-of-range visual_salience acceptance, and cancellation token lifetime issues in spawn_blocking.
 
 ## Critical Issues
 
-### CR-01: Template renderer silently substitutes empty string for unmatched captures
+### CR-01: Cross-module dependency -- prompt validators import from visual types
 
-- **File:** `src/prompt/template.rs:108-114`
-- **Severity:** CRITICAL
+**File:** `src/prompt/validators.rs:35`
+**Classification:** BLOCKER
 
-In the second pass (`replace_all`), `vars.get(name).copied().unwrap_or("")` silently substitutes an empty string when variable lookup fails. If the first-pass validation logic is ever modified or a variable name edge case slips through, this produces corrupted template output with no error signal — the LLM receives a prompt with missing data.
+**Issue:** The `validate_json` function calls `crate::visual::types::strip_code_fence()` to strip markdown code fences before JSON validation. This creates a hard dependency from the `prompt` module to the `visual` module. In `src/lib.rs`, these are sibling modules with no hierarchical relationship -- `prompt` is a self-contained template/rendering system that should not depend on video frame analysis code.
 
-**Fix:** Replace `unwrap_or("")` with `unreachable!()` (since pass 1 validates all variables) or return an error:
+Consequences:
+- The `prompt` module cannot compile without the `visual` module present
+- If `strip_code_fence` behavior changes in `visual`, prompt validation silently changes
+- The function is `pub(crate)`, meaning it was not designed as a stable cross-module API
+- Future refactoring of either module risks breaking the other
+
+**Fix:** Extract `strip_code_fence` to a shared utility module:
+
 ```rust
-vars.get(name).copied().unwrap_or_else(|| {
-    unreachable!("variable '{}' passed validation in pass 1 but not found in pass 2", name)
-})
-```
-
-### CR-02: Filter replacement silently preserves raw `${var|filter}` tokens
-
-- **File:** `src/prompt/template.rs:147-156`
-- **Severity:** CRITICAL
-
-The third-pass filter replacement has a fallback that preserves raw `${var|filter}` tokens when lookup fails (lines 150-155). This bypasses the validation guarantee from lines 122-129. Un-replaced template tokens could be sent to the LLM, causing unpredictable behavior.
-
-**Fix:** Remove the silent fallback:
-```rust
-match (filters.get(filter_name), vars.get(var_name)) {
-    (Some(filter_fn), Some(value)) => filter_fn(value),
-    _ => unreachable!(
-        "filter '{}' and variable '{}' passed validation but not found during replacement",
-        filter_name, var_name
-    ),
-}
-```
-
-### CR-03: `extract_single_frame` spawns FFmpeg processes without cancellation — orphan processes
-
-- **File:** `src/visual/frame_extractor.rs:264-392`
-- **Severity:** CRITICAL
-
-`run_ffmpeg` uses `std::process::Command::output()` with no timeout or kill mechanism. When `extract_frames_fallback` is cancelled between frames, any in-progress `run_ffmpeg` call continues to completion (or hangs indefinitely). The fast path uses `ffmpeg_sidecar` with `child.kill()` on cancel, but the fallback path's raw `Command` has no process lifecycle control.
-
-If the user cancels or the application shuts down, orphan FFmpeg processes continue consuming CPU and holding file handles.
-
-**Fix:** Replace `run_ffmpeg` with a version that spawns the process, polls cancellation, and kills on cancel:
-```rust
-fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
-    let mut child = match std::process::Command::new("ffmpeg")
-        .args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    loop {
-        if cancel.is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return false;
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
-            Err(_) => return false,
-        }
-    }
-}
-```
-
-### CR-04: `strip_code_fence` incorrectly strips JSON content containing triple backticks
-
-- **File:** `src/visual/types.rs:44-50`
-- **Severity:** CRITICAL
-
-`trim_end_matches("```")` strips individual backtick characters (char set), not the exact triple-backtick sequence. A JSON string ending with `` ` `` or containing ```` ``` ```` (e.g., a code example in `scene_description`) will be incorrectly truncated, causing deserialization to fail.
-
-Example: `{"scene_description": "code: x=```"}` — the `trim_end_matches` strips the last 3 backtick characters from within the JSON content.
-
-**Fix:** Use precise string matching instead of character-set trimming:
-```rust
-pub(crate) fn strip_code_fence(text: &str) -> &str {
+// New file: src/text_utils.rs
+/// Strip markdown code fences (```json...``` or ```...```)
+pub fn strip_code_fence(text: &str) -> &str {
     let trimmed = text.trim();
     let after_prefix = trimmed
         .strip_prefix("```json")
@@ -134,137 +76,147 @@ pub(crate) fn strip_code_fence(text: &str) -> &str {
     let content = after_prefix.unwrap_or(trimmed);
     content
         .strip_suffix("```")
-        .map(|s| {
-            if s.ends_with(|c: char| c.is_whitespace()) {
-                s.trim_end()
-            } else {
-                content
-            }
-        })
+        .map(|s| s.trim_end())
         .unwrap_or(content)
 }
 ```
 
+Then update imports in both `src/prompt/validators.rs` and `src/visual/types.rs` to use `crate::text_utils::strip_code_fence`.
+
 ## Warnings
 
-### WR-01: `expect()` in json filter can panic in library code
+### WR-01: `run_ffmpeg_with_cancel` silently swallows all FFmpeg errors
 
-- **File:** `src/prompt/template.rs:53`
-- **Severity:** WARNING
+**File:** `src/visual/frame_extractor.rs:560-577`
+**Classification:** WARNING
 
-The `json` filter uses `.expect()` on `serde_json::to_string(s)`. While serializing a `&str` to JSON is unlikely to fail, using `expect` in library code risks a panic during template rendering that would crash the application.
+**Issue:** The function returns `bool` instead of `Result`, discarding all error context. When FFmpeg fails to spawn (e.g., binary not installed, PATH misconfigured, permission denied) or `child.wait()` fails, the caller receives only `false`. The 4-level fallback in `extract_single_frame` tries all levels and reports only "all 4 levels failed (timestamp=Xs)" with no indication that the root cause is a missing FFmpeg binary. This makes production debugging extremely difficult.
 
-**Fix:** Use a safe fallback: `serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s.replace('"', "\\\"")))`
+**Fix:** At minimum, log the error at warn level:
 
-### WR-02: `search()` performs O(n) linear scan with repeated allocation
-
-- **File:** `src/prompt/registry.rs:107-129`
-- **Severity:** WARNING
-
-`search()` calls `.to_lowercase()` for every prompt on every search, allocating new `String` objects per comparison. This is wasteful for frequent searches.
-
-**Fix:** Pre-compute lowercase versions in `PromptMetadata` or use a case-insensitive comparison helper.
-
-### WR-03: `validate_narration_script` fails on Windows-style line endings
-
-- **File:** `src/prompt/validators.rs:74-77`
-- **Severity:** WARNING
-
-`split("\n\n")` requires exact LF pairs. On Windows, `\r\n\r\n` won't match. LLM output may use mixed line endings, producing incorrect paragraph counts.
-
-**Fix:** Normalize line endings first: `let normalized = trimmed.replace("\r\n", "\n");` then split on `"\n\n"`.
-
-### WR-04: `seconds_to_hhmmssmmm` uses floating-point modulo — field overflow risk
-
-- **File:** `src/visual/frame_extractor.rs:468-474`
-- **Severity:** WARNING
-
-Floating-point modulo arithmetic can produce `minutes >= 60` or `secs >= 60` due to rounding, generating invalid timestamps. The `{:02}` format does not truncate, so values > 99 break the 9-digit format.
-
-**Fix:** Use integer millisecond arithmetic:
 ```rust
-let total_millis = (total_secs * 1000.0).round() as u64;
-let hours = total_millis / 3_600_000;
-let minutes = (total_millis % 3_600_000) / 60_000;
-let secs = (total_millis % 60_000) / 1000;
-let millis = total_millis % 1000;
-format!("{:02}{:02}{:02}{:03}", hours, minutes, secs, millis)
-```
-
-### WR-05: `extract_frames_fast_path` calls `child.wait()` twice
-
-- **File:** `src/visual/frame_extractor.rs:148-158`
-- **Severity:** WARNING
-
-After the event iterator exhausts, `child.wait()` is called again at line 158. The `ffmpeg_sidecar` iterator may already reap the child process internally, making this second `wait()` redundant or error-prone.
-
-**Fix:** Verify `ffmpeg_sidecar` documentation. If `iter()` to exhaustion already calls `wait()`, remove line 158.
-
-### WR-06: `get_video_duration` uses raw `std::process::Command` instead of ffmpeg-sidecar
-
-- **File:** `src/visual/frame_extractor.rs:493-521`
-- **Severity:** WARNING
-
-Inconsistent with the fast path which uses `ffmpeg_sidecar`. `ffprobe` may not be on PATH even when `ffmpeg` is available via sidecar. No timeout or cancellation support.
-
-**Fix:** Use `ffmpeg_sidecar` consistently or document the `ffprobe` binary requirement.
-
-### WR-07: `parse_and_retry` silently discards BatchResponse parse errors
-
-- **File:** `src/visual/analyzer.rs:221-226`
-- **Severity:** WARNING
-
-When `serde_json::from_str::<BatchResponse>` fails, the error is silently swallowed and falls through to single-observation parsing. The root cause (e.g., a typo in a field name) is lost, making debugging difficult.
-
-**Fix:** Log the parse error at debug level before falling through:
-```rust
-match serde_json::from_str::<BatchResponse>(cleaned) {
-    Ok(resp) => return Ok(ParsedBatch { ... }),
-    Err(e) => {
-        tracing::debug!(error = %e, "BatchResponse parse failed, falling back to single");
+fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
+    if cancel.is_cancelled() {
+        return false;
+    }
+    let mut child = match std::process::Command::new("ffmpeg")
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("FFmpeg spawn failed: {}", e);
+            return false;
+        }
+    };
+    match child.wait() {
+        Ok(status) => status.success(),
+        Err(e) => {
+            tracing::warn!("FFmpeg wait failed: {}", e);
+            false
+        }
     }
 }
 ```
 
+### WR-02: Inconsistent FFmpeg binary discovery between fast path and fallback path
+
+**File:** `src/visual/frame_extractor.rs:131,522,564`
+**Classification:** WARNING
+
+**Issue:** The fast path uses `ffmpeg_sidecar::command::FfmpegCommand` (which handles FFmpeg binary discovery, including the `download-ffmpeg` feature), but the fallback path calls `std::process::Command::new("ffprobe")` (line 522) and `std::process::Command::new("ffmpeg")` (line 564) directly. On systems where FFmpeg is not on PATH but is managed by `ffmpeg-sidecar` (e.g., the `download-ffmpeg` feature is enabled), the fast path succeeds but the fallback path silently fails with no clear error. This creates inconsistent behavior where the same code works on some systems but not others.
+
+**Fix:** Use `ffmpeg_sidecar` consistently, or extract the resolved FFmpeg binary path and pass it to `std::process::Command`. At minimum, document this limitation in the function doc comments.
+
+### WR-03: `analyzed_batches` computed by subtraction instead of explicit counter
+
+**File:** `src/visual/analyzer.rs:179,211`
+**Classification:** WARNING
+
+**Issue:** The success count is computed as `raw_results.len() - errors.len()` in two places (lines 179 and 211). While currently correct (each batch produces at most one error), this semantic coupling is fragile. If future code changes allow multiple errors per batch or add partial-success tracking, the subtraction produces an incorrect count. The two computation sites also serve different purposes (one for the error path, one for the success path) but use the same implicit logic.
+
+**Fix:** Use an explicit success counter:
+
+```rust
+let mut success_count: usize = 0;
+for (idx, text) in raw_results.iter().enumerate() {
+    match parse_and_retry(text) {
+        Ok(batch) => {
+            success_count += 1;
+            observations.extend(batch.observations);
+            // ...
+        }
+        Err(e) => {
+            errors.push(err_msg);
+        }
+    }
+}
+// Then use success_count instead of raw_results.len() - errors.len()
+```
+
+### WR-04: `visual_salience` accepts out-of-range f64 values without validation
+
+**File:** `src/visual/types.rs:22`
+**Classification:** WARNING
+
+**Issue:** The `visual_salience` field is documented as range "0.0-1.0" but deserializes any `f64` without range validation. The test at line 221-233 explicitly documents that `2.5` is accepted. If downstream code uses this value as a probability weight, UI progress fraction, or array index, out-of-range values from LLM responses could cause panics or incorrect behavior. Since LLM output is inherently unpredictable, validation is important.
+
+**Fix:** Add a post-deserialization validation method:
+
+```rust
+impl FrameObservation {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(s) = self.visual_salience {
+            if !(0.0..=1.0).contains(&s) {
+                return Err(format!("visual_salience out of range [0,1]: {}", s));
+            }
+        }
+        Ok(())
+    }
+}
+```
+
+Or clamp the value during deserialization using a custom deserializer.
+
+### WR-05: `cancel.unwrap_or_default()` creates unowned token that prevents cancellation on task drop
+
+**File:** `src/visual/frame_extractor.rs:117,194`
+**Classification:** WARNING
+
+**Issue:** When the caller passes `cancel: None`, `unwrap_or_default()` creates a new `CancellationToken` that is owned only by the `spawn_blocking` task. No external code can trigger cancellation. More importantly, if the calling async task is dropped (e.g., the HTTP connection closes), the `spawn_blocking` task continues running until completion because the cancellation token is never signaled. This can cause resource leaks (running FFmpeg processes, holding file handles) in server scenarios.
+
+**Fix:** When `cancel` is `None`, pass a fresh `CancellationToken` and store the `Cancelled` handle to trigger on join handle drop. Alternatively, document this as intentional fire-and-forget behavior.
+
 ## Info
 
-### IN-01: Regex compilation on every `render()` call
+### IN-01: `truncate` filter uses hardcoded magic numbers
 
-- **File:** `src/prompt/template.rs:85-87` and `117-119`
-- **Severity:** INFO
+**File:** `src/prompt/template.rs:41-48`
 
-Two regex patterns are compiled on every `render()` call. Use `OnceLock<Regex>` to compile once.
+**Issue:** The truncate filter uses hardcoded `100` (max chars) and `97` (chars before "...") with no configurability. Should be named constants for clarity.
 
-### IN-02: `builtin_filters()` allocates new HashMap on every `render()` call
+### IN-02: `notify` crate pinned to RC version
 
-- **File:** `src/prompt/template.ts:10-57`
-- **Severity:** INFO
+**File:** `Cargo.toml:19`
 
-6-entry `HashMap` is recreated on every render. Use `OnceLock` for lazy initialization.
+**Issue:** `notify = "9.0.0-rc.3"` is a release candidate. The comment already acknowledges this risk. No action needed beyond awareness.
 
-### IN-03: `#[allow(dead_code)]` on `seconds_to_hhmmssmmm` may be unnecessary
+### IN-03: Regex patterns recompiled on every `render()` call
 
-- **File:** `src/visual/frame_extractor.rs:467`
-- **Severity:** INFO
+**File:** `src/prompt/template.rs:85-87,119-121`
 
-The function is `pub(crate)` but has `#[allow(dead_code)]`. If called from other modules, remove the annotation. If not, remove `pub(crate)`.
+**Issue:** Two `Regex::new()` calls compile identical patterns on every invocation. Use `std::sync::OnceLock<Regex>` for one-time initialization.
 
-### IN-04: `BatchAnalysisResult.errors` is stringly-typed
+### IN-04: `builtin_filters()` allocates new HashMap on every `render()` call
 
-- **File:** `src/visual/types.rs:37`
-- **Severity:** INFO
+**File:** `src/prompt/template.rs:10-57`
 
-The `errors` field is `Vec<String>` — stringly-typed errors that cannot be programmatically inspected. Consider a structured error type for future refinement.
-
-### IN-05: `extract_single_frame` error message refers to `.jpg` even for PNG/BMP fallbacks
-
-- **File:** `src/visual/frame_extractor.rs:218`
-- **Severity:** INFO
-
-The final error message always refers to `.jpg` even when levels 3/4 produce PNG/BMP. The error message could be confusing.
+**Issue:** The 6-entry filter map is recreated per render call. Use `OnceLock` for lazy one-time initialization.
 
 ---
 
-_Reviewed: 2026-05-07T14:30:00Z_
+_Reviewed: 2026-05-07T16:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_

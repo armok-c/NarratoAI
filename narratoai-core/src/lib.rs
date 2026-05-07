@@ -1,5 +1,6 @@
 pub mod config;
 pub mod error;
+pub mod text_utils;
 pub mod tts;
 pub mod llm;
 pub mod ffmpeg;

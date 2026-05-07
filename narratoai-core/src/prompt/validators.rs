@@ -32,7 +32,8 @@ fn validate_text(output: &str) -> Result<(), PromptError> {
 /// 使用 `serde_json::from_str::<serde_json::Value>` 验证是否为有效 JSON。
 /// 然后检查顶层是否为对象类型。
 fn validate_json(output: &str) -> Result<(), PromptError> {
-    let trimmed = output.trim();
+    let cleaned = crate::text_utils::strip_code_fence(output);
+    let trimmed = cleaned.trim();
 
     if trimmed.is_empty() {
         return Err(PromptError::Validation("JSON 输出为空".into()));
@@ -58,20 +59,20 @@ fn validate_json(output: &str) -> Result<(), PromptError> {
 /// - 至少包含 3 个段落（按 \n\n 分割）
 /// - 输出长度 >= 50 字符
 fn validate_narration_script(output: &str) -> Result<(), PromptError> {
-    let trimmed = output.trim();
+    let normalized = output.trim().replace("\r\n", "\n");
 
-    if trimmed.is_empty() {
+    if normalized.is_empty() {
         return Err(PromptError::Validation("解说文案为空".into()));
     }
 
-    if trimmed.chars().count() < 50 {
+    if normalized.chars().count() < 50 {
         return Err(PromptError::Validation(format!(
             "解说文案过短: {} 字符（需要 >= 50）",
-            trimmed.chars().count()
+            normalized.chars().count()
         )));
     }
 
-    let paragraphs: Vec<&str> = trimmed
+    let paragraphs: Vec<&str> = normalized
         .split("\n\n")
         .filter(|p| !p.trim().is_empty())
         .collect();

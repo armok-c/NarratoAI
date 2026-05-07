@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::prompt::error::PromptError;
 
@@ -50,7 +50,7 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
 
     // json——JSON 转义字符串
     m.insert("json", |s: &str| {
-        serde_json::to_string(s).expect("serde_json cannot fail serializing &str")
+        serde_json::to_string(s).expect("serializing &str to JSON string cannot fail")
     });
 
     m
@@ -87,20 +87,22 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     })?;
 
     // 第 1 遍：提取所有变量名，校验全部存在
-    let mut missing: Vec<String> = Vec::new();
+    let mut missing: HashSet<String> = HashSet::new();
     for caps in var_re.captures_iter(template) {
         let name = caps
             .get(1)
             .map(|m| m.as_str())
             .unwrap_or("");
-        if !name.is_empty() && !vars.contains_key(name) && !missing.contains(&name.to_string()) {
-            missing.push(name.to_string());
+        if !name.is_empty() && !vars.contains_key(name) {
+            missing.insert(name.to_string());
         }
     }
     if !missing.is_empty() {
+        let mut missing_list: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
+        missing_list.sort();
         return Err(PromptError::TemplateRender(format!(
             "缺少必需参数: {}",
-            missing.join(", ")
+            missing_list.join(", ")
         )));
     }
 
@@ -110,7 +112,9 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
             .get(1)
             .map(|m| m.as_str())
             .unwrap_or("");
-        vars.get(name).copied().unwrap_or("")
+        vars.get(name).copied().unwrap_or_else(|| {
+            unreachable!("variable '{}' passed validation in pass 1 but not found in pass 2", name)
+        })
     });
 
     // 第 3 遍：过滤器应用——处理 ${variable|filter_name} 格式
@@ -120,17 +124,19 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     let filters = builtin_filters();
 
     // 校验过滤器引用的变量是否全部存在
-    let mut missing_filter_vars: Vec<String> = Vec::new();
+    let mut missing_filter_vars: HashSet<String> = HashSet::new();
     for caps in filter_re.captures_iter(&result) {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        if !var_name.is_empty() && !vars.contains_key(var_name) && !missing_filter_vars.contains(&var_name.to_string()) {
-            missing_filter_vars.push(var_name.to_string());
+        if !var_name.is_empty() && !vars.contains_key(var_name) {
+            missing_filter_vars.insert(var_name.to_string());
         }
     }
     if !missing_filter_vars.is_empty() {
+        let mut missing_list: Vec<&str> = missing_filter_vars.iter().map(|s| s.as_str()).collect();
+        missing_list.sort();
         return Err(PromptError::TemplateRender(format!(
             "缺少必需参数: {}",
-            missing_filter_vars.join(", ")
+            missing_list.join(", ")
         )));
     }
 
@@ -147,11 +153,12 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     let result = filter_re.replace_all(&result, |caps: &regex::Captures| {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        if let (Some(filter_fn), Some(value)) = (filters.get(filter_name), vars.get(var_name)) {
-            filter_fn(value)
-        } else {
-            // 过滤器未找到或变量不存在，保留原始文本
-            caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+        match (filters.get(filter_name), vars.get(var_name)) {
+            (Some(filter_fn), Some(value)) => filter_fn(value),
+            _ => unreachable!(
+                "filter '{}' and variable '{}' passed validation but not found during replacement",
+                filter_name, var_name
+            ),
         }
     });
 

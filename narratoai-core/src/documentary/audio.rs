@@ -43,17 +43,23 @@ pub async fn merge_audio_files(
             continue;
         }
 
-        if let Some(tts) = tts_results.get(&clip._id) {
-            let delay_ms = (cumulative_offset * 1000.0) as u64;
-            let input_idx = mix_inputs.len();
+        let tts = tts_results.get(&clip._id).ok_or_else(|| {
+            PipelineError::AudioMerge {
+                details: format!(
+                    "OST={:?} 片段 {} 缺少 TTS 结果，无法合并音频",
+                    clip.ost, clip._id
+                ),
+            }
+        })?;
+        let delay_ms = (cumulative_offset * 1000.0).round() as u64;
+        let input_idx = mix_inputs.len();
 
-            input_args.push("-i".to_string());
-            input_args.push(tts.audio_path.to_string_lossy().to_string());
+        input_args.push("-i".to_string());
+        input_args.push(tts.audio_path.to_string_lossy().to_string());
 
-            let label = format!("[{}:a]", input_idx);
-            filter_parts.push(format!("{}adelay={}|{}[tts{}]", label, delay_ms, delay_ms, clip._id));
-            mix_inputs.push(format!("[tts{}]", clip._id));
-        }
+        let label = format!("[{}:a]", input_idx);
+        filter_parts.push(format!("{}adelay={}|{}[tts{}]", label, delay_ms, delay_ms, clip._id));
+        mix_inputs.push(format!("[tts{}]", clip._id));
 
         cumulative_offset += clip_duration;
     }
@@ -148,11 +154,11 @@ pub async fn merge_subtitle_files(
                 if !tts.word_boundaries.is_empty() {
                     let srt_content = crate::documentary::subtitle::generate_srt_from_word_boundaries(
                         &tts.word_boundaries,
-                        cumulative_offset,
+                        0.0, // offset applied via SubtitleSegment during merge
                     );
                     segments.push(SubtitleSegment {
                         srt_content,
-                        offset_secs: 0.0,
+                        offset_secs: cumulative_offset,
                     });
                 }
             }
