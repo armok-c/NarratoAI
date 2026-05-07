@@ -40,7 +40,7 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具（当前 Python 版
 - [x] Rust 脚本管理（JSON 加载/保存/编辑/校验） — Validated in Phase 5
 - [ ] Rust 状态管理（文件存储，JSON/TOML）
 - [ ] Rust 视觉分析器（帧提取 + LLM 视觉分析）
-- [ ] Tauri 命令层（暴露 Rust 函数给前端）
+- [x] Tauri 命令层（暴露 Rust 函数给前端） — Validated in Phase 10
 - [ ] 剪映草稿导出（Rust 实现）
 
 ### Out of Scope
@@ -92,4 +92,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-06 after Phase 08 completion — SDP pipeline complete (5 plans, 22/22 must-haves verified)*
+*Last updated: 2026-05-07 after Phase 10 completion — Tauri command layer complete (2 plans, 13/13 must-haves verified)*
