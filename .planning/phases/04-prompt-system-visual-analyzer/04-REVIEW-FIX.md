@@ -1,68 +1,71 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-05-07T16:30:00Z
+fixed_at: 2026-05-07T17:00:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 3
-findings_in_scope: 5
-fixed: 4
-skipped: 1
-status: partial
+iteration: 4
+findings_in_scope: 6
+fixed: 6
+skipped: 0
+status: all_fixed
 ---
 
 # Phase 4: Code Review Fix Report
 
-**Fixed at:** 2026-05-07T16:30:00Z
+**Fixed at:** 2026-05-07T17:00:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 3
+**Iteration:** 4
 
 **Summary:**
-- Findings in scope: 5 (1 CRITICAL + 4 WARNING)
-- Fixed: 4
-- Skipped: 1
+- Findings in scope: 6 (1 CRITICAL + 5 WARNING)
+- Fixed: 6
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: `strip_code_fence` fails to strip closing fence when JSON abuts ` ``` ` without trailing whitespace
+### CR-01: Cross-module dependency -- prompt validators import from visual types
 
-**Files modified:** `src/visual/types.rs`
-**Commit:** 4c7c8b3
-**Applied fix:** Removed the flawed conditional in the `strip_suffix("```")` branch that returned the unstripped `content` when the remainder had no trailing whitespace. Simplified to always `trim_end()` the stripped result and return it. Verified with all 10 existing `visual::types` tests passing.
+**Files modified:** `src/text_utils.rs` (new), `src/lib.rs`, `src/visual/types.rs`, `src/prompt/validators.rs`, `src/visual/analyzer.rs`
+**Commit:** 4a79788
+**Applied fix:** Extracted `strip_code_fence` to a new shared `src/text_utils.rs` module. Updated `lib.rs` to register the new module. Changed `validators.rs` to import from `crate::text_utils`. Changed `types.rs` to re-export via `pub(crate) use` for backward compatibility within visual module. Updated `analyzer.rs` call site to use `text_utils::strip_code_fence`.
 
-### WR-01: O(n^2) duplicate detection in template variable validation
+### WR-01: `run_ffmpeg_with_cancel` silently swallows all FFmpeg errors
 
-**Files modified:** `src/prompt/template.rs`
-**Commit:** 40df4cb
-**Applied fix:** Replaced `Vec<String>` with `HashSet<String>` for both `missing` and `missing_filter_vars` collections. Removed the O(n) `.contains()` dedup scan. Added sorting before error message formatting for deterministic output. All 15 template tests pass.
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 1b5458b
+**Applied fix:** Added `tracing::warn!` logging in both `Err` branches of `run_ffmpeg_with_cancel` (spawn failure and wait failure), providing error context for production debugging.
 
-### WR-02: Empty-result blind spot -- zero observations with zero errors succeeds silently
+### WR-02: Inconsistent FFmpeg binary discovery between fast path and fallback path
+
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 1b5458b
+**Applied fix:** Added documentation comments to both `get_video_duration` and `run_ffmpeg_with_cancel` explaining the limitation: fallback path uses system PATH directly, not `ffmpeg_sidecar` binary discovery.
+
+### WR-03: `analyzed_batches` computed by subtraction instead of explicit counter
 
 **Files modified:** `src/visual/analyzer.rs`
-**Commit:** e790735
-**Applied fix:** Added Step 8b check after the existing empty-result barrier: when `observations.is_empty()` (regardless of errors), return `VisualError::Analysis("所有批次返回空观察结果")`. This catches the case where all LLM batches succeed but return empty `frame_observations` arrays.
+**Commit:** 64f1219
+**Applied fix:** Introduced explicit `success_count: usize` counter incremented in the `Ok` branch. Replaced both `raw_results.len() - errors.len()` computations (error path and success path) with `success_count`.
 
-### WR-03: `validate_json` does not strip code fences before parsing
+### WR-04: `visual_salience` accepts out-of-range f64 values without validation
 
-**Files modified:** `src/prompt/validators.rs`
-**Commit:** f0db2ed
-**Applied fix:** Added `crate::visual::types::strip_code_fence(output)` call at the start of `validate_json()`, before trimming and parsing. This ensures LLM responses wrapped in ```json...``` code fences pass JSON validation. All 14 validator tests pass.
+**Files modified:** `src/visual/types.rs`
+**Commit:** 64f1219
+**Applied fix:** Added `FrameObservation::validate()` method that checks `visual_salience` is within [0.0, 1.0] range. Returns `Result<(), String>`. Existing deserialization remains permissive; callers opt into validation.
 
-## Skipped Issues
+### WR-05: `cancel.unwrap_or_default()` creates unowned token that prevents cancellation on task drop
 
-### WR-04: Fast-path FFmpeg event loop blocks indefinitely on stalled FFmpeg
-
-**File:** `src/visual/frame_extractor.rs:157-166`
-**Reason:** No code change required -- limitation is already documented in code comments (lines 153-156). REVIEW.md explicitly states "No code change required (limitation is documented)."
-**Original issue:** The fast path iterates `child.iter()` inside a for loop with cancellation only checked when a new event arrives. If FFmpeg stalls, the thread blocks without checking the cancellation token.
+**Files modified:** `src/visual/frame_extractor.rs`
+**Commit:** 1b5458b
+**Applied fix:** Added inline documentation comments at both `unwrap_or_default()` call sites explaining the fire-and-forget semantics and recommending callers provide a `CancellationToken` for responsive cancellation.
 
 ## Verification
 
 All fixes verified with:
-1. Tier 1: Re-read modified file sections to confirm changes present and surrounding code intact
-2. Tier 2: `cargo check` passed after each fix (0 new errors)
-3. Targeted `cargo test --lib` for each modified module: all tests pass (visual::types: 10/10, prompt::template: 15/15, prompt::validators: 14/14)
+1. `cargo check` passed after each commit (0 new errors, 7 pre-existing warnings)
+2. Targeted test suite: 34 tests passed across `visual::types` (10/10), `visual::analyzer` (10/10), `prompt::validators` (14/14), including strip_code_fence tests via re-export
 
 ---
 
-_Fixed: 2026-05-07T16:30:00Z_
+_Fixed: 2026-05-07T17:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 3_
+_Iteration: 4_
