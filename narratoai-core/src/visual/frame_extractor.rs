@@ -65,19 +65,11 @@ pub async fn extract_frames(
             .map_err(|e| VisualError::FrameExtraction(format!("创建输出目录失败: {}", e)))?;
     }
 
-    // Clean stale keyframe files from previous runs (WR-03)
-    if let Ok(mut reader) = std::fs::read_dir(output_dir) {
-        while let Some(Ok(entry)) = reader.next() {
-            let path = entry.path();
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if name.starts_with("keyframe_") && name.ends_with(".jpg") {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
+    // Clean stale keyframe files from previous runs (WR-03, IN-01)
+    iterate_dir_files(output_dir, "keyframe_", ".jpg", true, |path| {
+        let _ = std::fs::remove_file(path);
+        true
+    });
 
     // Fast path: single ffmpeg fps filter command
     match extract_frames_fast_path(
@@ -466,27 +458,16 @@ fn rename_fast_path_frames(
     interval_seconds: f64,
 ) -> Result<usize, VisualError> {
     let mut entries: Vec<PathBuf> = Vec::new();
-    let dir_reader = std::fs::read_dir(output_dir)
-        .map_err(|e| VisualError::FrameExtraction(format!("读取帧目录失败: {}", e)))?;
-
-    for entry in dir_reader {
-        let entry = entry
-            .map_err(|e| VisualError::FrameExtraction(format!("读取目录项失败: {}", e)))?;
-        let path = entry.path();
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        if file_name.starts_with("fastframe_") && file_name.ends_with(".jpg") {
-            if let Ok(meta) = path.metadata() {
-                if meta.len() < 100 {
-                    let _ = std::fs::remove_file(&path);
-                    continue;
-                }
+    iterate_dir_files(output_dir, "fastframe_", ".jpg", true, |path| {
+        if let Ok(meta) = path.metadata() {
+            if meta.len() < 100 {
+                let _ = std::fs::remove_file(path);
+                return true;
             }
-            entries.push(path);
         }
-    }
+        entries.push(path.to_path_buf());
+        true
+    });
 
     if entries.is_empty() {
         return Ok(0);
@@ -538,18 +519,10 @@ pub(crate) fn seconds_to_hhmmssmmm(total_secs: f64) -> String {
 
 /// 删除 output_dir 下的所有 `fastframe_*.jpg` 文件
 fn cleanup_fast_path_files(output_dir: &Path) {
-    if let Ok(mut reader) = std::fs::read_dir(output_dir) {
-        while let Some(Ok(entry)) = reader.next() {
-            let path = entry.path();
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if name.starts_with("fastframe_") && name.ends_with(".jpg") {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
+    iterate_dir_files(output_dir, "fastframe_", ".jpg", true, |path| {
+        let _ = std::fs::remove_file(path);
+        true
+    });
 }
 
 /// 通过 ffprobe 获取视频时长（秒）
@@ -592,21 +565,58 @@ fn file_is_valid(path: &Path) -> bool {
     path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
 }
 
-/// 从 output_dir 收集所有 keyframe_*.jpg 文件并排序
-fn collect_keyframe_paths_from_dir(output_dir: &Path) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    if let Ok(mut reader) = std::fs::read_dir(output_dir) {
-        while let Some(Ok(entry)) = reader.next() {
-            let path = entry.path();
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if name.starts_with("keyframe_") && name.ends_with(".jpg") {
-                paths.push(path);
+/// 遍历目录中匹配指定前后缀的文件，对每个文件调用 callback
+///
+/// 统一处理三种重复的目录迭代模式（IN-01）：
+/// - silent_errors=true 时静默跳过 IO 错误（用于清理路径）
+/// - silent_errors=false 时传播错误（用于必须成功的路径）
+/// - callback 返回 false 则停止遍历
+fn iterate_dir_files<F>(
+    dir: &Path,
+    starts_with: &str,
+    ends_with: &str,
+    silent_errors: bool,
+    mut callback: F,
+) where
+    F: FnMut(&std::path::Path) -> bool,
+{
+    let reader = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) if silent_errors => return,
+        Err(e) => {
+            tracing::warn!("读取目录失败: {}", e);
+            return;
+        }
+    };
+    for entry in reader {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) if silent_errors => continue,
+            Err(e) => {
+                tracing::warn!("读取目录项失败: {}", e);
+                continue;
+            }
+        };
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if name.starts_with(starts_with) && name.ends_with(ends_with) {
+            if !callback(&path) {
+                break;
             }
         }
     }
+}
+
+/// 从 output_dir 收集所有 keyframe_*.jpg 文件并排序
+fn collect_keyframe_paths_from_dir(output_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    iterate_dir_files(output_dir, "keyframe_", ".jpg", true, |path| {
+        paths.push(path.to_path_buf());
+        true
+    });
     paths.sort();
     paths
 }
