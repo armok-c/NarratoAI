@@ -356,10 +356,16 @@ fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
     }
 
     // 按文件名中的帧序号数字排序（避免超过 6 位时字典排序错误）
-    // unwrap 安全：所有文件已在上面通过校验
+    // 文件已在上面通过校验，使用 unwrap_or 防御外部修改等意外情况
     paths.sort_by(|a, b| {
-        let a_num = extract_frame_number_from_keyframe(a).unwrap();
-        let b_num = extract_frame_number_from_keyframe(b).unwrap();
+        let a_num = extract_frame_number_from_keyframe(a).unwrap_or_else(|e| {
+            warn!("排序时无法解析帧序号: {}, 使用 0", e);
+            0
+        });
+        let b_num = extract_frame_number_from_keyframe(b).unwrap_or_else(|e| {
+            warn!("排序时无法解析帧序号: {}, 使用 0", e);
+            0
+        });
         a_num.cmp(&b_num)
     });
     Ok(paths)
