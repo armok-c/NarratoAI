@@ -172,7 +172,23 @@ mod tests {
     #[test]
     fn test_get_prompt_returns_correct_prompt() {
         let manager = make_manager();
-        let prompt = make_test_prompt("test", "greeting", "v1.0", "Hello ${name}!");
+        let prompt = Prompt {
+            metadata: PromptMetadata {
+                category: "test".to_string(),
+                name: "greeting".to_string(),
+                version: "v1.0".to_string(),
+                model_type: ModelType::Text,
+                output_format: OutputFormat::Json,
+                tags: vec![],
+                parameters: vec![ParameterDef {
+                    name: "name".to_string(),
+                    required: true,
+                    default: None,
+                    description: "名称".to_string(),
+                }],
+            },
+            content: "Hello ${name}!".to_string(),
+        };
         manager.register_prompt(prompt, true).unwrap();
 
         let retrieved = manager.get_prompt("test", "greeting", None).unwrap();
@@ -191,7 +207,23 @@ mod tests {
     #[test]
     fn test_render_prompt_renders_correctly() {
         let manager = make_manager();
-        let prompt = make_test_prompt("test", "greeting", "v1.0", "Hello ${name}!");
+        let prompt = Prompt {
+            metadata: PromptMetadata {
+                category: "test".to_string(),
+                name: "greeting".to_string(),
+                version: "v1.0".to_string(),
+                model_type: ModelType::Text,
+                output_format: OutputFormat::Json,
+                tags: vec![],
+                parameters: vec![ParameterDef {
+                    name: "name".to_string(),
+                    required: true,
+                    default: None,
+                    description: "名称".to_string(),
+                }],
+            },
+            content: "Hello ${name}!".to_string(),
+        };
         manager.register_prompt(prompt, true).unwrap();
 
         let vars: HashMap<&str, &str> = [("name", "World")].into_iter().collect();
@@ -204,7 +236,23 @@ mod tests {
     #[test]
     fn test_render_prompt_missing_variable() {
         let manager = make_manager();
-        let prompt = make_test_prompt("test", "greeting", "v1.0", "Hello ${name}!");
+        let prompt = Prompt {
+            metadata: PromptMetadata {
+                category: "test".to_string(),
+                name: "greeting".to_string(),
+                version: "v1.0".to_string(),
+                model_type: ModelType::Text,
+                output_format: OutputFormat::Json,
+                tags: vec![],
+                parameters: vec![ParameterDef {
+                    name: "name".to_string(),
+                    required: true,
+                    default: None,
+                    description: "名称".to_string(),
+                }],
+            },
+            content: "Hello ${name}!".to_string(),
+        };
         manager.register_prompt(prompt, true).unwrap();
 
         let vars: HashMap<&str, &str> = HashMap::new();

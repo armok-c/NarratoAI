@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+
+use regex::Regex;
 
 use crate::prompt::error::PromptError;
 use crate::prompt::types::Prompt;
@@ -28,7 +30,12 @@ impl PromptRegistry {
     ///
     /// 按 category.name.version 三级插入。如果版本已存在返回 `PromptError::Registration`。
     /// 如果 `is_default` 为 true 或无现有默认版本，更新 default_versions。
+    ///
+    /// 注册前自动校验 `${variable}` 引用是否全部在 `ParameterDef` 中声明（WR-04）。
     pub fn register(&mut self, prompt: Prompt, is_default: bool) -> Result<(), PromptError> {
+        // 校验模板变量与 ParameterDef 声明一致
+        self.validate_prompt_parameters(&prompt)?;
+
         let category = prompt.metadata.category.clone();
         let name = prompt.metadata.name.clone();
         let version = prompt.metadata.version.clone();
@@ -64,6 +71,43 @@ impl PromptRegistry {
                 .entry(category)
                 .or_default()
                 .insert(name, version);
+        }
+
+        Ok(())
+    }
+
+    /// 校验模板内容中的 `${variable}` 引用是否全部在 `ParameterDef` 中声明
+    ///
+    /// 防止模板引用了未声明的变量（WR-04），确保 `render_prompt` 中的 `Validation` 错误路径
+    /// 覆盖所有可能的变量引用，避免用户收到与 `ParameterDef` 不一致的 `TemplateRender` 错误。
+    fn validate_prompt_parameters(&self, prompt: &Prompt) -> Result<(), PromptError> {
+        let re = Regex::new(r"\$\{(\w+)\}").map_err(|e| {
+            PromptError::TemplateRender(format!("正则编译失败: {}", e))
+        })?;
+
+        let declared: HashSet<&str> = prompt
+            .metadata
+            .parameters
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+
+        let mut undeclared: Vec<&str> = Vec::new();
+        for caps in re.captures_iter(&prompt.content) {
+            if let Some(name) = caps.get(1).map(|m| m.as_str()) {
+                if !name.is_empty() && !declared.contains(name) {
+                    undeclared.push(name);
+                }
+            }
+        }
+
+        if !undeclared.is_empty() {
+            undeclared.sort();
+            undeclared.dedup();
+            return Err(PromptError::Validation(format!(
+                "模板引用了未声明的参数: {}",
+                undeclared.join(", ")
+            )));
         }
 
         Ok(())
@@ -190,7 +234,7 @@ impl Default for PromptRegistry {
 mod tests {
     use super::*;
     use crate::prompt::types::{
-        ModelType, OutputFormat, PromptMetadata,
+        ModelType, OutputFormat, ParameterDef, PromptMetadata,
     };
 
     fn make_test_prompt(
@@ -217,7 +261,23 @@ mod tests {
     #[test]
     fn test_register_and_get() {
         let mut reg = PromptRegistry::new();
-        let prompt = make_test_prompt("doc", "frame_analysis", "v1.0", "分析帧: ${frame}");
+        let prompt = Prompt {
+            metadata: PromptMetadata {
+                name: "frame_analysis".to_string(),
+                category: "doc".to_string(),
+                version: "v1.0".to_string(),
+                model_type: ModelType::Text,
+                output_format: OutputFormat::Json,
+                tags: Vec::new(),
+                parameters: vec![ParameterDef {
+                    name: "frame".to_string(),
+                    required: true,
+                    default: None,
+                    description: "帧编号".to_string(),
+                }],
+            },
+            content: "分析帧: ${frame}".to_string(),
+        };
         reg.register(prompt, true).expect("注册应成功");
 
         let retrieved = reg
