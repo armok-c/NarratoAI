@@ -147,6 +147,9 @@ pub(crate) async fn step_clip(
 }
 
 /// 步骤 4: 合并音频和字幕
+///
+/// Note: `_request` is currently unused but retained for future
+/// per-request audio volume control during merge.
 pub(crate) async fn step_merge_audio_subtitle(
     state: &mut PipelineState,
     _request: &DocumentaryRequest,
