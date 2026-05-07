@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::tts::WordBoundary;
 
 use super::error::PipelineError;
@@ -58,15 +56,6 @@ pub fn merge_srt_files(segments: &[SubtitleSegment]) -> Result<String, PipelineE
     }
 
     Ok(merged_blocks.join("\n"))
-}
-
-/// 将 SRT 内容写入文件
-pub fn write_srt_file(content: &str, path: &Path) -> Result<(), PipelineError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, content)?;
-    Ok(())
 }
 
 /// 解析 SRT 文本为块列表: [(start_secs, end_secs, text)]
@@ -229,14 +218,5 @@ mod tests {
         assert!(merged.contains("00:00:05,000"), "merged: {}", merged);
         // 序号应重新编号
         assert!(merged.contains("2\n00:00:05,000"), "merged: {}", merged);
-    }
-
-    #[test]
-    fn test_write_srt_file_creates_file() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let path = dir.path().join("test.srt");
-        write_srt_file("test content", &path).unwrap();
-        assert!(path.exists());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "test content");
     }
 }
