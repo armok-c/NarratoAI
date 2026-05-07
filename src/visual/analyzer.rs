@@ -19,7 +19,8 @@ use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::visual::error::VisualError;
 use crate::visual::frame_extractor::extract_frames;
-use crate::visual::types::{self, BatchAnalysisResult, FrameObservation};
+use crate::text_utils;
+use crate::visual::types::{BatchAnalysisResult, FrameObservation};
 
 /// LLM 响应的顶层包装类型，匹配 prompt 中声明的 JSON schema
 ///
@@ -222,7 +223,7 @@ pub async fn analyze_video_frames(
 /// 先尝试按 LLM schema（`BatchResponse` 包装）解析，失败后回退尝试
 /// 直接解析单个 `FrameObservation`（兼容只返回单个对象的 LLM 响应）。
 fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
-    let cleaned = types::strip_code_fence(json_text);
+    let cleaned = text_utils::strip_code_fence(json_text);
 
     // 尝试按 BatchResponse schema 解析（匹配 prompt 中声明的结构）
     match serde_json::from_str::<BatchResponse>(cleaned) {
