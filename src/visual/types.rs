@@ -42,11 +42,22 @@ pub struct BatchAnalysisResult {
 /// 某些 LLM 即使设置 response_format=JsonObject 仍返回 ` ```json ` 包裹，
 /// 此函数提取代码块内的纯净 JSON。
 pub(crate) fn strip_code_fence(text: &str) -> &str {
-    text.trim()
+    let trimmed = text.trim();
+    let after_prefix = trimmed
         .strip_prefix("```json")
-        .or_else(|| text.trim().strip_prefix("```"))
-        .map(|s| s.trim().trim_end_matches("```").trim())
-        .unwrap_or(text.trim())
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(|s| s.trim_start());
+    let content = after_prefix.unwrap_or(trimmed);
+    content
+        .strip_suffix("```")
+        .map(|s| {
+            if s.ends_with(|c: char| c.is_whitespace()) {
+                s.trim_end()
+            } else {
+                content
+            }
+        })
+        .unwrap_or(content)
 }
 
 #[cfg(test)]
