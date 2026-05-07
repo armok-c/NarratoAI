@@ -1,188 +1,223 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-07T14:30:00Z
+reviewed: 2026-05-07T12:00:00Z
 depth: standard
-files_reviewed: 19
+files_reviewed: 18
 files_reviewed_list:
-  - Cargo.toml
+  - narratoai-core/Cargo.toml
   - narratoai-core/src/lib.rs
-  - narratoai-core/src/prompt/error.rs
-  - narratoai-core/src/prompt/manager.rs
   - narratoai-core/src/prompt/mod.rs
-  - narratoai-core/src/prompt/register.rs
+  - narratoai-core/src/prompt/types.rs
+  - narratoai-core/src/prompt/error.rs
   - narratoai-core/src/prompt/registry.rs
   - narratoai-core/src/prompt/template.rs
+  - narratoai-core/src/prompt/manager.rs
+  - narratoai-core/src/prompt/validators.rs
+  - narratoai-core/src/prompt/register.rs
   - narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md
   - narratoai-core/src/prompt/templates/documentary/narration_generation_v2.0.md
   - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
   - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v1.0.md
-  - narratoai-core/src/prompt/types.rs
-  - narratoai-core/src/prompt/validators.rs
-  - narratoai-core/src/visual/analyzer.rs
-  - narratoai-core/src/visual/error.rs
-  - narratoai-core/src/visual/frame_extractor.rs
   - narratoai-core/src/visual/mod.rs
+  - narratoai-core/src/visual/error.rs
   - narratoai-core/src/visual/types.rs
+  - narratoai-core/src/visual/frame_extractor.rs
+  - narratoai-core/src/visual/analyzer.rs
 findings:
   critical: 0
-  warning: 2
-  info: 4
-  total: 6
+  warning: 4
+  info: 5
+  total: 9
 status: issues_found
 ---
 
-# Phase 04: Code Review Report — Prompt System / Visual Analyzer
+# Phase 04: Code Review Report
 
-**Reviewed:** 2026-05-07T14:30:00Z
+**Reviewed:** 2026-05-07T12:00:00Z
 **Depth:** standard
-**Files Reviewed:** 19 (prompt system 8 + visual analyzer 4 + 6 template files + Cargo.toml + lib.rs)
+**Files Reviewed:** 18 (prompt system + visual analyzer + templates)
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Rust `prompt` and `visual` subsystems at standard depth. The codebase has been refactored since the previous review — `strip_code_fence` was moved to `crate::text_utils` (formerly the cross-module coupling CR-01), the `analyzed_batches` count now uses an explicit counter (formerly WR-03), and error logging is present in `run_ffmpeg_with_cancel`.
-
-Two WARNING-level findings remain: (1) `FrameObservation::validate()` is defined but never called in the analysis pipeline, so out-of-range `visual_salience` values pass through undetected; (2) the fallback frame extraction path uses system PATH `ffmpeg`/`ffprobe` directly while the fast path uses `ffmpeg_sidecar`, creating an inconsistent binary discovery strategy. Four INFO-level items note minor style/sustainability issues.
-
-## Previously Fixed (from prior review iteration)
-
-The following prior findings are confirmed resolved in the current code:
-- **CR-01** (cross-module dependency): `strip_code_fence` is now in `crate::text_utils`, imported by both `validators.rs` and `types.rs`. Correct.
-- **WR-02** (empty-observations blind spot): `analyze_video_frames` now has Step 8b check for all-empty observations. Present and correct.
-- **WR-03** (missing code-fence in JSON validator): `validators.rs:35` calls `crate::text_utils::strip_code_fence`. Present.
-- **WR-03** (old: success-count by subtraction): Code now uses an explicit `success_count` accumulator. Fixed.
-- **WR-01** (old: silent FFmpeg error swallowing): `run_ffmpeg_with_cancel` now has `tracing::warn!` calls for spawn and wait failures. Present.
+Adversarial review of the Phase 4 narratoai-core Rust code: Prompt system (types, error, registry, template rendering, manager facade, validators, register functions, 4 template markdown files) and Visual analyzer infrastructure (frame extractor with 4-level fallback, analyzer orchestrator, types). Overall architecture is well-structured with clean module boundaries. No BLOCKER-level issues found -- no panics, race conditions, data loss risks, or auth bypasses. However, 4 WARNING-level issues involve incorrect behavior: template filter pass re-interprets variable values as filter expressions (a template injection vector), silent frame ordering corruption from unparseable filenames, prompts silently dropped from list output, and API layer gap between parameter validation and template content. 5 INFO-level quality issues noted.
 
 ## Warnings
 
-### WR-01: FrameObservation::validate() defined but never called in the analysis pipeline
+### WR-01: Template filter pass 3 re-interprets variable values as filter expressions
 
-**Files:**
-- `narratoai-core/src/visual/types.rs:30-37` (definition)
-- `narratoai-core/src/visual/analyzer.rs:163-178` (call site — missing)
+**File:** `narratoai-core/src/prompt/template.rs:120-163`
+**Issue:** The `render()` function applies filter syntax (`${var|filter_name}`) in pass 3 on the *output* of pass 2 (variable substitution). If a variable value happens to contain text matching `${var|filter}`, pass 3 will reinterpret it as a filter expression and apply transformations. This is effectively a template injection vector.
 
-**Issue:** `FrameObservation` defines a public `validate()` method that checks whether `visual_salience` is in the documented `[0.0, 1.0]` range. However, the analysis loop in `analyze_video_frames` parses LLM responses via `parse_and_retry()` and extends the `observations` vector directly without ever calling `.validate()` on any `FrameObservation`. Out-of-range values such as `visual_salience: 2.5` (explicitly tested as acceptable in `types.rs:224`) pass through silently.
+Example with `vars = {"name": "${subject|upper}"}` and template `"Hello, ${name}!"`:
+1. Pass 2 replaces `${name}` with `"${subject|upper}"`.
+2. Pass 3 sees `${subject|upper}` and applies the `upper` filter to `subject`. If `subject` is in vars, the user gets an unexpected uppercase transformation. If `subject` is missing, pass 3's validation error fires with a confusing "缺少必需参数: subject" message.
 
-The method exists and is public — it was clearly intended to be called post-deserialization — but no call site exists in any reviewed file.
+The code comment at lines 82-83 documents "调用方负责验证变量值的合法性" (callers validate variable values), but no defense-in-depth exists at the API boundary. This is also a potential security concern if user-provided data ever reaches template variables -- filter expressions could be smuggled.
 
-**Fix:** Call `.validate()` on each `FrameObservation` after deserialization. Integrate into `parse_and_retry()` or into the analysis loop:
+The builtin `json` filter (line 52-54) is a special concern: calling `serde_json::to_string()` on a value containing `${...|...}` would produce a JSON string that still contains the filter expression as literal text, and pass 3 would interpret it on the JSON representation, not the original value.
+
+**Fix:** Apply pass 3 filter matching on the original template string (extracting filter expressions before variable substitution), not on the substituted result. A safer approach is a single-pass rendering pipeline that processes both plain variables and filter expressions from the source template, escaping any `${...}` patterns in substitution values.
 
 ```rust
-// In analyze_video_frames, Step 7:
-Ok(batch) => {
-    let valid: Vec<FrameObservation> = batch.observations
-        .into_iter()
-        .filter(|obs| {
-            obs.validate().unwrap_or_else(|e| {
-                warn!("Frame {} validation failed: {}", obs.frame_number, e);
-                false
-            })
-        })
+// Single pass: extract all placeholders (plain + filter) from source template,
+// then resolve each against the vars HashMap, applying filters inline.
+// This prevents substituted values from being re-parsed.
+```
+
+Alternatively, after pass 2, escape the substituted regions before pass 3, then unescape the final result.
+
+### WR-02: Unparseable keyframe filenames silently sort to front, corrupting LLC input order
+
+**File:** `narratoai-core/src/visual/analyzer.rs:310-327`
+**Issue:** `extract_frame_number_from_keyframe()` returns `0` for any filename that cannot be parsed. When `collect_frame_paths()` sorts frames (lines 310-313), all unparseable filenames silently sort to frame number 0, displacing the actual frame 0. The LLM receives frames in wrong order with no error or warning.
+
+Example: if a file `keyframe_INVALID_xxx.jpg` somehow exists in the output directory:
+- `extract_frame_number_from_keyframe` strips `"keyframe_"`, gets `"INVALID_xxx.jpg"`, splits on `_` gets `["INVALID", "xxx.jpg"]`, tries to parse `"INVALID"` as `u64` which fails, returns `0`.
+- Frame `000000` also returns `0`.
+- Both sort equally -- order between them is undefined (stable sort not guaranteed, and `sort_by` with equal values preserves insertion order for `sort_by` in practice but not guaranteed by `sort()`).
+
+In normal operation all files follow the `keyframe_{:06}_{:09}.jpg` convention, so this only manifests with external modification or extraction error. The silent failure makes it hard to diagnose.
+
+**Fix:** Validate all filenames before sorting. If any filename cannot be parsed, return an error from `collect_frame_paths()`. Also add a warning log when parse fails.
+
+```rust
+fn extract_frame_number_from_keyframe(path: &Path) -> Result<u64, VisualError> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let num_str = name.strip_prefix("keyframe_")
+        .and_then(|s| s.split('_').next())
+        .ok_or_else(|| VisualError::FrameExtraction(
+            format!("无法从文件名解析帧序号: {}", name)
+        ))?;
+    num_str.parse::<u64>().map_err(|_| VisualError::FrameExtraction(
+        format!("帧序号不是有效数字: {} (from {})", num_str, name)
+    ))
+}
+```
+
+### WR-03: `list_prompts` silently drops prompts with no default version
+
+**File:** `narratoai-core/src/prompt/registry.rs:139-163`
+**Issue:** `list_prompts(category)` only includes prompt names that have a default version set in `default_versions`. If a prompt name exists in the registry (versions registered) but none have `is_default=true` (register() fallback at line 62 only sets default when `!has_default`), the prompt is silently dropped from the result. There is no logging, error, or indication to the caller.
+
+This happens if a name has versions but the default_versions entry was accidentally removed or never set. The empty result misleads callers into thinking the category has no prompts.
+
+**Fix:** Add a fallback when no default version is found for a name: use the first available version (sorted by version string). Log a warning when falling back:
+
+```rust
+let version = self.default_versions
+    .get(category)
+    .and_then(|m| m.get(name.as_str()))
+    .or_else(|| {
+        let fallback = names_map.get(name)
+            .and_then(|m| m.keys().next().map(|s| s.as_str()));
+        if let Some(v) = fallback {
+            tracing::warn!("no default version for {}.{}, using {}", category, name, v);
+        }
+        fallback
+    });
+```
+
+### WR-04: Parameter validation in `render_prompt` has unreachable gap with template content
+
+**File:** `narratoai-core/src/prompt/manager.rs:63-73`
+**Issue:** `render_prompt` validates that all `ParameterDef` entries with `required: true` and no default are present in `vars`. However, there is no cross-validation between template content and `ParameterDef` declarations at registration time. If a template uses `${some_var}` that isn't declared in `ParameterDef`, the error surfaces inside `template::render()`, producing a `TemplateRender` error rather than a `Validation` error. This creates an inconsistent error path:
+
+- Missing required-param (in `ParameterDef`): `Validation` error with clear message (manager.rs)
+- Missing template-var (not in `ParameterDef`, not in `vars`): `TemplateRender` error (template.rs) -- user checks ParameterDef, doesn't find the variable, gets confused.
+
+All 4 reviewed templates match their ParameterDefs correctly, so no current bug exists. But future prompt additions risk this gap because no compile-time or registration-time check enforces consistency.
+
+**Fix:** Add validation at registration time (in `register.rs`) that cross-checks all `${variable}` references in the template content against declared `ParameterDef` entries:
+
+```rust
+fn validate_prompt_parameters(prompt: &Prompt) -> Result<(), PromptError> {
+    let re = regex::Regex::new(r"\$\{(\w+)\}").unwrap();
+    let mut referenced: HashSet<&str> = HashSet::new();
+    for caps in re.captures_iter(&prompt.content) {
+        if let Some(name) = caps.get(1).map(|m| m.as_str()) {
+            // Skip names followed by | (filter syntax) -- handled separately
+            referenced.insert(name);
+        }
+    }
+    let declared: HashSet<&str> = prompt.metadata.parameters.iter()
+        .map(|p| p.name.as_str())
         .collect();
-    success_count += 1;
-    observations.extend(valid);
-    // ...
+    for var in &referenced {
+        if !declared.contains(var) {
+            return Err(PromptError::Validation(format!(
+                "模板引用了未声明的参数 '{}'", var
+            )));
+        }
+    }
+    Ok(())
 }
-```
-
-### WR-02: Fallback frame extraction uses system PATH ffmpeg/ffprobe inconsistent with fast path
-
-**Files:**
-- `narratoai-core/src/visual/frame_extractor.rs:531-559` (get_video_duration, uses system `ffprobe`)
-- `narratoai-core/src/visual/frame_extractor.rs:574-597` (run_ffmpeg_with_cancel, uses system `ffmpeg`)
-- `narratoai-core/src/visual/frame_extractor.rs:134` (fast path uses `ffmpeg_sidecar::command::FfmpegCommand`)
-
-**Issue:** The fast path uses `ffmpeg_sidecar::command::FfmpegCommand`, which may resolve a bundled or auto-downloaded FFmpeg binary. The fallback path (`extract_frames_fallback`) calls `std::process::Command::new("ffprobe")` and `std::process::Command::new("ffmpeg")` — always resolving from system PATH. There is no guarantee these refer to the same binary.
-
-Concrete failure scenarios:
-- User enables `download-ffmpeg` feature: bundled ffmpeg is used for the fast path (works), but if the fast path yields 0 frames, the fallback resolves a different system PATH ffmpeg (may have different capabilities or encoding defaults, or may not exist at all).
-- The fallback writes `tracing::warn!` messages (line 586, 593) but the caller only receives a bare `false`. The 4-level fallback in `extract_single_frame` propagates no information about which level failed due to a missing binary versus the frame not being extractable.
-
-The function doc comments at lines 528-531 and 571-573 acknowledge this limitation but the risk remains real.
-
-**Fix options (pick one):**
-
-Option A: Resolve the ffmpeg path from `ffmpeg_sidecar` and pass it to `std::process::Command`:
-
-```rust
-// At the top of extract_frames or a helper:
-fn get_ffmpeg_path() -> PathBuf {
-    // Prefer ffmpeg_sidecar's resolved binary
-    ffmpeg_sidecar::command::ffmpeg_binary()
-        .or_else(|_| PathBuf::from("ffmpeg").canonicalize())
-        .unwrap_or_else(|_| PathBuf::from("ffmpeg"))
-}
-```
-
-Option B: If the two code paths must remain independent, log a structured warning when falling back to alert operators:
-
-```rust
-tracing::warn!(
-    "fast path produced 0 frames; falling back to system PATH ffmpeg (may differ from ffmpeg_sidecar binary)"
-);
 ```
 
 ## Info
 
-### IR-01: Incorrect #[allow(dead_code)] annotation on seconds_to_hhmmssmmm
+### IN-01: Unnecessary `#[allow(dead_code)]` on `seconds_to_hhmmssmmm`
 
-**File:** `narratoai-core/src/visual/frame_extractor.rs:495`
+**File:** `narratoai-core/src/visual/frame_extractor.rs:497`
+**Issue:** `seconds_to_hhmmssmmm` is `pub(crate)` and used by both `rename_fast_path_frames` (line 480) and `extract_frames_fallback` (line 234). The `#[allow(dead_code)]` annotation is redundant. It suppresses future dead-code warnings that would legitimately detect unused functions during refactoring.
 
-**Issue:** The function has `#[allow(dead_code)]` but is referenced from non-test production code (`rename_fast_path_frames` at line 477). The annotation is misleading — a reader could interpret it as a signal to remove the function.
+**Fix:** Remove `#[allow(dead_code)]`.
 
-**Fix:** Remove the `#[allow(dead_code)]` attribute.
+### IN-02: Unnecessary `pub(crate)` re-export of `strip_code_fence` in `visual/types.rs`
 
-### IR-02: Regex objects compiled on every render() call
+**File:** `narratoai-core/src/visual/types.rs:56`
+**Issue:** `strip_code_fence` is re-exported as `pub(crate) use crate::text_utils::strip_code_fence` but is only used in the test module (lines 104, 114 via `use super::*;`). No production code in `visual/types.rs` calls it. The re-export unnecessarily broadens the module's API surface.
 
-**Files:**
-- `narratoai-core/src/prompt/template.rs:85-87`
-- `narratoai-core/src/prompt/template.rs:121-123`
-
-**Issue:** Both `Regex::new(r"\$\{(\w+)\}")` and `Regex::new(r"\$\{(\w+)\|(\w+)\}")` compile the same patterns on every invocation of `render()`. While regex compilation overhead is small for these patterns, this is a redundant per-call cost.
-
-**Fix:** Use `std::sync::LazyLock` (stabilized in Rust 1.80) for one-time compilation:
-
+**Fix:** Remove the re-export and import directly in the test module:
 ```rust
-use std::sync::LazyLock;
-
-static VAR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{(\w+)\}").expect("invalid var regex")
-});
-```
-
-The same applies to the filter regex and possibly the `builtin_filters()` HashMap.
-
-### IR-03: render_prompt iterates parameters list twice for default merge
-
-**File:** `narratoai-core/src/prompt/manager.rs:77-84`
-
-**Issue:** The parameter iteration inserts defaults (lines 77-81), then overwrites with caller vars (lines 82-84). This double pass is functionally correct but creates unnecessary allocation churn in the intermediate `HashMap<String, String>` plus the conversion to `HashMap<&str, &str>` (lines 86-89). Could be done in a single pass.
-
-**Fix:** Optional — merge defaults and caller overrides in one pass:
-
-```rust
-let mut merged: HashMap<String, String> = HashMap::new();
-for param in &prompt.metadata.parameters {
-    let value = vars
-        .get(param.name.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| param.default.clone());
-    if let Some(v) = value {
-        merged.insert(param.name.clone(), v);
-    }
+#[cfg(test)]
+mod tests {
+    use crate::text_utils::strip_code_fence;
+    // ...
 }
 ```
 
-### IR-04: PromptError::LockFailure discards original PoisonError type
+### IN-03: Misleading test comment -- "三个 prompt 版本" vs count by name
 
-**File:** `narratoai-core/src/prompt/error.rs:17-18`
+**File:** `narratoai-core/src/prompt/register.rs:172`
+**Issue:** The comment reads `// 验证 short_drama_narration 分类下三个 prompt 版本均已注册` but the preceding assertion tests `list_prompts(...)` which returns 2 (one per unique name using default version, since `script_generation` has both v1.0 and v2.0). The comment implies 3 versions in the list_prompts result, but the test actually passes because it asserts `len() == 2`.
 
-**Issue:** The `LockFailure` variant stores a `String` message but discards the `PoisonError<T>` from the `RwLock`. Downstream code cannot inspect whether the error was a poison, timeout, or other lock failure. This is a minor loss of diagnostic information.
+**Fix:** Update the comment:
+```rust
+// 验证 short_drama_narration: 2 个名称 (plot_analysis, script_generation), 3 个版本
+```
 
-**Fix:** Not easily fixable without making `PromptError` generic over the lock guard type, which is likely not worth the complexity. A doc comment noting this limitation would be sufficient.
+### IN-04: `analyze_video_frames` does not expose cancel token
+
+**File:** `narratoai-core/src/visual/analyzer.rs:99-100`
+**Issue:** `analyze_video_frames` passes `None` for cancel to `extract_frames`. Frame extraction (especially the fallback path) can be long-running (many frames, 4-level retry per frame). Without a cancel token in the public API, the operation cannot be externally cancelled, potentially blocking the tokio runtime thread pool.
+
+**Fix:** Add a `cancel: Option<CancellationToken>` parameter to `analyze_video_frames` and propagate it:
+```rust
+pub async fn analyze_video_frames(
+    ...
+    cancel: Option<CancellationToken>,
+) -> Result<BatchAnalysisResult, VisualError> {
+    let frame_count = extract_frames(
+        video_path, output_dir, interval_seconds.unwrap_or(3.0),
+        quality, None, cancel,
+    ).await...;
+```
+
+### IN-05: `register.rs` references template files excluded from review scope
+
+**File:** `narratoai-core/src/prompt/register.rs:78`, `:110`, `:144`
+**Issue:** The `register_all_prompts()` function uses `include_str!()` at compile time to embed three template files that are not in the review scope:
+- `templates/short_drama_editing/subtitle_analysis_v2.0.md` (line 78)
+- `templates/short_drama_narration/plot_analysis_v1.0.md` (line 110)
+- `templates/short_drama_narration/script_generation_v2.0.md` (line 144)
+
+These files were confirmed present on disk but were not reviewed. Any bug or injection vulnerability in these templates is invisible to this review despite being compiled into the binary.
+
+**Fix:** Include all `include_str!`-ed template files in the review scope during code reviews.
 
 ---
 
-_Reviewed: 2026-05-07T14:30:00Z_
+_Reviewed: 2026-05-07T12:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
