@@ -1,224 +1,233 @@
 ---
 phase: 08-sdp-pipeline
-reviewed: 2026-05-06T12:00:00Z
+reviewed: 2026-05-07T12:00:00Z
 depth: standard
-files_reviewed: 21
+files_reviewed: 20
 files_reviewed_list:
-  - src/lib.rs
-  - src/prompt/register.rs
-  - src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
-  - src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
-  - src/sde/error.rs
-  - src/sde/mod.rs
-  - src/sde/pipeline.rs
-  - src/sde/timestamp.rs
-  - src/sde/types.rs
-  - src/sdp/clip.rs
-  - src/sdp/error.rs
-  - src/sdp/mod.rs
-  - src/sdp/pipeline.rs
-  - src/sdp/script_gen.rs
-  - src/sdp/types.rs
-  - src/subtitle/error.rs
-  - src/subtitle/mod.rs
-  - src/subtitle/parser.rs
-  - src/subtitle/timestamp.rs
-  - src/subtitle/types.rs
+  - narratoai-core/src/subtitle/mod.rs
+  - narratoai-core/src/subtitle/error.rs
+  - narratoai-core/src/subtitle/types.rs
+  - narratoai-core/src/subtitle/parser.rs
+  - narratoai-core/src/subtitle/timestamp.rs
+  - narratoai-core/src/sde/types.rs
+  - narratoai-core/src/sde/timestamp.rs
+  - narratoai-core/src/sde/error.rs
+  - narratoai-core/src/sde/pipeline.rs
+  - narratoai-core/src/sde/mod.rs
+  - narratoai-core/src/lib.rs
+  - narratoai-core/src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
+  - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
+  - narratoai-core/src/prompt/register.rs
+  - narratoai-core/src/sdp/mod.rs
+  - narratoai-core/src/sdp/error.rs
+  - narratoai-core/src/sdp/types.rs
+  - narratoai-core/src/sdp/script_gen.rs
+  - narratoai-core/src/sdp/clip.rs
+  - narratoai-core/src/sdp/pipeline.rs
 findings:
   critical: 0
-  warning: 9
+  warning: 8
   info: 4
-  total: 13
+  total: 12
 status: issues_found
 ---
 
-# Phase 08: Code Review Report
+# Phase 08: SDP Pipeline Code Review Report
 
-**Reviewed:** 2026-05-06T12:00:00Z
+**Reviewed:** 2026-05-07T12:00:00Z
 **Depth:** standard
-**Files Reviewed:** 21
+**Files Reviewed:** 20
 **Status:** issues_found
 
 ## Summary
 
-Phase 08 extracted `src/subtitle/` as a public module, created SDP pipeline (`src/sdp/`) with LLM-driven script generation and video composition, and added prompt templates for short drama editing (subtitle_analysis/plot_extraction v2.0). The codebase is structurally sound with good error type hygiene, but has several quality issues: silent error swallowing in timestamp parsing (SDP clip), cross-module coupling (SDP importing from SDE instead of subtitle directly), unhandled edge cases (video without audio stream), and duplicated utility functions. No critical blockers were found -- the pipeline will function correctly for normal inputs but may fail silently or confusingly for edge cases.
+Reviewed 20 files across the subtitle extraction layer, SDE pipeline, SDP pipeline, and prompt registration. The subtitle module is clean -- error types, parsing, and timestamp handling are well-structured. The defects cluster in the SDP pipeline: silent timestamp parse failures, zero-duration clips dropped without error, missing file-existence checks, blocking I/O in async context, and a redundant public API parameter. The SDE pipeline has one code quality issue (redundant TTS skip condition). No critical security bugs were confirmed -- the `'\''` concat escaping is correct for FFmpeg because `av_get_token()` handles backslash-escape outside quotes. The most impactful pattern is that SDP consistently uses `unwrap_or(0.0)` instead of propagating errors, while SDE uses `map_err` -- this means SDP hides root causes that SDE would surface.
 
 ## Warnings
 
-### WR-01: Timestamp parse errors silently swallowed in sdp_step_clip
+### WR-01: Silent timestamp parse failure in SDP clip step
 
-**File:** `src/sdp/clip.rs:62-63`
-**Issue:** `parse_srt_timestamp` returns `Result<f64, SubtitleError>`, but the results are consumed with `.unwrap_or(0.0)`, silently defaulting to 0.0 on parse failure. If both start and end timestamps fail to parse, `clip_duration` becomes `(0.0 - 0.0).max(0.0) = 0.0`, the `if clip_duration > 0.0` guard skips setting duration/time_range, and the clip is effectively dropped from the output without any error or warning.
+**File:** `narratoai-core/src/sdp/clip.rs:61-62`
+**Issue:** Uses `unwrap_or(0.0)` on `parse_srt_timestamp()`, silently swallowing parse errors. If timestamp format is invalid, both `start_secs` and `end_secs` become 0.0, yielding zero duration, and the clip is silently dropped. The SDE pipeline (line 249-252 of `pipeline.rs`) correctly propagates this as an error via `map_err`.
+
+Additionally, if `end_secs < start_secs`, the expression `(end_secs - start_secs).max(0.0)` returns 0.0 instead of warning about an inverted timestamp range.
 
 ```rust
-// Current (line 62-64):
+// Current (lines 61-62):
 let start_secs = parse_srt_timestamp(ts_parts[0]).unwrap_or(0.0);
 let end_secs = parse_srt_timestamp(ts_parts[1]).unwrap_or(0.0);
 let clip_duration = (end_secs - start_secs).max(0.0);
 ```
 
-**Fix:** Propagate the error instead of silently defaulting:
-
+**Fix:** Propagate error instead of defaulting, and check for inverted ranges:
 ```rust
 let start_secs = parse_srt_timestamp(ts_parts[0])
     .map_err(|e| SdpError::ParseSubtitle {
-        details: format!("解析片段 {} 开始时间戳失败: {}", clip._id, e),
+        details: format!("片段 {} 开始时间戳解析失败: {}", clip._id, e),
     })?;
 let end_secs = parse_srt_timestamp(ts_parts[1])
     .map_err(|e| SdpError::ParseSubtitle {
-        details: format!("解析片段 {} 结束时间戳失败: {}", clip._id, e),
+        details: format!("片段 {} 结束时间戳解析失败: {}", clip._id, e),
     })?;
+if end_secs < start_secs {
+    return Err(SdpError::Validation {
+        details: format!("片段 {} 结束时间 ({}) 早于开始时间 ({})", clip._id, end_secs, start_secs),
+    });
+}
+let clip_duration = end_secs - start_secs;
 ```
 
-### WR-02: SDP clip imports from SDE module instead of direct subtitle module
+### WR-02: Zero-duration clips silently skipped without error
 
-**File:** `src/sdp/clip.rs:4-5`
-**Issue:** Imports `find_precise_range` and `parse_srt_timestamp` via `crate::sde::timestamp`, and `SubtitleSegment` via `crate::sde::types`. This creates an unnecessary coupling between SDP and SDE -- the SDE module is only a transitive re-export of the subtitle module. If the SDE module is refactored or removed, SDP compilation breaks.
+**File:** `narratoai-core/src/sdp/clip.rs:63-65`
+**Issue:** When `clip_duration <= 0.0` after the `max(0.0)` guard, the `if clip_duration > 0.0` block is skipped entirely -- no error, no log, no cumulative time advancement. This creates two downstream defects:
+1. The output timeline has silent gaps where zero-duration clips were dropped.
+2. `state.total_duration` is shorter than expected, causing BGM fade-out timing in `sdp_step_composite` to trigger too early.
 
+The SDE pipeline (lines 243-247) correctly returns an error:
 ```rust
-// Current:
-use crate::sde::timestamp::{find_precise_range, parse_srt_timestamp};
-use crate::sde::types::SubtitleSegment;
+if clip_duration <= 0.0 {
+    return Err(SdeError::VideoProcess(PipelineError::VideoClip {
+        details: format!("片段 {} 时长计算为零", clip._id),
+    }));
+}
 ```
 
-**Fix:** Import directly from the canonical subtitle module:
+**Fix:** Replace the silent skip with an authoritative error check matching SDE's pattern.
 
+### WR-03: Missing file existence checks in SdpRequest::validate
+
+**File:** `narratoai-core/src/sdp/types.rs:52-76`
+**Issue:** `SdpRequest::validate()` checks that paths are non-empty but does NOT verify that `subtitle_path` or `video_path` point to existing files. `SdeRequest::validate()` (sde/types.rs lines 67-72) performs these checks. This means `run_sdp` or `generate_sdp_script` proceeds with non-existent files and fails later with a less informative system error.
+
+**Fix:** Add existence checks matching SDE's pattern:
 ```rust
-use crate::subtitle::timestamp::{find_precise_range, parse_srt_timestamp};
-use crate::subtitle::types::SubtitleSegment;
+if !self.subtitle_path.exists() {
+    return Err(format!("字幕文件不存在: {}", self.subtitle_path.display()));
+}
+if !self.video_path.exists() {
+    return Err(format!("视频文件不存在: {}", self.video_path.display()));
+}
 ```
 
-### WR-03: Composite step assumes video always has audio track
+### WR-04: Missing newline/control-character guard in SDP concat step
 
-**File:** `src/sdp/pipeline.rs:196` (also affects `src/sde/pipeline.rs:439`)
-**Issue:** The `sdp_step_composite` function unconditionally references `[0:a]` in filter_complex (line 196: `filter_complex_parts.push(format!("[0:a]volume={:.2}[orig]", original_volume))`). If the input video has no audio stream, FFmpeg will fail with a stream index error. The SDE pipeline has the same issue -- it checks `has_original_audio` before adding `[0:a]` but never probes whether the video file actually has an audio stream.
+**File:** `narratoai-core/src/sdp/pipeline.rs:88-100`
+**Issue:** `sdp_step_concat` writes video paths into the FFmpeg concat demuxer list file without checking for newline characters (`\n`, `\r`). The SDE pipeline (lines 308-312) validates and rejects such paths. If a path contains a newline, the concat file format is corrupted -- FFmpeg reads partial paths, producing wrong output or cryptic errors.
 
-**Fix:** Before building the filter graph, probe the video file for audio stream presence (e.g., using `ffprobe` or checking the video container metadata), and conditionally include `[0:a]` based on actual availability, not just OST type.
-
-### WR-04: Catch-all branch in ScriptError-to-SdpError conversion loses type information
-
-**File:** `src/sdp/script_gen.rs:119-122`
-**Issue:** The `merge_script` function maps `crate::script::error::ScriptError` to `SdpError` with a catch-all `_` branch:
-
+**Fix:** Add the same guard as SDE:
 ```rust
-_ => SdpError::Io {
-    source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-},
+let path_str = video_path.to_string_lossy().replace('\\', "/");
+if path_str.contains('\n') || path_str.contains('\r') {
+    return Err(SdpError::Validation {
+        details: format!("视频路径包含非法字符: {}", clip._id),
+    });
+}
+let escaped = path_str.replace("'", "'\\''");
+concat_content.push_str(&format!("file '{}'\n", escaped));
 ```
 
-`ScriptError` has 5 variants (`JsonParse`, `Validation`, `Io`, `IndexOutOfBounds`, `InvalidTimestamp`). Only 3 are explicitly mapped; `IndexOutOfBounds` and `InvalidTimestamp` fall through to the catch-all, losing semantic information by wrapping them as generic IO errors. Additionally, `JsonParse` is mapped to `SdpError::JsonRepair`, which conflates "JSON parsing failure" with "JSON repair failure" -- these are semantically distinct concepts.
+### WR-05: Unused `_config` parameter on public API `run_sdp`
 
-**Fix:** Add explicit arms for all variants:
+**File:** `narratoai-core/src/sdp/pipeline.rs:20`
+**Issue:** `run_sdp` accepts `_config: &crate::config::types::AppConfig` but never uses it. As a `pub async fn`, every caller must pass a config reference that is silently ignored. This creates coupling without benefit -- if the function later needs config, changing the signature is a breaking change. The underscore prefix signals "unused" but does not justify keeping the parameter in the public API.
 
+**Fix:** Remove the parameter. If future needs arise, add it back:
 ```rust
-crate::script::error::ScriptError::Validation(errors) => SdpError::Validation {
-    details: format!("脚本校验失败: {:?}", errors),
-},
-crate::script::error::ScriptError::Io(io) => SdpError::Io { source: io },
-crate::script::error::ScriptError::JsonParse(je) => SdpError::JsonRepair {
-    details: format!("JSON 解析失败: {}", je),
-},
-crate::script::error::ScriptError::IndexOutOfBounds => SdpError::Validation {
-    details: "脚本索引越界".into(),
-},
-crate::script::error::ScriptError::InvalidTimestamp(ts) => SdpError::ParseSubtitle {
-    details: format!("脚本中无效的时间戳: {}", ts),
-},
+pub async fn run_sdp(
+    request: SdpRequest,
+    progress: Option<SdpProgressCallback>,
+) -> Result<PathBuf, SdpError> {
+```
+Update all callers accordingly.
+
+### WR-06: Synchronous blocking I/O in async context
+
+**File:** `narratoai-core/src/sdp/pipeline.rs:34` (`std::fs::create_dir_all`), `narratoai-core/src/sdp/pipeline.rs:102` (`std::fs::write`)
+**Issue:** Synchronous file operations are called directly in `async fn run_sdp` and `async fn sdp_step_concat` without `spawn_blocking`. This blocks the tokio worker thread. In a single-threaded runtime, this could cause deadlock (blocked thread cannot poll other futures). The SDE pipeline consistently uses `tokio::fs::create_dir_all` and `tokio::fs::write` for these operations.
+
+Also, `sdp_step_concat` (line 102) returns `Result<(), SdpError>` via `std::fs::write?` -- the `?` works because `From<std::io::Error> for SdpError` is implemented. But the function is `async` while doing only synchronous work, which is misleading.
+
+**Fix:** Use tokio async variants:
+```rust
+// Line 34:
+tokio::fs::create_dir_all(&task_dir).await?;
+// Line 102:
+tokio::fs::write(&concat_list_path, &concat_content).await?;
 ```
 
-### WR-05: SDP depends on SDE's repair_json function
+### WR-07: Redundant TTS skip condition in SDE pipeline
 
-**File:** `src/sdp/script_gen.rs:218, 266`
-**Issue:** `generate_sdp_script` calls `crate::sde::script_gen::repair_json()` twice (lines 218 and 266), creating a module dependency from `sdp` to `sde`. This is architecturally incorrect because:
-1. The SDP module should not depend on SDE internals
-2. If `repair_json` is refactored or moved, SDP silently breaks
-3. It prevents independent testing of SDP without SDE
-
-**Fix:** Move `repair_json` into a shared utility location (e.g., `src/prompt/` or a new `src/utils/json.rs`) and have both SDE and SDP import from there.
-
-### WR-06: Fragile magic string for TTS skip detection
-
-**File:** `src/sde/pipeline.rs:145`
-**Issue:** The TTS loop skips narration entries starting with `"播放原片"`:
-
+**File:** `narratoai-core/src/sde/pipeline.rs:158-163`
+**Issue:** Two adjacent `if` blocks check TTS skip conditions:
 ```rust
+if clip.narration.starts_with("播放原片") && clip.ost == OstType::OriginalSound {
+    continue;
+}
+// OST=1 片段使用原始音轨，无需 TTS
+if clip.ost == OstType::OriginalSound {
+    continue;
+}
+```
+The second `if` already handles ALL `OstType::OriginalSound` clips regardless of narration content. The first `if` block's `"播放原片"` prefix check adds no unique behavior: every clip that enters the first block also enters the second. The first block is dead code.
+
+The comment says `"播放原片" 前缀仅对 OST=1 片段跳过 TTS；OST=0/2 仍需 TTS 结果` -- but the code doesn't implement this intent for OST=0/2 since the `&&` condition requires OST=OriginalSound anyway.
+
+**Fix:** Remove the first block entirely. If the intent was to skip TTS for "播放原片" prefix on any OST type, remove the `&& clip.ost == OstType::OriginalSound` condition:
+```rust
+// Option A: Remove redundant block
+if clip.ost == OstType::OriginalSound {
+    continue;
+}
+
+// Option B: If "播放原片" should skip TTS regardless of OST:
 if clip.narration.starts_with("播放原片") {
     continue;
 }
 ```
 
-This is coupled to the exact string format generated by the LLM prompt (`script_generation_v2.0.md` defines narration format as `"播放原片+序号"`). If the prompt template is updated to use a different prefix, TTS generation will silently attempt to synthesize audio for playback-only clips, producing wasted API calls and corrupted output. This is a fragile convention that should be enforced at the type level.
+### WR-08: Missing intermediate progress checkpoint in SDP composite step
 
-**Fix:** Add a dedicated boolean field (e.g., `skip_tts: bool`) to `ScriptClip` in addition to the OST type, populated during script parsing rather than relying on string prefix matching.
+**File:** `narratoai-core/src/sdp/pipeline.rs:71-73`
+**Issue:** The function doc comment documents composite as `60% to 90% to 100%`, but the code only emits `60.0` (line 71) and `100.0` (line 73). The `90%` checkpoint is never emitted. SDE correctly emits both `95%` (start) and `100%` (end). Progress callback consumers relying on the documented step granularity miss a progress update.
 
-### WR-07: Subtitle blocks silently dropped on parse failure
-
-**File:** `src/subtitle/parser.rs:193, 215-222`
-**Issue:** Multiple parse failures are silently swallowed with no logging:
-
-- Line 193: `lines[0].trim().parse().unwrap_or(0)` -- if the block index line is non-numeric, it defaults to 0 without warning
-- Lines 215-222: `continue` on `parse_srt_timestamp` error -- malformed timestamps cause the entire subtitle block to be silently skipped
-
-This means a subtitle file with a single malformed entry will lose that entry without any indication to the user or caller.
-
-**Fix:** Log a warning via `tracing::warn!` when a subtitle block is skipped due to parse failure, including the raw block text for debugging:
-
+**Fix:** Insert an intermediate progress emission:
 ```rust
-if let Err(e) = parse_srt_timestamp(ts_parts[0].trim()) {
-    tracing::warn!("跳过字幕块第 {} 行: 开始时间戳解析失败: {}", ...);
-    continue;
-}
+state.emit_progress("composite", 60.0, "正在最终合成...");
+sdp_step_composite(&mut state, &request).await?;
+state.emit_progress("composite", 90.0, "合成完成");  // Missing
+state.emit_progress("composite", 100.0, "最终合成完成");
 ```
-
-### WR-08: Fragile implicit ordering between generate_sdp_script and run_sdp
-
-**File:** `src/sdp/pipeline.rs:39-42`
-**Issue:** When `script_path` is `None`, `run_sdp` defaults to `state.task_dir.join("merged_subtitle.json")`. This file is created by `generate_sdp_script()`, meaning the caller must call `generate_sdp_script` first and then `run_sdp` with `script_path: None`. However, this ordering constraint is not enforced at the type or documentation level. If `script_path` is `None` but `merged_subtitle.json` doesn't exist, the error will be a cryptic `No such file or directory` from `load_script`.
-
-**Fix:** Either make `script_path` required (not `Option`), or document the ordering constraint clearly in the doc comment for `run_sdp`. A stronger fix: accept the output of `generate_sdp_script` directly (a `Script`) rather than requiring it to be serialized and re-read.
-
-### WR-09: Duplicate `secs_to_timestamp_str` across three modules
-
-**File:** `src/sdp/clip.rs:88-101` (also `src/sde/clip.rs:48-61`, `src/documentary/timestamp.rs:82-94`)
-**Issue:** The same `secs → SRT timestamp` conversion logic is implemented in three places with near-identical code:
-- `src/sdp/clip.rs:secs_to_timestamp_str` (used by SDP clip)
-- `src/sde/clip.rs:secs_to_timestamp_str` (used by SDE clip)
-- `src/documentary/timestamp.rs:secs_to_srt_time` (exported and used by SDE pipeline)
-
-Any bug fix or format change must be applied across all three, creating a maintenance risk.
-
-**Fix:** Move a single `secs_to_srt_time` to `src/subtitle/timestamp.rs` (since it's a subtitle-format utility) and have all callers import from there.
 
 ## Info
 
-### IN-01: Redundant range check in SdeRequest validation
+### IN-01: Duplicate `secs_to_timestamp_str` function
 
-**File:** `src/sde/types.rs:65-66`
-**Issue:** The `voice_rate` validation uses two overlapping checks:
+**File:** `narratoai-core/src/sdp/clip.rs:87-100`
+**Issue:** `sdp/clip.rs` defines `secs_to_timestamp_str` which is functionally identical to `secs_to_srt_time` from `crate::documentary::timestamp` (documentary/timestamp.rs:82-95). The SDE pipeline imports and uses `secs_to_srt_time` for the same purpose. Duplication creates maintenance risk if the format needs to change.
 
+**Fix:** Import `secs_to_srt_time` from documentary and remove the local duplicate:
 ```rust
-if !(0.0..=5.0).contains(&self.voice_rate) || self.voice_rate <= 0.0 {
+use crate::documentary::timestamp::secs_to_srt_time;
 ```
 
-The range `(0.0..=5.0)` already excludes values < 0.0 and > 5.0. The second check `self.voice_rate <= 0.0` only additionally catches `0.0` itself. The same effective range could be expressed as `self.voice_rate <= 0.0 || self.voice_rate > 5.0` without the redundant `contains` call. Not harmful, just messy.
+### IN-02: Unused `_encoding` variable in `generate_sdp_script`
 
-### IN-02: Dead code: extract_text_from_srt and extract_text_from_ass
+**File:** `narratoai-core/src/sdp/script_gen.rs:156`
+**Issue:** The `_encoding` field from `parse_subtitle_file` is deliberately ignored (prefix `_`). The `segments` variable is only used to build `subtitle_plain` text via iteration -- structured segment data (with timestamps) is discarded. This means `generate_sdp_script` re-parses timestamps from plain text rather than using the already-parsed structured data, which is wasteful since `detect_encoding` (a CPU-intensive operation) already ran.
 
-**File:** `src/subtitle/parser.rs:342-403`
-**Issue:** `extract_text_from_srt` (line 342) and `extract_text_from_ass` (line 370) are defined but never called anywhere in the reviewed files. They are also not re-exported from `src/subtitle/mod.rs`, making them inaccessible to external callers. Either remove them or export them if they are intended for future use.
+### IN-03: Inconsistent timestamp parser usage across SDE and SDP
 
-### IN-03: CSS shorthand color silently defaults instead of expanding
+**File:** `narratoai-core/src/sde/pipeline.rs:249`, `narratoai-core/src/sdp/clip.rs:61`
+**Issue:** SDE uses `parse_time_to_secs` from `crate::documentary::timestamp` for clip duration calculation. SDP uses `parse_srt_timestamp` from `crate::subtitle::timestamp`. These parsers differ: `parse_srt_timestamp` normalizes `'.'` to `','` first (supporting both separators), while `parse_time_to_secs` only accepts `','`. This inconsistency means SDP handles non-standard timestamp formats more gracefully than SDE.
 
-**File:** `src/sde/pipeline.rs:407-412`
-**Issue:** The hex-to-ASS color conversion checks `hex.len() == 6` to distinguish between `#RRGGBB` and shorthand. If a user passes `#FFF` (valid CSS 3-digit shorthand), it falls through to the default white (`&H00FFFFFF`) instead of expanding to `#FFFFFF` (`&H000000FF`). Not a runtime crash but produces unexpected color output.
+### IN-04: `SdeError` has no `From<ScriptError>` impl
 
-### IN-04: `unwrap_or` fallback may pass invalid timestamps to parser
-
-**File:** `src/sde/pipeline.rs:235`
-**Issue:** `clip.timestamp.split('-').next().unwrap_or(&clip.timestamp)` -- if the timestamp string lacks a `-` separator, the full string (including the end time) is passed to `parse_time_to_secs`, which will likely fail with a confusing error message. Using `unwrap_or` masks the actual precondition violation.
+**File:** `narratoai-core/src/sde/error.rs` (all lines)
+**Issue:** `SdeError` does not implement `From<crate::script::error::ScriptError>`, but `sde/pipeline.rs:128` calls `parse_script(&state.narration_raw)?;` which (based on import path `crate::sde::script_gen::parse_script`) apparently returns a type compatible with `SdeError`. If `parse_script` is ever refactored to return `ScriptError` instead, this call site silently breaks. `SdpError` (sdp/error.rs:45-60) correctly implements `From<ScriptError>` -- SDE should follow the same pattern for consistency and robustness.
 
 ---
 
-_Reviewed: 2026-05-06T12:00:00Z_
+_Reviewed: 2026-05-07T12:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
