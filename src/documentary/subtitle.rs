@@ -151,17 +151,17 @@ mod tests {
         vec![
             WordBoundary {
                 start_offset: 0,
-                end_offset: 500_000_0, // 0.5s in 100ns units
+                end_offset: 5_000_000, // 0.5s in 100ns units
                 text: "你好".to_string(),
             },
             WordBoundary {
-                start_offset: 500_000_0,
-                end_offset: 1_200_000_0, // 1.2s
+                start_offset: 5_000_000,
+                end_offset: 12_000_000, // 1.2s
                 text: "世界".to_string(),
             },
             WordBoundary {
-                start_offset: 1_200_000_0,
-                end_offset: 2_000_000_0, // 2.0s
+                start_offset: 12_000_000,
+                end_offset: 20_000_000, // 2.0s
                 text: "测试".to_string(),
             },
         ]
