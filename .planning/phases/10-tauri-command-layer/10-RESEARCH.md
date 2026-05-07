@@ -658,9 +658,9 @@ const result = await invoke('run_documentary', {
 | A5 | Tauri `capabilities/default.json` needs `core:event:allow-emit` and `core:event:allow-listen` | Code Examples | LOW — Tauri 2.0 defaults may include these; verify at build time |
 | A6 | `tauri-state` is not needed; use `app.manage()` directly with `AppConfig` | Pattern 4 | LOW — `app.manage()` stores state; commands access via `State<AppConfig>` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **API Key Access in Commands (from A2)**
+1. **API Key Access in Commands (from A2)** — RESOLVED: Store `Arc<RwLock<AppConfig>>` in Tauri State via `app.manage(config_manager.config())`, commands read from the RwLock. Plan 02 Task 3 implements this pattern.
    - What we know: `AppConfig` fields with `skip_serializing` (vision_openai_api_key, text_openai_api_key, pexels_api_keys, pixabay_api_keys, azure.speech_key, tencent.secret_id/key, soulvoice.api_key, tts_qwen.api_key, doubaotts.ak/sk/token) are empty in the `Clone`d `AppConfig` returned by `get()`.
    - What's unclear: Do the pipeline commands need these keys? Yes — LLM and TTS pipelines need API keys.
    - Recommendation: Either (a) remove `skip_serializing` from API key fields, or (b) store the `Arc<RwLock<AppConfig>>` in Tauri State instead of the cloned `AppConfig`, and commands read from the RwLock.
@@ -669,11 +669,13 @@ const result = await invoke('run_documentary', {
    - What we know: Development uses `config.toml` in the project root. Production needs it bundled or side-by-side with the binary.
    - What's unclear: Tauri's `resource_dir()` may not point to the project root in dev mode. How does the setup callback find the config file?
    - Recommendation: Use multiple fallback paths: (1) resource_dir()/config.toml, (2) std::env::current_dir()/config.toml, (3) PathBuf::from("config.toml"). Document in the plan.
+   - RESOLVED: Plan 02 Task 3 implements 3-path fallback in `setup()` — `resource_dir()/config.toml` → `current_dir()/config.toml` → `config.toml`.
 
 3. **Callback Signature Modification Impact**
    - What we know: D-14 requires modifying pipeline main functions to accept `ProgressCallback`. Currently `run_documentary()` does NOT accept it.
    - What's unclear: How many existing call sites need updating? The library tests call `run_documentary()` directly — they'll need the callback parameter too.
    - Recommendation: Add `Option<ProgressCallback>` parameter (backward compatible with `None` = no progress) rather than changing the signature to require it. All pipeline functions already support this pattern via `state.progress`.
+   - RESOLVED: Plan 01 Task 3 uses `Option<ProgressCallback>` = `None` as default. All three pipeline functions (`run_documentary`, `run_sde`, `run_sdp`) and script_gen updated. Existing tests pass with `None`.
 
 ## Validation Architecture
 
