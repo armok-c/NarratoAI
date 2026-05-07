@@ -202,7 +202,7 @@ Plans:
 
 Plans:
 - **Wave 1** *(no blockers — can execute immediately)*
-  - [ ] 10-01-PLAN.md — Cargo workspace + narratoai-core migration + request type Deserialize + unified ProgressCallback + pipeline progress params
+  - [x] 10-01-PLAN.md — Cargo workspace + narratoai-core migration + request type Deserialize + unified ProgressCallback + pipeline progress params
 - **Wave 2** *(blocked on Wave 1 completion)*
   - [ ] 10-02-PLAN.md — CommandError + models + 15 commands + register_all_commands macro + lib.rs (Config State, PromptManager init, command registration)
 
@@ -262,6 +262,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. SDE Pipeline | 0/4 | Planned | 2026-05-05 |
 | 8. SDP Pipeline | 0/5 | Gap closure | 2026-05-06 |
 | 9. JianYing Export | 4/4 | Complete | 2026-04-29 |
-| 10. Tauri Command Layer | 0/2 | Planned | - |
+| 10. Tauri Command Layer | 1/2 | In Progress|  |
 | 11. Extended Features | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |
