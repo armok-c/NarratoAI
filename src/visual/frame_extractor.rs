@@ -114,6 +114,9 @@ pub(crate) async fn extract_frames_fast_path(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
+    // 当调用方未提供取消令牌时，创建无主令牌。spawn_blocking 任务将运行至完成，
+    // 即使调用方的异步任务被丢弃（fire-and-forget 语义）。
+    // 如需响应式取消，调用方应始终提供 CancellationToken。
     let cancel = cancel.unwrap_or_default();
 
     tokio::task::spawn_blocking(move || -> Result<usize, VisualError> {
@@ -191,6 +194,9 @@ async fn extract_frames_fallback(
 ) -> Result<usize, VisualError> {
     let video = video_path.to_path_buf();
     let output = output_dir.to_path_buf();
+    // 当调用方未提供取消令牌时，创建无主令牌。spawn_blocking 任务将运行至完成，
+    // 即使调用方的异步任务被丢弃（fire-and-forget 语义）。
+    // 如需响应式取消，调用方应始终提供 CancellationToken。
     let cancel = cancel.unwrap_or_default();
     let progress = progress.map(Arc::new);
 
@@ -518,6 +524,10 @@ fn cleanup_fast_path_files(output_dir: &Path) {
 ///
 /// 需要 `ffprobe` 二进制文件在系统 PATH 中可用。`ffprobe` 通常随 FFmpeg 一起安装。
 /// 在 Docker 镜像中已内置；本地开发需自行安装 FFmpeg（包含 ffprobe）。
+///
+/// **限制：** 此函数直接调用系统 PATH 中的 `ffprobe`，不使用 `ffmpeg_sidecar` 的二进制发现。
+/// 当快路径使用 `ffmpeg_sidecar`（可能通过 download-ffmpeg feature 自动安装）时，
+/// 如果系统 PATH 中没有 ffprobe，此回退路径将静默失败。
 fn get_video_duration(video_path: &str) -> Result<f64, VisualError> {
     let output = std::process::Command::new("ffprobe")
         .args([
@@ -557,6 +567,10 @@ fn file_is_valid(path: &Path) -> bool {
 ///
 /// 使用阻塞 `wait()` 替代忙等轮询，取消检查在调用点（帧间/回退级别间）进行，
 /// 避免每秒 20 次无效唤醒。
+///
+/// **限制：** 此函数直接调用系统 PATH 中的 `ffmpeg`，不使用 `ffmpeg_sidecar` 的二进制发现。
+/// 当快路径使用 `ffmpeg_sidecar`（可能通过 download-ffmpeg feature 自动安装）时，
+/// 如果系统 PATH 中没有 ffmpeg，此回退路径将静默失败。
 fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
     if cancel.is_cancelled() {
         return false;
@@ -568,11 +582,17 @@ fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
         .spawn()
     {
         Ok(c) => c,
-        Err(_) => return false,
+        Err(e) => {
+            tracing::warn!("FFmpeg spawn 失败: {}", e);
+            return false;
+        }
     };
     match child.wait() {
         Ok(status) => status.success(),
-        Err(_) => false,
+        Err(e) => {
+            tracing::warn!("FFmpeg wait 失败: {}", e);
+            false
+        }
     }
 }
 
