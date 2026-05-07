@@ -491,6 +491,11 @@ fn cleanup_fast_path_files(output_dir: &Path) {
 }
 
 /// 通过 ffprobe 获取视频时长（秒）
+///
+/// # 系统要求
+///
+/// 需要 `ffprobe` 二进制文件在系统 PATH 中可用。`ffprobe` 通常随 FFmpeg 一起安装。
+/// 在 Docker 镜像中已内置；本地开发需自行安装 FFmpeg（包含 ffprobe）。
 fn get_video_duration(video_path: &str) -> Result<f64, VisualError> {
     let output = std::process::Command::new("ffprobe")
         .args([
