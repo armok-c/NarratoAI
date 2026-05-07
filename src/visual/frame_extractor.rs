@@ -49,6 +49,12 @@ pub async fn extract_frames(
         return Err(VisualError::FrameExtraction("帧提取间隔必须 > 0".into()));
     }
 
+    if interval_seconds > 86400.0 {
+        return Err(VisualError::FrameExtraction(
+            format!("帧提取间隔过大: {}s (最大 86400s/1天)", interval_seconds)
+        ));
+    }
+
     // Create output dir if not exists
     if !output_dir.exists() {
         std::fs::create_dir_all(output_dir)
