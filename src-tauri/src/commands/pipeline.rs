@@ -77,8 +77,8 @@ pub async fn run_sde(
     app: AppHandle,
     request: SdeRequest,
     config: tauri::State<'_, AppConfig>,
-    registry: tauri::State<'_, std::sync::Arc<std::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
-    prompt_manager: tauri::State<'_, std::sync::Arc<std::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
+    registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
+    prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
 ) -> Result<CommandResponse, CommandError> {
     let task_id = Uuid::new_v4().to_string();
     let progress_task_id = task_id.clone();
@@ -114,14 +114,8 @@ pub async fn run_sde(
             let _ = app_handle.emit("pipeline-progress", payload);
         });
 
-    let registry = registry.read().map_err(|e| CommandError {
-        code: "REGISTRY_LOCK".into(),
-        message: format!("注册表读取锁失败: {}", e),
-    })?;
-    let pm = prompt_manager.read().map_err(|e| CommandError {
-        code: "PROMPT_LOCK".into(),
-        message: format!("Prompt 管理器读取锁失败: {}", e),
-    })?;
+    let registry = registry.read().await;
+    let pm = prompt_manager.read().await;
 
     let output_path = narratoai_core::sde::pipeline::run_sde(
         request,
@@ -199,20 +193,16 @@ pub async fn generate_documentary_script(
     _app: AppHandle,
     request: ScriptGenRequest,
     config: tauri::State<'_, AppConfig>,
-    registry: tauri::State<'_, std::sync::Arc<std::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
+    registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
 ) -> Result<Script, CommandError> {
-    let registry = registry.read().map_err(|e| CommandError {
-        code: "REGISTRY_LOCK".into(),
-        message: format!("注册表读取锁失败: {}", e),
-    })?;
-
-    // 从配置中获取 text LLM provider
-    let provider = registry
-        .get(&config.app.text_llm_provider)
-        .map_err(|e| CommandError {
+    // 从配置中获取 text LLM provider（作用域化，确保 guard 在 .await 前释放）
+    let provider = {
+        let guard = registry.read().await;
+        guard.get(&config.app.text_llm_provider).map_err(|e| CommandError {
             code: "PROVIDER_NOT_FOUND".into(),
             message: format!("获取 LLM provider 失败: {}", e),
-        })?;
+        })?
+    };
 
     let clips = narratoai_core::documentary::script_gen::generate_documentary_script(
         request,
@@ -232,25 +222,18 @@ pub async fn generate_sdp_script(
     temperature: f64,
     custom_clips: u32,
     config: tauri::State<'_, AppConfig>,
-    registry: tauri::State<'_, std::sync::Arc<std::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
-    prompt_manager: tauri::State<'_, std::sync::Arc<std::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
+    registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
+    prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
 ) -> Result<Script, CommandError> {
-    let registry = registry.read().map_err(|e| CommandError {
-        code: "REGISTRY_LOCK".into(),
-        message: format!("注册表读取锁失败: {}", e),
-    })?;
-    let pm = prompt_manager.read().map_err(|e| CommandError {
-        code: "PROMPT_LOCK".into(),
-        message: format!("Prompt 管理器读取锁失败: {}", e),
-    })?;
-
-    // 从配置中获取 text LLM provider
-    let provider = registry
-        .get(&config.app.text_llm_provider)
-        .map_err(|e| CommandError {
+    // 从配置中获取 text LLM provider（作用域化，确保 registry guard 在 .await 前释放）
+    let provider = {
+        let guard = registry.read().await;
+        guard.get(&config.app.text_llm_provider).map_err(|e| CommandError {
             code: "PROVIDER_NOT_FOUND".into(),
             message: format!("获取 LLM provider 失败: {}", e),
-        })?;
+        })?
+    };
+    let pm = prompt_manager.read().await;
 
     let task_dir = std::env::temp_dir().join("narratoai").join(Uuid::new_v4().to_string());
     tokio::fs::create_dir_all(&task_dir).await.map_err(|e| CommandError {
