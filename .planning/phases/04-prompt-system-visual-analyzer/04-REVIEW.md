@@ -1,222 +1,188 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-reviewed: 2026-05-07T16:30:00Z
+reviewed: 2026-05-07T14:30:00Z
 depth: standard
-files_reviewed: 20
+files_reviewed: 19
 files_reviewed_list:
   - Cargo.toml
-  - src/lib.rs
-  - src/prompt/mod.rs
-  - src/prompt/types.rs
-  - src/prompt/error.rs
-  - src/prompt/registry.rs
-  - src/prompt/template.rs
-  - src/prompt/manager.rs
-  - src/prompt/validators.rs
-  - src/prompt/register.rs
-  - src/prompt/templates/documentary/frame_analysis_v1.0.md
-  - src/prompt/templates/documentary/narration_generation_v2.0.md
-  - src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
-  - src/prompt/templates/short_drama_narration/script_generation_v1.0.md
-  - src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
-  - src/prompt/templates/short_drama_narration/plot_analysis_v1.0.md
-  - src/prompt/templates/short_drama_narration/script_generation_v2.0.md
-  - src/visual/mod.rs
-  - src/visual/error.rs
-  - src/visual/types.rs
-  - src/visual/frame_extractor.rs
-  - src/visual/analyzer.rs
+  - narratoai-core/src/lib.rs
+  - narratoai-core/src/prompt/error.rs
+  - narratoai-core/src/prompt/manager.rs
+  - narratoai-core/src/prompt/mod.rs
+  - narratoai-core/src/prompt/register.rs
+  - narratoai-core/src/prompt/registry.rs
+  - narratoai-core/src/prompt/template.rs
+  - narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md
+  - narratoai-core/src/prompt/templates/documentary/narration_generation_v2.0.md
+  - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
+  - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v1.0.md
+  - narratoai-core/src/prompt/types.rs
+  - narratoai-core/src/prompt/validators.rs
+  - narratoai-core/src/visual/analyzer.rs
+  - narratoai-core/src/visual/error.rs
+  - narratoai-core/src/visual/frame_extractor.rs
+  - narratoai-core/src/visual/mod.rs
+  - narratoai-core/src/visual/types.rs
 findings:
-  critical: 1
-  warning: 5
+  critical: 0
+  warning: 2
   info: 4
-  total: 10
+  total: 6
 status: issues_found
 ---
 
-# Phase 4: Code Review Report
+# Phase 04: Code Review Report — Prompt System / Visual Analyzer
 
-**Reviewed:** 2026-05-07T16:30:00Z
+**Reviewed:** 2026-05-07T14:30:00Z
 **Depth:** standard
-**Files Reviewed:** 20 (prompt system + visual analyzer + 7 templates)
+**Files Reviewed:** 19 (prompt system 8 + visual analyzer 4 + 6 template files + Cargo.toml + lib.rs)
 **Status:** issues_found
 
 ## Summary
 
-Re-reviewed 20 source files at standard depth covering the prompt system (types, error, registry, template engine, manager, validators, registration, 7 prompt templates) and visual analyzer (error, types, frame extractor, batch analyzer). Previous round's findings (CR-01 strip_code_fence logic bug, WR-02 empty-observations blind spot, WR-03 missing code-fence stripping in JSON validator) have been fixed. The fixes are verified correct in the current code.
+Reviewed the Rust `prompt` and `visual` subsystems at standard depth. The codebase has been refactored since the previous review — `strip_code_fence` was moved to `crate::text_utils` (formerly the cross-module coupling CR-01), the `analyzed_batches` count now uses an explicit counter (formerly WR-03), and error logging is present in `run_ffmpeg_with_cancel`.
 
-Found 1 new critical issue and 5 warnings. The critical issue is a cross-module architectural coupling where `prompt/validators.rs` imports from `visual/types.rs`, creating an inappropriate dependency from the prompt module to the visual module. Warnings cover silent error swallowing in FFmpeg, inconsistent FFmpeg binary discovery between fast/fallback paths, fragile success-count computation, out-of-range visual_salience acceptance, and cancellation token lifetime issues in spawn_blocking.
+Two WARNING-level findings remain: (1) `FrameObservation::validate()` is defined but never called in the analysis pipeline, so out-of-range `visual_salience` values pass through undetected; (2) the fallback frame extraction path uses system PATH `ffmpeg`/`ffprobe` directly while the fast path uses `ffmpeg_sidecar`, creating an inconsistent binary discovery strategy. Four INFO-level items note minor style/sustainability issues.
 
-## Critical Issues
+## Previously Fixed (from prior review iteration)
 
-### CR-01: Cross-module dependency -- prompt validators import from visual types
-
-**File:** `src/prompt/validators.rs:35`
-**Classification:** BLOCKER
-
-**Issue:** The `validate_json` function calls `crate::visual::types::strip_code_fence()` to strip markdown code fences before JSON validation. This creates a hard dependency from the `prompt` module to the `visual` module. In `src/lib.rs`, these are sibling modules with no hierarchical relationship -- `prompt` is a self-contained template/rendering system that should not depend on video frame analysis code.
-
-Consequences:
-- The `prompt` module cannot compile without the `visual` module present
-- If `strip_code_fence` behavior changes in `visual`, prompt validation silently changes
-- The function is `pub(crate)`, meaning it was not designed as a stable cross-module API
-- Future refactoring of either module risks breaking the other
-
-**Fix:** Extract `strip_code_fence` to a shared utility module:
-
-```rust
-// New file: src/text_utils.rs
-/// Strip markdown code fences (```json...``` or ```...```)
-pub fn strip_code_fence(text: &str) -> &str {
-    let trimmed = text.trim();
-    let after_prefix = trimmed
-        .strip_prefix("```json")
-        .or_else(|| trimmed.strip_prefix("```"))
-        .map(|s| s.trim_start());
-    let content = after_prefix.unwrap_or(trimmed);
-    content
-        .strip_suffix("```")
-        .map(|s| s.trim_end())
-        .unwrap_or(content)
-}
-```
-
-Then update imports in both `src/prompt/validators.rs` and `src/visual/types.rs` to use `crate::text_utils::strip_code_fence`.
+The following prior findings are confirmed resolved in the current code:
+- **CR-01** (cross-module dependency): `strip_code_fence` is now in `crate::text_utils`, imported by both `validators.rs` and `types.rs`. Correct.
+- **WR-02** (empty-observations blind spot): `analyze_video_frames` now has Step 8b check for all-empty observations. Present and correct.
+- **WR-03** (missing code-fence in JSON validator): `validators.rs:35` calls `crate::text_utils::strip_code_fence`. Present.
+- **WR-03** (old: success-count by subtraction): Code now uses an explicit `success_count` accumulator. Fixed.
+- **WR-01** (old: silent FFmpeg error swallowing): `run_ffmpeg_with_cancel` now has `tracing::warn!` calls for spawn and wait failures. Present.
 
 ## Warnings
 
-### WR-01: `run_ffmpeg_with_cancel` silently swallows all FFmpeg errors
+### WR-01: FrameObservation::validate() defined but never called in the analysis pipeline
 
-**File:** `src/visual/frame_extractor.rs:560-577`
-**Classification:** WARNING
+**Files:**
+- `narratoai-core/src/visual/types.rs:30-37` (definition)
+- `narratoai-core/src/visual/analyzer.rs:163-178` (call site — missing)
 
-**Issue:** The function returns `bool` instead of `Result`, discarding all error context. When FFmpeg fails to spawn (e.g., binary not installed, PATH misconfigured, permission denied) or `child.wait()` fails, the caller receives only `false`. The 4-level fallback in `extract_single_frame` tries all levels and reports only "all 4 levels failed (timestamp=Xs)" with no indication that the root cause is a missing FFmpeg binary. This makes production debugging extremely difficult.
+**Issue:** `FrameObservation` defines a public `validate()` method that checks whether `visual_salience` is in the documented `[0.0, 1.0]` range. However, the analysis loop in `analyze_video_frames` parses LLM responses via `parse_and_retry()` and extends the `observations` vector directly without ever calling `.validate()` on any `FrameObservation`. Out-of-range values such as `visual_salience: 2.5` (explicitly tested as acceptable in `types.rs:224`) pass through silently.
 
-**Fix:** At minimum, log the error at warn level:
+The method exists and is public — it was clearly intended to be called post-deserialization — but no call site exists in any reviewed file.
+
+**Fix:** Call `.validate()` on each `FrameObservation` after deserialization. Integrate into `parse_and_retry()` or into the analysis loop:
 
 ```rust
-fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
-    if cancel.is_cancelled() {
-        return false;
-    }
-    let mut child = match std::process::Command::new("ffmpeg")
-        .args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!("FFmpeg spawn failed: {}", e);
-            return false;
-        }
-    };
-    match child.wait() {
-        Ok(status) => status.success(),
-        Err(e) => {
-            tracing::warn!("FFmpeg wait failed: {}", e);
-            false
-        }
-    }
+// In analyze_video_frames, Step 7:
+Ok(batch) => {
+    let valid: Vec<FrameObservation> = batch.observations
+        .into_iter()
+        .filter(|obs| {
+            obs.validate().unwrap_or_else(|e| {
+                warn!("Frame {} validation failed: {}", obs.frame_number, e);
+                false
+            })
+        })
+        .collect();
+    success_count += 1;
+    observations.extend(valid);
+    // ...
 }
 ```
 
-### WR-02: Inconsistent FFmpeg binary discovery between fast path and fallback path
+### WR-02: Fallback frame extraction uses system PATH ffmpeg/ffprobe inconsistent with fast path
 
-**File:** `src/visual/frame_extractor.rs:131,522,564`
-**Classification:** WARNING
+**Files:**
+- `narratoai-core/src/visual/frame_extractor.rs:531-559` (get_video_duration, uses system `ffprobe`)
+- `narratoai-core/src/visual/frame_extractor.rs:574-597` (run_ffmpeg_with_cancel, uses system `ffmpeg`)
+- `narratoai-core/src/visual/frame_extractor.rs:134` (fast path uses `ffmpeg_sidecar::command::FfmpegCommand`)
 
-**Issue:** The fast path uses `ffmpeg_sidecar::command::FfmpegCommand` (which handles FFmpeg binary discovery, including the `download-ffmpeg` feature), but the fallback path calls `std::process::Command::new("ffprobe")` (line 522) and `std::process::Command::new("ffmpeg")` (line 564) directly. On systems where FFmpeg is not on PATH but is managed by `ffmpeg-sidecar` (e.g., the `download-ffmpeg` feature is enabled), the fast path succeeds but the fallback path silently fails with no clear error. This creates inconsistent behavior where the same code works on some systems but not others.
+**Issue:** The fast path uses `ffmpeg_sidecar::command::FfmpegCommand`, which may resolve a bundled or auto-downloaded FFmpeg binary. The fallback path (`extract_frames_fallback`) calls `std::process::Command::new("ffprobe")` and `std::process::Command::new("ffmpeg")` — always resolving from system PATH. There is no guarantee these refer to the same binary.
 
-**Fix:** Use `ffmpeg_sidecar` consistently, or extract the resolved FFmpeg binary path and pass it to `std::process::Command`. At minimum, document this limitation in the function doc comments.
+Concrete failure scenarios:
+- User enables `download-ffmpeg` feature: bundled ffmpeg is used for the fast path (works), but if the fast path yields 0 frames, the fallback resolves a different system PATH ffmpeg (may have different capabilities or encoding defaults, or may not exist at all).
+- The fallback writes `tracing::warn!` messages (line 586, 593) but the caller only receives a bare `false`. The 4-level fallback in `extract_single_frame` propagates no information about which level failed due to a missing binary versus the frame not being extractable.
 
-### WR-03: `analyzed_batches` computed by subtraction instead of explicit counter
+The function doc comments at lines 528-531 and 571-573 acknowledge this limitation but the risk remains real.
 
-**File:** `src/visual/analyzer.rs:179,211`
-**Classification:** WARNING
+**Fix options (pick one):**
 
-**Issue:** The success count is computed as `raw_results.len() - errors.len()` in two places (lines 179 and 211). While currently correct (each batch produces at most one error), this semantic coupling is fragile. If future code changes allow multiple errors per batch or add partial-success tracking, the subtraction produces an incorrect count. The two computation sites also serve different purposes (one for the error path, one for the success path) but use the same implicit logic.
-
-**Fix:** Use an explicit success counter:
-
-```rust
-let mut success_count: usize = 0;
-for (idx, text) in raw_results.iter().enumerate() {
-    match parse_and_retry(text) {
-        Ok(batch) => {
-            success_count += 1;
-            observations.extend(batch.observations);
-            // ...
-        }
-        Err(e) => {
-            errors.push(err_msg);
-        }
-    }
-}
-// Then use success_count instead of raw_results.len() - errors.len()
-```
-
-### WR-04: `visual_salience` accepts out-of-range f64 values without validation
-
-**File:** `src/visual/types.rs:22`
-**Classification:** WARNING
-
-**Issue:** The `visual_salience` field is documented as range "0.0-1.0" but deserializes any `f64` without range validation. The test at line 221-233 explicitly documents that `2.5` is accepted. If downstream code uses this value as a probability weight, UI progress fraction, or array index, out-of-range values from LLM responses could cause panics or incorrect behavior. Since LLM output is inherently unpredictable, validation is important.
-
-**Fix:** Add a post-deserialization validation method:
+Option A: Resolve the ffmpeg path from `ffmpeg_sidecar` and pass it to `std::process::Command`:
 
 ```rust
-impl FrameObservation {
-    pub fn validate(&self) -> Result<(), String> {
-        if let Some(s) = self.visual_salience {
-            if !(0.0..=1.0).contains(&s) {
-                return Err(format!("visual_salience out of range [0,1]: {}", s));
-            }
-        }
-        Ok(())
-    }
+// At the top of extract_frames or a helper:
+fn get_ffmpeg_path() -> PathBuf {
+    // Prefer ffmpeg_sidecar's resolved binary
+    ffmpeg_sidecar::command::ffmpeg_binary()
+        .or_else(|_| PathBuf::from("ffmpeg").canonicalize())
+        .unwrap_or_else(|_| PathBuf::from("ffmpeg"))
 }
 ```
 
-Or clamp the value during deserialization using a custom deserializer.
+Option B: If the two code paths must remain independent, log a structured warning when falling back to alert operators:
 
-### WR-05: `cancel.unwrap_or_default()` creates unowned token that prevents cancellation on task drop
-
-**File:** `src/visual/frame_extractor.rs:117,194`
-**Classification:** WARNING
-
-**Issue:** When the caller passes `cancel: None`, `unwrap_or_default()` creates a new `CancellationToken` that is owned only by the `spawn_blocking` task. No external code can trigger cancellation. More importantly, if the calling async task is dropped (e.g., the HTTP connection closes), the `spawn_blocking` task continues running until completion because the cancellation token is never signaled. This can cause resource leaks (running FFmpeg processes, holding file handles) in server scenarios.
-
-**Fix:** When `cancel` is `None`, pass a fresh `CancellationToken` and store the `Cancelled` handle to trigger on join handle drop. Alternatively, document this as intentional fire-and-forget behavior.
+```rust
+tracing::warn!(
+    "fast path produced 0 frames; falling back to system PATH ffmpeg (may differ from ffmpeg_sidecar binary)"
+);
+```
 
 ## Info
 
-### IN-01: `truncate` filter uses hardcoded magic numbers
+### IR-01: Incorrect #[allow(dead_code)] annotation on seconds_to_hhmmssmmm
 
-**File:** `src/prompt/template.rs:41-48`
+**File:** `narratoai-core/src/visual/frame_extractor.rs:495`
 
-**Issue:** The truncate filter uses hardcoded `100` (max chars) and `97` (chars before "...") with no configurability. Should be named constants for clarity.
+**Issue:** The function has `#[allow(dead_code)]` but is referenced from non-test production code (`rename_fast_path_frames` at line 477). The annotation is misleading — a reader could interpret it as a signal to remove the function.
 
-### IN-02: `notify` crate pinned to RC version
+**Fix:** Remove the `#[allow(dead_code)]` attribute.
 
-**File:** `Cargo.toml:19`
+### IR-02: Regex objects compiled on every render() call
 
-**Issue:** `notify = "9.0.0-rc.3"` is a release candidate. The comment already acknowledges this risk. No action needed beyond awareness.
+**Files:**
+- `narratoai-core/src/prompt/template.rs:85-87`
+- `narratoai-core/src/prompt/template.rs:121-123`
 
-### IN-03: Regex patterns recompiled on every `render()` call
+**Issue:** Both `Regex::new(r"\$\{(\w+)\}")` and `Regex::new(r"\$\{(\w+)\|(\w+)\}")` compile the same patterns on every invocation of `render()`. While regex compilation overhead is small for these patterns, this is a redundant per-call cost.
 
-**File:** `src/prompt/template.rs:85-87,119-121`
+**Fix:** Use `std::sync::LazyLock` (stabilized in Rust 1.80) for one-time compilation:
 
-**Issue:** Two `Regex::new()` calls compile identical patterns on every invocation. Use `std::sync::OnceLock<Regex>` for one-time initialization.
+```rust
+use std::sync::LazyLock;
 
-### IN-04: `builtin_filters()` allocates new HashMap on every `render()` call
+static VAR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\$\{(\w+)\}").expect("invalid var regex")
+});
+```
 
-**File:** `src/prompt/template.rs:10-57`
+The same applies to the filter regex and possibly the `builtin_filters()` HashMap.
 
-**Issue:** The 6-entry filter map is recreated per render call. Use `OnceLock` for lazy one-time initialization.
+### IR-03: render_prompt iterates parameters list twice for default merge
+
+**File:** `narratoai-core/src/prompt/manager.rs:77-84`
+
+**Issue:** The parameter iteration inserts defaults (lines 77-81), then overwrites with caller vars (lines 82-84). This double pass is functionally correct but creates unnecessary allocation churn in the intermediate `HashMap<String, String>` plus the conversion to `HashMap<&str, &str>` (lines 86-89). Could be done in a single pass.
+
+**Fix:** Optional — merge defaults and caller overrides in one pass:
+
+```rust
+let mut merged: HashMap<String, String> = HashMap::new();
+for param in &prompt.metadata.parameters {
+    let value = vars
+        .get(param.name.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| param.default.clone());
+    if let Some(v) = value {
+        merged.insert(param.name.clone(), v);
+    }
+}
+```
+
+### IR-04: PromptError::LockFailure discards original PoisonError type
+
+**File:** `narratoai-core/src/prompt/error.rs:17-18`
+
+**Issue:** The `LockFailure` variant stores a `String` message but discards the `PoisonError<T>` from the `RwLock`. Downstream code cannot inspect whether the error was a poison, timeout, or other lock failure. This is a minor loss of diagnostic information.
+
+**Fix:** Not easily fixable without making `PromptError` generic over the lock guard type, which is likely not worth the complexity. A doc comment noting this limitation would be sufficient.
 
 ---
 
-_Reviewed: 2026-05-07T16:30:00Z_
+_Reviewed: 2026-05-07T14:30:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
