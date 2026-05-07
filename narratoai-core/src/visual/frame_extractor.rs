@@ -96,10 +96,24 @@ pub async fn extract_frames(
             let paths = collect_keyframe_paths_from_dir(output_dir);
             Ok((count, paths))
         }
-        _ => {
-            // Clean up fast-path artifacts
+        Err(e) => {
+            tracing::warn!("Fast path failed, falling back: {}", e);
             cleanup_fast_path_files(output_dir);
-            // Fallback to per-frame extraction
+            let count = extract_frames_fallback(
+                video_path,
+                output_dir,
+                interval_seconds,
+                quality_val,
+                progress,
+                cancel,
+            )
+            .await?;
+            let paths = collect_keyframe_paths_from_dir(output_dir);
+            Ok((count, paths))
+        }
+        Ok(0) => {
+            tracing::info!("Fast path produced 0 frames, falling back");
+            cleanup_fast_path_files(output_dir);
             let count = extract_frames_fallback(
                 video_path,
                 output_dir,
