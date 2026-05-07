@@ -509,6 +509,7 @@ fn rename_fast_path_frames(
 
 /// 将秒数转换为 HHMMSSmmm 格式字符串（9 位数字）
 pub(crate) fn seconds_to_hhmmssmmm(total_secs: f64) -> String {
+    debug_assert!(!total_secs.is_nan(), "seconds_to_hhmmssmmm called with NaN");
     let total_millis = (total_secs * 1000.0).round() as u64;
     let hours = total_millis / 3_600_000;
     let minutes = (total_millis % 3_600_000) / 60_000;
