@@ -1,0 +1,114 @@
+use serde::Serialize;
+use std::fmt;
+
+/// Tauri 命令统一错误——所有领域错误通过 From<T> 转换为此类型
+///
+/// # 安全性
+/// message 保留中文错误信息（与 Phase 1 D-18 一致）。
+/// code 用于前端程序化区分错误类型。
+#[derive(Debug, Clone, Serialize)]
+pub struct CommandError {
+    pub code: String,
+    pub message: String,
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}] {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for CommandError {}
+
+// ---- From<T> implementations for each domain error type ----
+// 每个实现使用 err.to_string() 保留中文 Display 信息（D-18）
+
+use narratoai_core::config::error::ConfigError as CoreConfigError;
+impl From<CoreConfigError> for CommandError {
+    fn from(err: CoreConfigError) -> Self {
+        CommandError {
+            code: "CONFIG_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::documentary::error::PipelineError;
+impl From<PipelineError> for CommandError {
+    fn from(err: PipelineError) -> Self {
+        CommandError {
+            code: "PIPELINE_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::sde::error::SdeError;
+impl From<SdeError> for CommandError {
+    fn from(err: SdeError) -> Self {
+        CommandError {
+            code: "SDE_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::sdp::error::SdpError;
+impl From<SdpError> for CommandError {
+    fn from(err: SdpError) -> Self {
+        CommandError {
+            code: "SDP_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::script::error::ScriptError;
+impl From<ScriptError> for CommandError {
+    fn from(err: ScriptError) -> Self {
+        CommandError {
+            code: "SCRIPT_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::jianying::error::JianYingError;
+impl From<JianYingError> for CommandError {
+    fn from(err: JianYingError) -> Self {
+        CommandError {
+            code: "JIANYING_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::error::TTSError;
+impl From<TTSError> for CommandError {
+    fn from(err: TTSError) -> Self {
+        CommandError {
+            code: "TTS_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+use narratoai_core::error::LLMError;
+impl From<LLMError> for CommandError {
+    fn from(err: LLMError) -> Self {
+        CommandError {
+            code: "LLM_ERROR".into(),
+            message: err.to_string(),
+        }
+    }
+}
+
+// ---- String error (for validation error messages from validate() methods) ----
+impl From<String> for CommandError {
+    fn from(msg: String) -> Self {
+        CommandError {
+            code: "VALIDATION_ERROR".into(),
+            message: msg,
+        }
+    }
+}
