@@ -72,6 +72,14 @@ pub async fn analyze_video_frames(
         cb(Some(0.0), "开始帧提取");
     }
 
+    // 输入参数校验
+    if batch_size == 0 {
+        return Err(VisualError::Analysis("batch_size 必须 > 0".into()));
+    }
+    if max_concurrency == 0 {
+        return Err(VisualError::Analysis("max_concurrency 必须 > 0".into()));
+    }
+
     // Step 2 — 帧提取（调用方指定 output_dir, D-23）
     let frame_count = extract_frames(
         video_path,
