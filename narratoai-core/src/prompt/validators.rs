@@ -83,8 +83,7 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation(format!(
             "解说文案过短: {} 字符（需要 >= {}）",
             char_count,
-            MIN_NARRATION_CHARS,
-            char_count
+            MIN_NARRATION_CHARS
         )));
     }
 
@@ -96,8 +95,7 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation(format!(
             "解说文案段落数不足: {} 段（需要 >= {}）",
             paragraphs.len(),
-            MIN_NARRATION_PARAGRAPHS,
-            paragraphs.len()
+            MIN_NARRATION_PARAGRAPHS
         )));
     }
 
@@ -120,8 +118,7 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation(format!(
             "剧情分析内容不足: {} 字符（需要 >= {}）",
             char_count,
-            MIN_PLOT_ANALYSIS_CHARS,
-            char_count
+            MIN_PLOT_ANALYSIS_CHARS
         )));
     }
 
