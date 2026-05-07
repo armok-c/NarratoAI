@@ -1,80 +1,54 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-05-07T10:50:00Z
+fixed_at: 2026-05-07T14:30:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 18
-findings_in_scope: 7
-fixed: 5
-skipped: 2
-status: partial
+iteration: 19
+findings_in_scope: 3
+fixed: 3
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 04: Code Review Fix Report (Iteration 18)
+# Phase 04: Code Review Fix Report (Iteration 19)
 
-**Fixed at:** 2026-05-07T10:50:00Z
+**Fixed at:** 2026-05-07T14:30:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 18
+**Iteration:** 19
 
 **Summary:**
-- Fix scope: critical + warning
-- Findings in scope: 7 (2 CRITICAL, 5 WARNING)
-- Fixed: 5
-- Skipped: 2 (1 false positive, 1 already covered by another fix)
+- Fix scope: warning
+- Findings in scope: 3 (3 WARNING)
+- Fixed: 3
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-02: `$variable` regex false-matches dollar signs in template content
+### WR-01: BatchResponse uses deny_unknown_fields, contradicting the LLM-tolerance strategy
+
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** 9f2a65f
+**Applied fix:** 移除 `#[serde(deny_unknown_fields)]` 属性，添加与 `FrameObservation` 一致的设计决策注释（说明未知字段被静默忽略以兼容 LLM 额外字段）。新增测试 `test_parse_and_retry_batch_with_extra_fields` 验证带额外字段的 BatchResponse JSON 能正确解析。
+
+### WR-02: analyze_video_frames hardcodes interval_seconds=3.0 and quality
+
+**Files modified:** `src/visual/analyzer.rs`
+**Commit:** b221b4b
+**Applied fix:** 在 `analyze_video_frames` 函数签名中添加 `interval_seconds: Option<f64>` 和 `quality: Option<u32>` 可选参数（位于 `max_concurrency` 之后、`progress` 之前）。`extract_frames` 调用改为 `interval_seconds.unwrap_or(3.0)` 替代硬编码 `3.0`，`quality` 直接传入。更新了函数 doc comment 的参数列表说明。
+
+### WR-03: template.rs render() two-pass regex validation is fragile
 
 **Files modified:** `src/prompt/template.rs`
-**Commit:** 5f8b598 (worktree), 95fc3ec (main)
-**Applied fix:** Removed the bare `\$(\w+)` branch from the variable regex, keeping only `\$\{(\w+)\}`. Updated doc comments to document single-syntax support and added safety notice about caller responsibility for variable value validation. Updated 2 unit tests that used bare `$variable` syntax to use `${variable}`.
-
-### WR-01: No validation of `batch_size`/`max_concurrency` inputs
-
-**Files modified:** `src/visual/analyzer.rs`
-**Commit:** 45f810e (worktree), fc56734 (main)
-**Applied fix:** Added input validation at the top of `analyze_video_frames` body (after Step 1 progress callback, before Step 2 frame extraction). Returns `VisualError::Analysis` with Chinese error message for zero values.
-
-### WR-02: `analyzed_batches` misleading count
-
-**Files modified:** `src/visual/analyzer.rs`
-**Commit:** cac8935 (worktree), 641c7b1 (main)
-**Applied fix:** Changed `analyzed_batches` value from `raw_results.len()` to `raw_results.len() - errors.len()` so the field only counts successfully analyzed batches.
-
-### WR-04: RwLock reentrancy documentation
-
-**Files modified:** `src/prompt/manager.rs`
-**Commit:** 9cd8f37 (worktree), 43f297f (main)
-**Applied fix:** Added `# 线程安全` section to `PromptManager` struct doc comment warning that methods must not be called reentrantly from the same thread due to `std::sync::RwLock` deadlock risk.
-
-### WR-05: Dead code `parse_frame_number_from_name`
-
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** 8718b0b (worktree), 50767a7 (main)
-**Applied fix:** Refactored `rename_fast_path_frames` to call `parse_frame_number_from_name` instead of duplicating inline parsing logic. Removed `#[allow(dead_code)]` annotation since the function is now used in production code.
-
-## Skipped Issues
-
-### CR-01: `format!` macro will panic if prompt_template contains `{` or `}` characters
-
-**File:** `src/visual/analyzer.rs:109-116`
-**Reason:** False positive. `format!("{}", prompt_template)` is safe -- `prompt_template` is the value parameter (second argument), not the format string. Rust's `format!` macro parses the format string literal (first argument) at compile time. The `Display` trait for `&str` outputs the string as-is. Content like `{`, `}`, `{:?}` in `prompt_template` will NOT cause panics. This was confirmed in previous fix iteration 17.
-**Original issue:** The `format!` call was reported as potentially panicking if `prompt_template` contains literal braces.
-
-### WR-03: Template injection -- user-supplied values not sanitized
-
-**File:** `src/prompt/template.rs:75-108`
-**Reason:** Already covered by CR-02 fix. The safety documentation (`# 安全性` section) was added as part of the CR-02 commit (5f8b598/95fc3ec), which included the doc comment: "调用方负责验证变量值的合法性；本函数不执行任何清理或转义。"
-**Original issue:** The template renderer performs pure string substitution without sanitization of variable values.
+**Commit:** d753b0b
+**Applied fix:** 在 `render` 函数 doc comment 的 `# 注意` 部分添加约束说明：第 1/2 遍正则和第 3 遍正则是两套独立验证路径，添加新语法（如链式过滤器）时必须同时更新两处正则，否则新语法的变量会跳过必需参数检查。
 
 ## Verification
 
 All fixes verified with:
 1. Tier 1: Re-read modified file sections to confirm changes present and surrounding code intact
-2. Tier 2: `cargo check --lib` passed with 0 new warnings (7 pre-existing warnings unrelated to changes)
-3. Template tests: All 15 `prompt::template` tests passed after CR-02 fix
+2. Tier 2: `cargo check --lib` passed after each fix (0 new warnings, 7 pre-existing warnings unrelated to changes)
+3. `cargo test --lib`: 554 passed, 0 failed, 1 ignored (pre-existing)
 
 ---
-_Fixed: 2026-05-07T10:50:00Z_
+_Fixed: 2026-05-07T14:30:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 18_
+_Iteration: 19_
