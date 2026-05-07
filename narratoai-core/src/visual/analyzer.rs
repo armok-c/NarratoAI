@@ -67,7 +67,7 @@ struct ParsedBatch {
 /// # 参数
 ///
 /// - `interval_seconds` — 帧提取间隔（秒），默认 3.0 秒。短片段可降低至 1.0，长视频可调高
-/// - `quality` — JPEG 压缩质量（1-31），None 使用 `extract_frames` 内置默认值
+/// - `quality` — JPEG 压缩质量（2-31，值越小质量越高，默认 5），None 使用 `extract_frames` 内置默认值
 pub async fn analyze_video_frames(
     video_path: &Path,
     output_dir: &Path,
