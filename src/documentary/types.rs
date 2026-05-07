@@ -53,8 +53,14 @@ impl DocumentaryRequest {
         if self.video_path.as_os_str().is_empty() {
             return Err("video_path 不能为空".to_string());
         }
+        if !self.video_path.exists() {
+            return Err(format!("video_path 文件不存在: {}", self.video_path.display()));
+        }
         if self.script_path.as_os_str().is_empty() {
             return Err("script_path 不能为空".to_string());
+        }
+        if !self.script_path.exists() {
+            return Err(format!("script_path 文件不存在: {}", self.script_path.display()));
         }
         if self.voice_rate <= 0.0 || self.voice_rate > 5.0 {
             return Err(format!("voice_rate 超出有效范围 (0, 5]: {}", self.voice_rate));
