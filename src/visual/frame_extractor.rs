@@ -218,7 +218,7 @@ async fn extract_frames_fallback(
             );
             let frame_path = output.join(&frame_name);
 
-            match extract_single_frame(video_str, &frame_path, timestamp_secs, quality) {
+            match extract_single_frame(video_str, &frame_path, timestamp_secs, quality, &cancel) {
                 Ok(_) => {
                     extracted_count += 1;
                 }
@@ -266,6 +266,7 @@ fn extract_single_frame(
     output_path: &Path,
     timestamp_secs: f64,
     quality: u32,
+    cancel: &CancellationToken,
 ) -> Result<(), VisualError> {
     let timestamp = format!("{:.3}", timestamp_secs);
     let output_str = output_path
@@ -273,7 +274,7 @@ fn extract_single_frame(
         .ok_or_else(|| VisualError::FrameExtraction("输出路径无效".into()))?;
 
     // Level 1: Hardware accelerated JPEG
-    let level1_ok = run_ffmpeg(&[
+    let level1_ok = run_ffmpeg_with_cancel(&[
         "-hwaccel",
         "auto",
         "-ss",
@@ -288,13 +289,13 @@ fn extract_single_frame(
         "yuv420p",
         "-y",
         output_str,
-    ]);
+    ], cancel);
     if level1_ok && file_is_valid(output_path) {
         return Ok(());
     }
 
     // Level 2: Software JPEG
-    let level2_ok = run_ffmpeg(&[
+    let level2_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
         "-i",
@@ -309,7 +310,7 @@ fn extract_single_frame(
         "make_zero",
         "-y",
         output_str,
-    ]);
+    ], cancel);
     if level2_ok && file_is_valid(output_path) {
         return Ok(());
     }
@@ -319,7 +320,7 @@ fn extract_single_frame(
     let png_str = png_path
         .to_str()
         .ok_or_else(|| VisualError::FrameExtraction("PNG 输出路径无效".into()))?;
-    let level3_ok = run_ffmpeg(&[
+    let level3_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
         "-i",
@@ -332,7 +333,7 @@ fn extract_single_frame(
         "image2",
         "-y",
         png_str,
-    ]);
+    ], cancel);
     if level3_ok && file_is_valid(&png_path) {
         match convert_image_to_jpeg(&png_path, output_path, quality) {
             Ok(_) => {
@@ -354,7 +355,7 @@ fn extract_single_frame(
     let bmp_str = bmp_path
         .to_str()
         .ok_or_else(|| VisualError::FrameExtraction("BMP 输出路径无效".into()))?;
-    let level4_ok = run_ffmpeg(&[
+    let level4_ok = run_ffmpeg_with_cancel(&[
         "-ss",
         &timestamp,
         "-i",
@@ -367,7 +368,7 @@ fn extract_single_frame(
         "rgb24",
         "-y",
         bmp_str,
-    ]);
+    ], cancel);
     if level4_ok && file_is_valid(&bmp_path) {
         match convert_image_to_jpeg(&bmp_path, output_path, quality) {
             Ok(_) => {
@@ -525,13 +526,29 @@ fn file_is_valid(path: &Path) -> bool {
     path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
 }
 
-/// 运行 ffmpeg 命令并检查退出状态
-fn run_ffmpeg(args: &[&str]) -> bool {
-    std::process::Command::new("ffmpeg")
+/// 运行 ffmpeg 命令，支持取消令牌（轮询取消状态，取消时杀死进程）
+fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
+    let mut child = match std::process::Command::new("ffmpeg")
         .args(args)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    loop {
+        if cancel.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(_) => return false,
+        }
+    }
 }
 
 /// 使用 image crate 将任意格式图片转换为 JPEG
