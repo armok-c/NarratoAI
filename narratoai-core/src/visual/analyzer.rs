@@ -210,7 +210,7 @@ pub async fn analyze_video_frames(
         return Err(VisualError::BatchPartial {
             analyzed_count: success_count,
             total_count: raw_results.len(),
-            errors,
+            errors: errors.join("; "),
         });
     }
 

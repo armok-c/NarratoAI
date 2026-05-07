@@ -12,11 +12,11 @@ pub enum VisualError {
     Analysis(String),
 
     /// 部分批次失败——部分帧分析成功但存在错误（D-14: 收集错误继续执行）
-    #[error("部分批次失败: 已分析 {analyzed_count}/{total_count} 批次，{errors:?}")]
+    #[error("部分批次失败: 已分析 {analyzed_count}/{total_count} 批次，{errors}")]
     BatchPartial {
         analyzed_count: usize,
         total_count: usize,
-        errors: Vec<String>,
+        errors: String,
     },
 }
 
@@ -54,7 +54,7 @@ mod tests {
         let err = VisualError::BatchPartial {
             analyzed_count: 3,
             total_count: 5,
-            errors: vec!["批次 2 失败".to_string()],
+            errors: "批次 2 失败".to_string(),
         };
         let msg = err.to_string();
         assert!(
@@ -65,6 +65,11 @@ mod tests {
         assert!(
             msg.contains("3/5"),
             "消息应包含分析计数: {}",
+            msg
+        );
+        assert!(
+            msg.contains("批次 2 失败"),
+            "消息应包含错误详情: {}",
             msg
         );
     }
