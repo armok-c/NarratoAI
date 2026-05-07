@@ -616,9 +616,8 @@ mod tests {
     /// 验证 rename_fast_path_frames 将 fastframe_ 文件正确重命名为 keyframe_ 格式
     #[test]
     fn test_rename_fast_path_frames() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_rename");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create mock fastframe files
         for i in 0..3 {
@@ -627,7 +626,7 @@ mod tests {
             std::fs::write(&path, [0xFFu8; 200]).expect("应能写入测试文件");
         }
 
-        let result = rename_fast_path_frames(&temp_dir, 3.0).expect("应重命名成功");
+        let result = rename_fast_path_frames(temp_dir, 3.0).expect("应重命名成功");
         assert_eq!(result, 3, "应重命名 3 个文件");
 
         // Verify all renamed files exist with correct naming pattern
@@ -641,8 +640,7 @@ mod tests {
             );
         }
 
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证关键帧命名格式符合 `keyframe_\d{6}_\d{9}\.jpg`
@@ -685,14 +683,13 @@ mod tests {
     /// 空目录应返回 Ok(0)
     #[test]
     fn test_fast_path_noop_when_no_frames() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_noop");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
-        let result = rename_fast_path_frames(&temp_dir, 3.0).expect("空目录应成功");
+        let result = rename_fast_path_frames(temp_dir, 3.0).expect("空目录应成功");
         assert_eq!(result, 0, "空目录应返回 0");
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证 seconds_to_hhmmssmmm 格式转换正确性
@@ -723,8 +720,8 @@ mod tests {
     /// 验证 output_dir_creation — extract_frames 创建 output_dir
     #[tokio::test]
     async fn test_output_dir_creation() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_dir_creation");
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path().to_path_buf();
 
         // Call extract_frames with a non-existent video path
         // The function should create the output dir before attempting extraction
@@ -744,15 +741,14 @@ mod tests {
         // But extraction should fail (video doesn't exist)
         assert!(result.is_err(), "不存在的视频文件应返回错误");
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证 cleanup_fast_path_files 删除 fastframe_ 文件
     #[test]
     fn test_cleanup_fast_path_files() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_cleanup");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         // Create some fastframe files and a normal file
         std::fs::write(temp_dir.join("fastframe_000000.jpg"), b"data").unwrap();
@@ -761,7 +757,7 @@ mod tests {
         // 非 .jpg 扩展名的 fastframe_ 文件应保留
         std::fs::write(temp_dir.join("fastframe_log.txt"), b"log data").unwrap();
 
-        cleanup_fast_path_files(&temp_dir);
+        cleanup_fast_path_files(temp_dir);
 
         // fastframe .jpg files should be deleted
         assert!(!temp_dir.join("fastframe_000000.jpg").exists());
@@ -771,7 +767,7 @@ mod tests {
         // 非 .jpg 的 fastframe_ 文件应保留
         assert!(temp_dir.join("fastframe_log.txt").exists());
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 
     /// 验证 get_video_duration 在不存在的视频上返回错误
@@ -784,9 +780,8 @@ mod tests {
     /// 验证 file_is_valid 对空文件和不存在文件的处理
     #[test]
     fn test_file_is_valid() {
-        let temp_dir = std::env::temp_dir().join("narratoai_test_valid");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("应能创建临时目录");
+        let temp = tempfile::tempdir().expect("应能创建临时目录");
+        let temp_dir = temp.path();
 
         let existing = temp_dir.join("exists.jpg");
         std::fs::write(&existing, b"data").unwrap();
@@ -799,6 +794,6 @@ mod tests {
         let nonexistent = temp_dir.join("nonexistent.jpg");
         assert!(!file_is_valid(&nonexistent));
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        // temp 在 drop 时自动清理
     }
 }
