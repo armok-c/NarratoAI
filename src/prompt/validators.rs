@@ -58,20 +58,20 @@ fn validate_json(output: &str) -> Result<(), PromptError> {
 /// - 至少包含 3 个段落（按 \n\n 分割）
 /// - 输出长度 >= 50 字符
 fn validate_narration_script(output: &str) -> Result<(), PromptError> {
-    let trimmed = output.trim();
+    let normalized = output.trim().replace("\r\n", "\n");
 
-    if trimmed.is_empty() {
+    if normalized.is_empty() {
         return Err(PromptError::Validation("解说文案为空".into()));
     }
 
-    if trimmed.chars().count() < 50 {
+    if normalized.chars().count() < 50 {
         return Err(PromptError::Validation(format!(
             "解说文案过短: {} 字符（需要 >= 50）",
-            trimmed.chars().count()
+            normalized.chars().count()
         )));
     }
 
-    let paragraphs: Vec<&str> = trimmed
+    let paragraphs: Vec<&str> = normalized
         .split("\n\n")
         .filter(|p| !p.trim().is_empty())
         .collect();
