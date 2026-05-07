@@ -56,39 +56,37 @@ fn builtin_filters() -> HashMap<&'static str, FilterFn> {
     m
 }
 
-/// 渲染模板——两遍正则替换 + 过滤器应用
+/// 渲染模板——单遍正则替换（变量 + 过滤器）
+///
+/// 使用单一正则 `r"\$\{(\w+)(?:\|(\w+))?\}"` 同时匹配 `${variable}` 和
+/// `${variable|filter_name}` 两种格式，在原始模板上完成所有替换。
+///
+/// 单一遍处理的优势：
+/// - 变量值中的 `${...|...}` 文本不会被重新解释为过滤器表达式（防御模板注入）
+/// - 变量和过滤器共享同一套校验逻辑，不存在验证路径分裂
+/// - 消除多遍替换中重复的正则编译和遍历开销
 ///
 /// # 流程
 ///
-/// 第 1 遍（变量提取和校验）：使用正则 `r"\$\{(\w+)\}"`
-/// 通过 `captures_iter` 提取所有变量名并与上下文比对，缺失变量返回错误。
-///
-/// 第 2 遍（变量替换）：使用 `replace_all` 将 `${variable}`
-/// 替换为上下文中对应的值。
-///
-/// 第 3 遍（过滤器应用）：使用正则 `r"\$\{(\w+)\|(\w+)\}"` 处理过滤器语法
-/// `${variable|filter_name}`，应用内置过滤器函数。
+/// 第 1 步：正则捕获所有占位符，校验变量全部存在，校验过滤器名有效
+/// 第 2 步：在原始模板上一次性替换所有占位符
 ///
 /// # 注意
 ///
-/// - 仅支持 `${variable}` 语法，不支持裸 `$variable`（避免误匹配内容中的 `$` 符号）
-/// - `${variable|filter}` 格式不会被第 1/2 遍的正则匹配（因为 `|` 不是 `\w`）
-/// - 第 1/2 遍正则 `\$\{(\w+)\}` 和第 3 遍正则 `\$\{(\w+)\|(\w+)\}` 是两套独立的
-///   验证路径。添加新语法（如链式过滤器 `${var|f1|f2}`）时，必须同时更新两处正则，
-///   否则新语法的变量会跳过必需参数检查。
-///
-/// # 安全性
-///
-/// - 调用方负责验证变量值的合法性；本函数不执行任何清理或转义。
+/// - 仅支持 `${variable}` 和 `${variable|filter}` 语法，不支持裸 `$variable`
+/// - 不支持链式过滤器（如 `${var|f1|f2}`），添加链式支持需同时更新正则
 pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, PromptError> {
-    // 编译变量正则（仅支持 ${variable}，不支持裸 $variable）
-    let var_re = Regex::new(r"\$\{(\w+)\}").map_err(|e| {
+    // 同时匹配 ${variable} 和 ${variable|filter_name}
+    // group 1 = variable name, group 2 = filter name (optional)
+    let re = Regex::new(r"\$\{(\w+)(?:\|(\w+))?\}").map_err(|e| {
         PromptError::TemplateRender(format!("正则编译失败: {}", e))
     })?;
 
-    // 第 1 遍：提取所有变量名，校验全部存在
+    let filters = builtin_filters();
+
+    // 第 1 步：校验变量全部存在
     let mut missing: HashSet<String> = HashSet::new();
-    for caps in var_re.captures_iter(template) {
+    for caps in re.captures_iter(template) {
         let name = caps
             .get(1)
             .map(|m| m.as_str())
@@ -106,59 +104,32 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
         )));
     }
 
-    // 第 2 遍：变量替换（所有变量已在第 1 遍预校验，此处 safe）
-    let result = var_re.replace_all(template, |caps: &regex::Captures| {
-        let name = caps
-            .get(1)
-            .map(|m| m.as_str())
-            .unwrap_or("");
-        vars.get(name).copied().unwrap_or_else(|| {
-            unreachable!("variable '{}' passed validation in pass 1 but not found in pass 2", name)
-        })
-    });
-
-    // 第 3 遍：过滤器应用——处理 ${variable|filter_name} 格式
-    let filter_re = Regex::new(r"\$\{(\w+)\|(\w+)\}").map_err(|e| {
-        PromptError::TemplateRender(format!("正则编译失败: {}", e))
-    })?;
-    let filters = builtin_filters();
-
-    // 校验过滤器引用的变量是否全部存在
-    let mut missing_filter_vars: HashSet<String> = HashSet::new();
-    for caps in filter_re.captures_iter(&result) {
-        let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        if !var_name.is_empty() && !vars.contains_key(var_name) {
-            missing_filter_vars.insert(var_name.to_string());
-        }
-    }
-    if !missing_filter_vars.is_empty() {
-        let mut missing_list: Vec<&str> = missing_filter_vars.iter().map(|s| s.as_str()).collect();
-        missing_list.sort();
-        return Err(PromptError::TemplateRender(format!(
-            "缺少必需参数: {}",
-            missing_list.join(", ")
-        )));
-    }
-
-    // Validate filter names before applying
-    for caps in filter_re.captures_iter(&result) {
-        let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        if !filter_name.is_empty() && !filters.contains_key(filter_name) {
-            return Err(PromptError::TemplateRender(format!(
-                "未知过滤器: {}", filter_name
-            )));
+    // 校验过滤器名全部有效
+    for caps in re.captures_iter(template) {
+        if let Some(filter_name) = caps.get(2).map(|m| m.as_str()) {
+            if !filter_name.is_empty() && !filters.contains_key(filter_name) {
+                return Err(PromptError::TemplateRender(format!(
+                    "未知过滤器: {}", filter_name
+                )));
+            }
         }
     }
 
-    let result = filter_re.replace_all(&result, |caps: &regex::Captures| {
+    // 第 2 步：在原始模板上一次性替换所有占位符
+    let result = re.replace_all(template, |caps: &regex::Captures| {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let filter_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        match (filters.get(filter_name), vars.get(var_name)) {
-            (Some(filter_fn), Some(value)) => filter_fn(value),
-            _ => unreachable!(
-                "filter '{}' and variable '{}' passed validation but not found during replacement",
-                filter_name, var_name
-            ),
+        let value = vars.get(var_name).copied().unwrap_or_else(|| {
+            unreachable!("variable '{}' passed validation but not found", var_name)
+        });
+
+        match caps.get(2).map(|m| m.as_str()) {
+            Some(filter_name) if !filter_name.is_empty() => {
+                let filter_fn = filters.get(filter_name).unwrap_or_else(|| {
+                    unreachable!("filter '{}' passed validation but not found", filter_name)
+                });
+                filter_fn(value)
+            }
+            _ => value.to_string(),
         }
     });
 
