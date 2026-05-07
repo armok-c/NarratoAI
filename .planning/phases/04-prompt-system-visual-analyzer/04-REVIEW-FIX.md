@@ -1,78 +1,68 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-05-07T16:00:00Z
+fixed_at: 2026-05-07T16:30:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 2
-findings_in_scope: 7
-fixed: 7
-skipped: 0
-status: all_fixed
+iteration: 3
+findings_in_scope: 5
+fixed: 4
+skipped: 1
+status: partial
 ---
 
-# Phase 04: Code Review Fix Report
+# Phase 4: Code Review Fix Report
 
-**Fixed at:** 2026-05-07T16:00:00Z
+**Fixed at:** 2026-05-07T16:30:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 2
+**Iteration:** 3
 
 **Summary:**
-- Findings in scope: 7 (2 CRITICAL + 5 WARNING)
-- Fixed: 7
-- Skipped: 0
+- Findings in scope: 5 (1 CRITICAL + 4 WARNING)
+- Fixed: 4
+- Skipped: 1
 
 ## Fixed Issues
 
-### CR-01: 消除 run_ffmpeg_with_cancel 的忙等轮询
+### CR-01: `strip_code_fence` fails to strip closing fence when JSON abuts ` ``` ` without trailing whitespace
 
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** 881673f
-**Applied fix:** 将 `try_wait()` + `sleep(50ms)` 轮询循环替换为入口取消检查 + 阻塞 `child.wait()`，消除每秒 20 次的无效唤醒。取消检查移至调用点（帧间/回退级别间）。
+**Files modified:** `src/visual/types.rs`
+**Commit:** 4c7c8b3
+**Applied fix:** Removed the flawed conditional in the `strip_suffix("```")` branch that returned the unstripped `content` when the remainder had no trailing whitespace. Simplified to always `trim_end()` the stripped result and return it. Verified with all 10 existing `visual::types` tests passing.
 
-### CR-02: 文档说明事件循环的取消延迟限制
-
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** f907352
-**Applied fix:** 在 `extract_frames_fast_path` 的事件循环上方添加注释，说明 ffmpeg_sidecar `iter()` 的固有阻塞限制及替代方案。
-
-### WR-01: 移除 json 过滤器的无效 fallback
+### WR-01: O(n^2) duplicate detection in template variable validation
 
 **Files modified:** `src/prompt/template.rs`
-**Commit:** 7e8e4b7
-**Applied fix:** 移除 `serde_json::to_string` 的 fallback（仅转义双引号，不处理反斜杠/换行/控制字符），替换为 `expect()`，因为 `serde_json::to_string(&str)` 对 `&str` 是不可能失败的。
+**Commit:** 40df4cb
+**Applied fix:** Replaced `Vec<String>` with `HashSet<String>` for both `missing` and `missing_filter_vars` collections. Removed the O(n) `.contains()` dedup scan. Added sorting before error message formatting for deterministic output. All 15 template tests pass.
 
-### WR-02: 测试使用 tempfile::tempdir() 替代硬编码路径
-
-**Files modified:** `src/visual/frame_extractor.rs`, `src/visual/analyzer.rs`
-**Commits:** 07d7de3 (frame_extractor), 600d1c3 (analyzer)
-**Applied fix:** 将 8 个测试函数中的硬编码临时目录（`std::env::temp_dir().join("narratoai_test_*")`）替换为 `tempfile::tempdir()`，消除并行测试时的竞态条件。共修改 frame_extractor.rs 中 5 个测试 + analyzer.rs 中 3 个测试。
-
-### WR-03: collect_frame_paths 使用数字排序
+### WR-02: Empty-result blind spot -- zero observations with zero errors succeeds silently
 
 **Files modified:** `src/visual/analyzer.rs`
-**Commit:** e8778da
-**Applied fix:** 新增 `extract_frame_number_from_keyframe` 辅助函数，将 `paths.sort()`（字典排序）替换为 `paths.sort_by()` 基于帧序号的数字排序，避免超过 6 位数字时排序错误。
+**Commit:** e790735
+**Applied fix:** Added Step 8b check after the existing empty-result barrier: when `observations.is_empty()` (regardless of errors), return `VisualError::Analysis("所有批次返回空观察结果")`. This catches the case where all LLM batches succeed but return empty `frame_observations` arrays.
 
-### WR-04: 添加 interval_seconds 上限校验
+### WR-03: `validate_json` does not strip code fences before parsing
 
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** e0daae9
-**Applied fix:** 在现有的 `<= 0` 和 `is_nan()` 检查后添加 `interval_seconds > 86400.0` 上限校验，拒绝过大的帧提取间隔（最大 86400 秒/1 天）。
+**Files modified:** `src/prompt/validators.rs`
+**Commit:** f0db2ed
+**Applied fix:** Added `crate::visual::types::strip_code_fence(output)` call at the start of `validate_json()`, before trimming and parsing. This ensures LLM responses wrapped in ```json...``` code fences pass JSON validation. All 14 validator tests pass.
 
-### WR-05: 在 extract_single_frame 的回退级别间添加取消检查
+## Skipped Issues
 
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** 1f96dc8
-**Applied fix:** 在 `extract_single_frame` 的 4 级回退（Level 1-4）之间各添加 `cancel.is_cancelled()` 检查，确保取消时不会继续尝试后续回退级别。
+### WR-04: Fast-path FFmpeg event loop blocks indefinitely on stalled FFmpeg
+
+**File:** `src/visual/frame_extractor.rs:157-166`
+**Reason:** No code change required -- limitation is already documented in code comments (lines 153-156). REVIEW.md explicitly states "No code change required (limitation is documented)."
+**Original issue:** The fast path iterates `child.iter()` inside a for loop with cancellation only checked when a new event arrives. If FFmpeg stalls, the thread blocks without checking the cancellation token.
 
 ## Verification
 
 All fixes verified with:
 1. Tier 1: Re-read modified file sections to confirm changes present and surrounding code intact
-2. Tier 2: `cargo check --lib` passed after all fixes (0 new errors, 7 pre-existing warnings unrelated to changes)
-3. `cargo test --lib`: 554 passed, 0 failed, 1 ignored (pre-existing)
+2. Tier 2: `cargo check` passed after each fix (0 new errors)
+3. Targeted `cargo test --lib` for each modified module: all tests pass (visual::types: 10/10, prompt::template: 15/15, prompt::validators: 14/14)
 
 ---
 
-_Fixed: 2026-05-07T16:00:00Z_
+_Fixed: 2026-05-07T16:30:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 3_
