@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::prompt::error::PromptError;
 
@@ -87,20 +87,22 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     })?;
 
     // 第 1 遍：提取所有变量名，校验全部存在
-    let mut missing: Vec<String> = Vec::new();
+    let mut missing: HashSet<String> = HashSet::new();
     for caps in var_re.captures_iter(template) {
         let name = caps
             .get(1)
             .map(|m| m.as_str())
             .unwrap_or("");
-        if !name.is_empty() && !vars.contains_key(name) && !missing.contains(&name.to_string()) {
-            missing.push(name.to_string());
+        if !name.is_empty() && !vars.contains_key(name) {
+            missing.insert(name.to_string());
         }
     }
     if !missing.is_empty() {
+        let mut missing_list: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
+        missing_list.sort();
         return Err(PromptError::TemplateRender(format!(
             "缺少必需参数: {}",
-            missing.join(", ")
+            missing_list.join(", ")
         )));
     }
 
@@ -122,17 +124,19 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     let filters = builtin_filters();
 
     // 校验过滤器引用的变量是否全部存在
-    let mut missing_filter_vars: Vec<String> = Vec::new();
+    let mut missing_filter_vars: HashSet<String> = HashSet::new();
     for caps in filter_re.captures_iter(&result) {
         let var_name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        if !var_name.is_empty() && !vars.contains_key(var_name) && !missing_filter_vars.contains(&var_name.to_string()) {
-            missing_filter_vars.push(var_name.to_string());
+        if !var_name.is_empty() && !vars.contains_key(var_name) {
+            missing_filter_vars.insert(var_name.to_string());
         }
     }
     if !missing_filter_vars.is_empty() {
+        let mut missing_list: Vec<&str> = missing_filter_vars.iter().map(|s| s.as_str()).collect();
+        missing_list.sort();
         return Err(PromptError::TemplateRender(format!(
             "缺少必需参数: {}",
-            missing_filter_vars.join(", ")
+            missing_list.join(", ")
         )));
     }
 
