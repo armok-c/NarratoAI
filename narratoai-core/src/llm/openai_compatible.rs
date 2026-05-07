@@ -21,6 +21,7 @@ use async_openai::{
 use backoff::ExponentialBackoff;
 use futures::stream::{Stream, StreamExt};
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 use crate::error::LLMError;
 use crate::llm::image_utils::image_to_base64_data_url;
@@ -418,6 +419,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         response_format: Option<LlmResponseFormat>,
         temperature: Option<f32>,
         max_tokens: Option<u32>,
+        cancel: Option<CancellationToken>,
     ) -> Result<Vec<String>, LLMError> {
         if images.is_empty() {
             return Ok(Vec::new());
@@ -432,10 +434,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
         let image_chunks: Vec<Vec<PathBuf>> = images.chunks(batch_size).map(|c| c.to_vec()).collect();
         let total_batches = image_chunks.len();
         let semaphore = Arc::new(Semaphore::new(bounded_concurrency));
+        let cancel = cancel.unwrap_or_default();
 
         let mut handles = Vec::with_capacity(total_batches);
 
         for (batch_idx, image_chunk) in image_chunks.into_iter().enumerate() {
+            // Pre-flight cancellation check before spawning each batch
+            if cancel.is_cancelled() {
+                break;
+            }
             let sem_clone = semaphore.clone();
             let preprocess_sem = preprocess_semaphore.clone();
             let client_clone = self.client.clone();

@@ -165,6 +165,7 @@ pub async fn analyze_video_frames(
             Some(LlmResponseFormat::Json),
             Some(0.1),  // temperature: 低温度减少幻觉
             Some(4096), // max_tokens
+            cancel_after_extract.clone(), // cancel token
         )
         .await
         .map_err(|e| VisualError::Analysis(format!("LLM 分析调用失败: {}", e)))?;

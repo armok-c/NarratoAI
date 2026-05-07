@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::pin::Pin;
 use futures::stream::Stream;
+use tokio_util::sync::CancellationToken;
 use crate::error::LLMError;
 use crate::llm::types::LlmResponseFormat;
 
@@ -50,5 +51,6 @@ pub trait LlmProvider: Send + Sync {
         response_format: Option<LlmResponseFormat>,
         temperature: Option<f32>,
         max_tokens: Option<u32>,
+        cancel: Option<CancellationToken>,
     ) -> Result<Vec<String>, LLMError>;
 }
