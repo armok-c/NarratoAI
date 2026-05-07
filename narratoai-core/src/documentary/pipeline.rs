@@ -372,9 +372,14 @@ pub(crate) async fn step_composite(
                 mix_labels.push("[bgm]".to_string());
             }
             let mix_inputs = mix_labels.join("");
+            let compensation = if amix_input_count > 1 {
+                format!(",volume={:.1}", amix_input_count as f64 * 0.5)
+            } else {
+                String::new()
+            };
             filter_complex_parts.push(format!(
-                "{}amix=inputs={}:duration=longest[aout]",
-                mix_inputs, amix_input_count
+                "{}amix=inputs={}:duration=longest{}[aout]",
+                mix_inputs, amix_input_count, compensation
             ));
         }
 
