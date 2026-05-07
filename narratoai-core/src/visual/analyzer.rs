@@ -101,6 +101,8 @@ pub async fn analyze_video_frames(
     });
 
     // Step 2 — 帧提取（调用方指定 output_dir, D-23）
+    let cancel_after_extract = cancel.clone();
+
     let frame_count = extract_frames(
         video_path,
         output_dir,
@@ -112,8 +114,15 @@ pub async fn analyze_video_frames(
     .await
     .map_err(|e| {
         error!(error = %e, "帧提取失败");
-        VisualError::FrameExtraction(format!("帧提取失败: {}", e))
+        e
     })?;
+
+    // Pre-flight cancellation check before LLM phase
+    if let Some(ref cancel) = cancel_after_extract {
+        if cancel.is_cancelled() {
+            return Err(VisualError::Analysis("分析被取消".into()));
+        }
+    }
 
     // Step 3 — 空检查（在线护栏：帧数量边界检查，AI-SPEC Section 6）
     if frame_count == 0 {
