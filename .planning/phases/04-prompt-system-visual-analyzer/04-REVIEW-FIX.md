@@ -1,113 +1,127 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: '2026-05-07T20:10:00Z'
+fixed_at: '2026-05-07T12:00:00Z'
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 2
-findings_in_scope: 14
-fixed: 14
-skipped: 0
+iteration: 1
+findings_in_scope: 16
+fixed: 12
+skipped: 4
 status: all_fixed
 ---
 
-# Phase 04: Code Review Fix Report (Iteration 2)
+# Phase 04: Code Review Fix Report (Iteration 1)
 
-**Fixed at:** 2026-05-07T20:10:00Z
+**Fixed at:** 2026-05-07T12:00:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 2
+**Iteration:** 1
 
 **Summary:**
-- Findings in scope: 14
-- Fixed: 14
-- Skipped: 0
+- Findings in scope: 16
+- Fixed: 12
+- Skipped: 4
 
 ## Fixed Issues
 
-### CR-01: Add CancellationToken to analyze_images trait
-
-**Files modified:** `narratoai-core/src/llm/provider.rs`, `narratoai-core/src/llm/openai_compatible.rs`, `narratoai-core/src/visual/analyzer.rs`
-**Commit:** 57f5240
-**Applied fix:** Added `cancel: Option<CancellationToken>` parameter to the `analyze_images` trait method in `provider.rs`. Updated the `OpenAICompatibleProvider` implementation with a pre-flight cancellation check per batch. Forwarded `cancel_after_extract` token from `analyzer.rs` to the `analyze_images` call.
-
-### CR-02: Add bare JSON array fallback in parse_and_retry
-
-**Files modified:** `narratoai-core/src/visual/analyzer.rs`
-**Commit:** 2c947c5
-**Applied fix:** Added third fallback path in `parse_and_retry` attempting `serde_json::from_str::<Vec<FrameObservation>>(cleaned)` after the single `FrameObservation` fallback fails, with `tracing::warn!` when all paths fail.
-
-### WR-01: Capture FFmpeg stderr
-
-**Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** 4e4b0e0
-**Applied fix:** Changed `run_ffmpeg_with_cancel` to use `Stdio::piped()` for stderr. On non-zero exit, reads and logs stderr with `tracing::warn!`, including the exit code.
-
-### WR-02: Return extracted file paths from extract_frames
-
-**Files modified:** `narratoai-core/src/visual/frame_extractor.rs`, `narratoai-core/src/visual/analyzer.rs`, `narratoai-core/src/documentary/script_gen.rs`
-**Commit:** 91b44f8
-**Applied fix:** Changed `extract_frames` return type from `Result<usize, _>` to `Result<(usize, Vec<PathBuf>), _>`. Added `collect_keyframe_paths_from_dir` helper to collect sorted paths after extraction. Updated `analyzer.rs` to use returned paths directly instead of re-scanning the directory via `collect_frame_paths`. Updated `script_gen.rs` to destructure the returned tuple directly into `keyframe_files`.
-
-### WR-03: Separate match arms for fast path
-
-**Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** 1a370fc
-**Applied fix:** Replaced the `_ =>` catch-all with separate `Err(e)` and `Ok(0)` arms. Logs fast-path errors with `tracing::warn!` and zero-frame result with `tracing::info!` before falling back.
-
-### WR-04: Fix quality range docstring
-
-**Files modified:** `narratoai-core/src/visual/analyzer.rs`
-**Commit:** 0de9654
-**Applied fix:** Changed docstring from `"JPEG 压缩质量（1-31）"` to `"JPEG 压缩质量（2-31，值越小质量越高，默认 5）"`.
-
-### WR-05: Remove dead_code attribute on seconds_to_hhmmssmmm
-
-**Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** 61591dd
-**Applied fix:** Removed `#[allow(dead_code)]` annotation from the actively used `seconds_to_hhmmssmmm` function.
-
-### WR-06: Fix BatchPartial Display format
-
-**Files modified:** `narratoai-core/src/visual/error.rs`, `narratoai-core/src/visual/analyzer.rs`
-**Commit:** f13e1e6
-**Applied fix:** Changed `BatchPartial` error field from `Vec<String>` to `String` and Display format from `{errors:?}` (Debug) to `{errors}` (Display). Updated `analyzer.rs` to pass `errors.join("; ")` instead of raw `Vec<String>`. Updated test to construct `String` field.
-
-### WR-07: Fix version sorting in list_prompts fallback
+### WR-01: 正则表达式重复编译 (registry.rs)
 
 **Files modified:** `narratoai-core/src/prompt/registry.rs`
-**Commit:** f8e3cb7
-**Applied fix:** Replaced lexicographic `.sort()` on version strings with `sort_by` using numeric comparison of the major version number extracted from `v{N}.{M}` format strings.
+**Commit:** `c209e26`
+**Applied fix:** 提取模块级 `OnceLock<Regex>` 缓存正则实例，`validate_prompt_parameters` 使用 `template_var_regex()` 获取静态引用。
 
-### IN-01: Extract shared directory iteration helper
+### WR-02: 正则表达式重复编译 (template.rs)
+
+**Files modified:** `narratoai-core/src/prompt/template.rs`
+**Commit:** `062f7ea`
+**Applied fix:** 使用 `OnceLock<Regex>` 缓存正则实例，`render()` 不再每次调用编译正则。
+
+### WR-03: builtin_filters() 每次调用重建 HashMap
+
+**Files modified:** `narratoai-core/src/prompt/template.rs`
+**Commit:** `062f7ea`
+**Applied fix:** 将 `builtin_filters()` 返回值改为 `&'static HashMap`，通过 `OnceLock` 缓存。
+
+### WR-04: unreachable! 在 release 模式下产生 UB
+
+**Files modified:** `narratoai-core/src/prompt/template.rs`
+**Commit:** `062f7ea`
+**Applied fix:** 将 `unwrap_or_else(|| unreachable!(...))` 替换为 `unwrap_or("")` 和 `.expect("...")`。
+
+### WR-05: 版本排序 unwrap_or(0) 导致非解析版本号排序异常
+
+**Files modified:** `narratoai-core/src/prompt/registry.rs`
+**Commit:** `c209e26`
+**Applied fix:** 将 `unwrap_or(0)` 改为 `unwrap_or(u64::MAX)`，使无法解析的版本号排在最后。
+
+### WR-06: chars().count() 在 validate_narration_script 中重复计算
+
+**Files modified:** `narratoai-core/src/prompt/validators.rs`
+**Commits:** `de3edd3`, `d055645`
+**Applied fix:** 缓存 `normalized.chars().count()` 到局部变量 `char_count`，同时移除 format! 中多余的第三个参数（原代码 bug：3 个参数但只有 2 个格式占位符）。
+
+### WR-07: chars().count() 在 validate_plot_analysis 中重复计算
+
+**Files modified:** `narratoai-core/src/prompt/validators.rs`
+**Commits:** `de3edd3`, `d055645`
+**Applied fix:** 缓存 `trimmed.chars().count()` 到局部变量 `char_count`，移除多余的第三个参数。
+
+### WR-09: seconds_to_hhmmssmmm 对负数输入未防御
 
 **Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** 13dbd88
-**Applied fix:** Created `iterate_dir_files()` helper iterating a directory with prefix/suffix pattern matching and configurable silent error handling. Refactored three existing iteration patterns (stale keyframe cleanup, `rename_fast_path_frames` fastframe collection, `cleanup_fast_path_files` fastframe cleanup) to use the shared helper.
+**Commit:** `b432d21`
+**Applied fix:** 添加 `total_secs.max(0.0)` clamp 防止负数转 u64 产生溢出，同时添加 `debug_assert!(total_secs >= 0.0)`。
 
-### IN-02: Extract magic values as constants
-
-**Files modified:** `narratoai-core/src/visual/analyzer.rs`, `narratoai-core/src/prompt/validators.rs`
-**Commit:** b9fe7a9
-**Applied fix:** Added module-level constants `DEFAULT_INTERVAL_SECONDS`, `ANALYSIS_TEMPERATURE`, `ANALYSIS_MAX_TOKENS` in `analyzer.rs` and `MIN_PLOT_ANALYSIS_CHARS`, `MIN_NARRATION_CHARS`, `MIN_NARRATION_PARAGRAPHS` in `validators.rs`. Replaced hardcoded values with named constant references.
-
-### IN-03: Document two-tier validation in render_prompt
-
-**Files modified:** `narratoai-core/src/prompt/manager.rs`
-**Commit:** f44d624
-**Applied fix:** Added detailed comment in `render_prompt` explaining the two-tier validation design: Tier 1 checks `ParameterDef.required` parameters, Tier 2 checks all `${variable}` references in template rendering.
-
-### IN-04: Add debug_assert for NaN in seconds_to_hhmmssmmm
+### WR-10: total_frames 计算缺少上限检查
 
 **Files modified:** `narratoai-core/src/visual/frame_extractor.rs`
-**Commit:** 77441f2
-**Applied fix:** Added `debug_assert!(!total_secs.is_nan())` before the millisecond calculation in `seconds_to_hhmmssmmm`.
+**Commit:** `b432d21`
+**Applied fix:** 添加 `MAX_TOTAL_FRAMES = 100_000` 常量，超出时返回 `VisualError::FrameExtraction` 错误。
 
-### IN-05: Document strip_code_fence re-export
+### WR-13: 排序中 unwrap() 可能 panic
 
-**Files modified:** `narratoai-core/src/visual/types.rs`
-**Commit:** a3f141d
-**Applied fix:** Updated comment on the re-export to clarify it is only consumed by the test module in the same file.
+**Files modified:** `narratoai-core/src/visual/analyzer.rs`
+**Commit:** `9449fd7`
+**Applied fix:** 将 `unwrap()` 替换为 `unwrap_or_else(|| { warn!(...); 0 })`，防御校验后文件被外部修改的极端情况。
+
+### WR-14: 模板文件 language 措辞不一致
+
+**Files modified:** `narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md`
+**Commit:** `11ec77c`
+**Applied fix:** 统一为 `输出语言: ${language}`。
+
+### WR-15: 测试注释与断言不一致
+
+**Files modified:** `narratoai-core/src/prompt/register.rs`
+**Commit:** `6c2030b`
+**Applied fix:** 修改注释说明 `list_prompts` 返回 2 是因为按 name 去重，后续 `get()` 调用验证所有版本可精确获取。
+
+## Skipped Issues
+
+### WR-08: strip_code_fence 不处理嵌套代码块
+
+**Reason:** REVIEW 明确标注"当前实现对于典型 LLM 输出足够"，属于已知限制而非缺陷。
+
+### WR-11: unwrap_or_default() 创建无主 CancellationToken
+
+**Reason:** 代码已有详细注释说明行为和替代方案（调用方应始终提供 CancellationToken），属于有意的 fire-and-forget 语义设计。
+
+### WR-12: FrameObservation/BatchAnalysisResult 未使用 deny_unknown_fields
+
+**Reason:** REVIEW 明确标注"有意的容错设计，可接受"，兼容 LLM 返回额外字段的场景。
+
+### WR-16: notify 依赖使用 RC 版本
+
+**Reason:** 外部依赖版本问题，无法在源代码中修复。需跟踪 9.0.0 正式版发布后升级。
+
+## Notes
+
+- 编译验证通过（`cargo check`），所有修改未引入新的编译错误。
+- 2 个预存在的编译错误（`frame_extractor.rs:78` match 非穷尽、`documentary/script_gen.rs:108` 参数数量不匹配）与本次修复无关，未做修改。
+- WR-01 和 WR-05 因修改同一文件合并在同一个 commit 中。
+- WR-02、WR-03、WR-04 因修改同一文件合并在同一个 commit 中。
+- WR-06/WR-07 分两个 commit：第一个修复缓存，第二个修复随之暴露的 format! 多余参数问题。
 
 ---
 
-_Fixed: 2026-05-07T20:10:00Z_
+_Fixed: 2026-05-07T12:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 1_
