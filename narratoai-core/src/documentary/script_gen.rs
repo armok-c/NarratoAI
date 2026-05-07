@@ -9,7 +9,7 @@ use crate::script::types::ScriptClip;
 use crate::visual::types::BatchAnalysisResult;
 
 /// 脚本生成请求参数
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ScriptGenRequest {
     pub video_path: PathBuf,
     pub video_theme: Option<String>,
@@ -19,6 +19,7 @@ pub struct ScriptGenRequest {
     pub vision_model: Option<String>,
     pub text_model: Option<String>,
     pub max_concurrency: Option<usize>,
+    #[serde(skip)]
     pub progress: Option<Box<dyn Fn(f32, &str) + Send + Sync>>,
 }
 

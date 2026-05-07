@@ -161,7 +161,7 @@ impl SdePipelineState {
     }
 
     /// 触发进度回调（如果已注册）
-    pub fn emit_progress(&self, step: SdeProgressStep, pct: f32, msg: &str) {
+    pub fn emit_progress(&self, step: &str, pct: f32, msg: &str) {
         if let Some(ref cb) = self.progress {
             cb(step, pct, msg);
         }
