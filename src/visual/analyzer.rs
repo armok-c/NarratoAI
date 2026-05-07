@@ -60,6 +60,11 @@ struct ParsedBatch {
 ///
 /// - **Step 3:** 0 帧检查 — 未提取到帧时返回 `VisualError::FrameExtraction`
 /// - **Step 8:** 空结果屏障 — 所有批次全失败时返回 `VisualError::BatchPartial`
+///
+/// # 参数
+///
+/// - `interval_seconds` — 帧提取间隔（秒），默认 3.0 秒。短片段可降低至 1.0，长视频可调高
+/// - `quality` — JPEG 压缩质量（1-31），None 使用 `extract_frames` 内置默认值
 pub async fn analyze_video_frames(
     video_path: &Path,
     output_dir: &Path,
@@ -67,6 +72,8 @@ pub async fn analyze_video_frames(
     prompt_template: &str,
     batch_size: usize,
     max_concurrency: usize,
+    interval_seconds: Option<f64>,
+    quality: Option<u32>,
     progress: Option<ProgressCallback>,
 ) -> Result<BatchAnalysisResult, VisualError> {
     // Step 1 — 进度汇报
@@ -86,8 +93,8 @@ pub async fn analyze_video_frames(
     let frame_count = extract_frames(
         video_path,
         output_dir,
-        3.0, // interval_seconds: 默认 3 秒
-        None, // quality: 默认使用 extract_frames 内置默认值
+        interval_seconds.unwrap_or(3.0), // 默认 3 秒间隔
+        quality,
         None, // progress: 帧提取进度已包含在 extract_frames 内部
         None, // cancel
     )
