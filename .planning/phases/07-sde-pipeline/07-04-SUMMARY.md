@@ -20,11 +20,11 @@ tech-stack:
     - "pub(crate)" module visibility for cross-pipeline reuse
 key-files:
   created:
-    - src/sde/pipeline.rs (SDE 9-step orchestrator, ~914 lines)
-    - src/sde/clip.rs (OST=1 timestamp correction + 7 tests)
-    - src/sde/audio.rs (thin marker module)
+    - narratoai-core/src/sde/pipeline.rs (SDE 9-step orchestrator, ~914 lines)
+    - narratoai-core/src/sde/clip.rs (OST=1 timestamp correction + 7 tests)
+    - narratoai-core/src/sde/audio.rs (thin marker module)
   modified:
-    - src/documentary/pipeline.rs (5 step functions to pub(crate))
+    - narratoai-core/src/documentary/pipeline.rs (5 step functions to pub(crate))
 decisions:
   - "SDE TTS step does NOT reuse doc_pipeline::step_tts due to PipelineState type mismatch. Instead directly calls crate::tts::synthesize()"
   - "SDE Clip step reuses documentary clip_all_videos after OST=1 timestamp correction"

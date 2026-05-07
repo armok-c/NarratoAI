@@ -29,11 +29,11 @@ tech-stack:
 
 key-files:
   created:
-    - src/llm/registry.rs
-    - src/llm/image_utils.rs
-    - src/llm/openai_compatible.rs
+    - narratoai-core/src/llm/registry.rs
+    - narratoai-core/src/llm/image_utils.rs
+    - narratoai-core/src/llm/openai_compatible.rs
   modified:
-    - src/llm/mod.rs
+    - narratoai-core/src/llm/mod.rs
     - Cargo.toml
     - Cargo.lock
 

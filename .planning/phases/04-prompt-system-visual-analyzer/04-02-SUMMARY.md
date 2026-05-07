@@ -12,12 +12,12 @@ tech-stack:
   patterns: [spawn_blocking + ffmpeg-sidecar, thiserror error enum, serde deny_unknown_fields, 4-level output format fallback, progress callback reuse]
 key-files:
   created:
-    - src/visual/mod.rs
-    - src/visual/error.rs
-    - src/visual/types.rs
-    - src/visual/frame_extractor.rs
+    - narratoai-core/src/visual/mod.rs
+    - narratoai-core/src/visual/error.rs
+    - narratoai-core/src/visual/types.rs
+    - narratoai-core/src/visual/frame_extractor.rs
   modified:
-    - src/lib.rs
+    - narratoai-core/src/lib.rs
 decisions:
   - "VisualError 使用模块级错误枚举而非统一 error.rs，与 D-21/D-22 一致"
   - "strip_code_fence 放在 types.rs 中作为 pub(crate) 工具函数，在 Plan 04-04 analyzer.rs 中消费"

@@ -13,8 +13,8 @@ tech-stack:
   patterns: [thiserror + Chinese Display, subprocess + JSON parse, symphonia decode loop, pure data struct]
 key-files:
   created:
-    - src/audio/normalizer.rs (447 lines)
-    - src/audio/volume.rs (319 lines)
+    - narratoai-core/src/audio/normalizer.rs (447 lines)
+    - narratoai-core/src/audio/volume.rs (319 lines)
   modified: []
 decisions:
   - "AudioError 共 6 个变体，所有 Display 为中文（LoudnormAnalysisFailed / LoudnormNormalizeFailed / RmsFallbackFailed / FileNotFound / InvalidVolume / IoError）"

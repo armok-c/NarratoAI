@@ -15,13 +15,13 @@ tech-stack:
   patterns: [Secondary download pattern for audio URLs, Multipart file upload for reference audio]
 key-files:
   created:
-    - src/tts/qwen_tts.rs
-    - src/tts/indextts2.rs
+    - narratoai-core/src/tts/qwen_tts.rs
+    - narratoai-core/src/tts/indextts2.rs
   modified:
     - Cargo.toml
-    - src/config/types.rs
-    - src/config/defaults.rs
-    - src/tts/mod.rs
+    - narratoai-core/src/config/types.rs
+    - narratoai-core/src/config/defaults.rs
+    - narratoai-core/src/tts/mod.rs
 key-decisions:
   - "Added api_url field to TtsQwenSection for testability via wiremock (hardcoded URL prevents mock server interception)"
 requirements-completed: [TTS-07, TTS-08]

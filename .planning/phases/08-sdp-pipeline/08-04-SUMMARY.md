@@ -5,12 +5,12 @@ type: execute
 tags: [sdp, pipeline, clip, concat, composite, ffmpeg]
 key-files:
   created:
-    - src/sdp/clip.rs
-    - src/sdp/pipeline.rs
+    - narratoai-core/src/sdp/clip.rs
+    - narratoai-core/src/sdp/pipeline.rs
   modified:
-    - src/sdp/mod.rs
-    - src/sdp/error.rs
-    - src/lib.rs
+    - narratoai-core/src/sdp/mod.rs
+    - narratoai-core/src/sdp/error.rs
+    - narratoai-core/src/lib.rs
 metrics:
   tasks: 3
   tasks-completed: 3

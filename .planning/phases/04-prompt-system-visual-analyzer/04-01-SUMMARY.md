@@ -25,13 +25,13 @@ tech-stack:
     - regex 2-pass rendering (find_iter pre-validate, replace_all)
 key-files:
   created:
-    - src/prompt/mod.rs (4 lines, module declarations)
-    - src/prompt/types.rs (53 lines, Prompt types and enums)
-    - src/prompt/error.rs (68 lines, PromptError enum with 5 variants)
-    - src/prompt/registry.rs (300 lines, PromptRegistry with 3-level index)
-    - src/prompt/template.rs (303 lines, 2-pass regex renderer + 6 filters)
+    - narratoai-core/src/prompt/mod.rs (4 lines, module declarations)
+    - narratoai-core/src/prompt/types.rs (53 lines, Prompt types and enums)
+    - narratoai-core/src/prompt/error.rs (68 lines, PromptError enum with 5 variants)
+    - narratoai-core/src/prompt/registry.rs (300 lines, PromptRegistry with 3-level index)
+    - narratoai-core/src/prompt/template.rs (303 lines, 2-pass regex renderer + 6 filters)
   modified:
-    - src/lib.rs (+1 line, pub mod prompt)
+    - narratoai-core/src/lib.rs (+1 line, pub mod prompt)
     - Cargo.toml (+1 line, regex = "1.11")
 decisions: []
 metrics:

@@ -24,12 +24,12 @@ tech-stack:
 
 key-files:
   created:
-    - src/script/types.rs
-    - src/script/error.rs
-    - src/script/mod.rs
+    - narratoai-core/src/script/types.rs
+    - narratoai-core/src/script/error.rs
+    - narratoai-core/src/script/mod.rs
   modified:
     - Cargo.toml
-    - src/lib.rs
+    - narratoai-core/src/lib.rs
 
 key-decisions:
   - "OstType 字段使用 ost (snake_case) + serde rename='OST' 消除 non_snake_case 警告"

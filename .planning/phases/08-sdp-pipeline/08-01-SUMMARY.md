@@ -15,20 +15,20 @@ tech-stack:
     - sde/timestamp.rs re-exports from subtitle/timestamp.rs
 key-files:
   created:
-    - src/subtitle/mod.rs (module entry, pub use re-exports)
-    - src/subtitle/error.rs (SubtitleError enum, thiserror, Chinese error messages)
-    - src/subtitle/types.rs (SubtitleSegment struct)
-    - src/subtitle/parser.rs (detect_encoding, normalize_subtitle_text, parse_subtitle_file, all helpers)
-    - src/subtitle/timestamp.rs (parse_srt_timestamp, find_precise_range)
+    - narratoai-core/src/subtitle/mod.rs (module entry, pub use re-exports)
+    - narratoai-core/src/subtitle/error.rs (SubtitleError enum, thiserror, Chinese error messages)
+    - narratoai-core/src/subtitle/types.rs (SubtitleSegment struct)
+    - narratoai-core/src/subtitle/parser.rs (detect_encoding, normalize_subtitle_text, parse_subtitle_file, all helpers)
+    - narratoai-core/src/subtitle/timestamp.rs (parse_srt_timestamp, find_precise_range)
   modified:
-    - src/sde/types.rs (SubtitleSegment replaced with re-export)
-    - src/sde/timestamp.rs (impls replaced with re-export)
-    - src/sde/error.rs (added From<SubtitleError> for SdeError)
-    - src/sde/pipeline.rs (import path crate::sde::subtitle → crate::subtitle::parser)
-    - src/sde/mod.rs (removed pub mod subtitle)
-    - src/lib.rs (added pub mod subtitle)
+    - narratoai-core/src/sde/types.rs (SubtitleSegment replaced with re-export)
+    - narratoai-core/src/sde/timestamp.rs (impls replaced with re-export)
+    - narratoai-core/src/sde/error.rs (added From<SubtitleError> for SdeError)
+    - narratoai-core/src/sde/pipeline.rs (import path crate::sde::subtitle → crate::subtitle::parser)
+    - narratoai-core/src/sde/mod.rs (removed pub mod subtitle)
+    - narratoai-core/src/lib.rs (added pub mod subtitle)
   deleted:
-    - src/sde/subtitle.rs (all code migrated to src/subtitle/parser.rs)
+    - narratoai-core/src/sde/subtitle.rs (all code migrated to src/subtitle/parser.rs)
 decisions:
   - SubtitleError is independent from SdeError; SdeError gains From<SubtitleError> for automatic ? conversion
   - sde/timestamp.rs and sde/types.rs retain re-exports so existing SDE callers need zero import changes

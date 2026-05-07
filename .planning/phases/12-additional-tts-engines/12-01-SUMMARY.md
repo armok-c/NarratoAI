@@ -12,12 +12,12 @@ provides: [common-utils, soulvoice-engine, doubao-engine]
 affects: [src/tts/mod.rs]
 key-files:
   created:
-    - src/tts/common.rs
-    - src/tts/soulvoice.rs
-    - src/tts/doubaotts.rs
+    - narratoai-core/src/tts/common.rs
+    - narratoai-core/src/tts/soulvoice.rs
+    - narratoai-core/src/tts/doubaotts.rs
   modified:
     - Cargo.toml
-    - src/tts/mod.rs
+    - narratoai-core/src/tts/mod.rs
 metrics:
   tasks_total: 3
   tasks_completed: 3

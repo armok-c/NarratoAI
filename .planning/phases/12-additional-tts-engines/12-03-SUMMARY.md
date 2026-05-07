@@ -19,10 +19,10 @@ tech-stack:
     - Should_use_azure_services 智能回退内联分支
 key-files:
   created:
-    - src/tts/azure_speech.rs (467 行)
-    - src/tts/tencent_tts.rs (427 行)
+    - narratoai-core/src/tts/azure_speech.rs (467 行)
+    - narratoai-core/src/tts/tencent_tts.rs (427 行)
   modified:
-    - src/tts/mod.rs (+azure_speech/tencent_tts mod + match 分支)
+    - narratoai-core/src/tts/mod.rs (+azure_speech/tencent_tts mod + match 分支)
     - Cargo.toml (+hmac/sha2/hex/chrono)
     - Cargo.lock (自动更新)
 metrics:

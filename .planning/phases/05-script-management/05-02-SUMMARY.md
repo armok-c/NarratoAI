@@ -21,10 +21,10 @@ tech-stack:
 
 key-files:
   created:
-    - src/script/edit.rs
+    - narratoai-core/src/script/edit.rs
     - tests/script_test.rs
   modified:
-    - src/script/mod.rs
+    - narratoai-core/src/script/mod.rs
 
 key-decisions:
   - "Python 版脚本样例数据内联到测试中（worktree 无 resource/scripts/2026-0416-112716.json），测试验证相同数据语义"

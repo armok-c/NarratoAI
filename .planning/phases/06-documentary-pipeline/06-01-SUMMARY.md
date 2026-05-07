@@ -33,17 +33,17 @@ tech-stack:
 
 key-files:
   created:
-    - src/documentary/mod.rs
-    - src/documentary/error.rs
-    - src/documentary/types.rs
-    - src/documentary/timestamp.rs
-    - src/documentary/subtitle.rs
-    - src/documentary/pipeline.rs
-    - src/documentary/clip.rs
-    - src/documentary/audio.rs
-    - src/documentary/script_gen.rs
+    - narratoai-core/src/documentary/mod.rs
+    - narratoai-core/src/documentary/error.rs
+    - narratoai-core/src/documentary/types.rs
+    - narratoai-core/src/documentary/timestamp.rs
+    - narratoai-core/src/documentary/subtitle.rs
+    - narratoai-core/src/documentary/pipeline.rs
+    - narratoai-core/src/documentary/clip.rs
+    - narratoai-core/src/documentary/audio.rs
+    - narratoai-core/src/documentary/script_gen.rs
   modified:
-    - src/lib.rs
+    - narratoai-core/src/lib.rs
 
 key-decisions:
   - "PipelineError includes FFmpeg and LLM error variants beyond the plan spec (forward-looking for Plans 02/03)"

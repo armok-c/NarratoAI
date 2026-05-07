@@ -13,20 +13,20 @@ tech-stack:
   patterns: ["serde config section", "spawn_blocking subprocess", "thiserror domain errors"]
 key-files:
   created:
-    - src/audio/mod.rs
-    - src/audio/normalizer.rs
-    - src/audio/volume.rs
-    - src/youtube/mod.rs
-    - src/youtube/downloader.rs
-    - src/material/mod.rs
-    - src/material/searcher.rs
-    - src/material/downloader.rs
+    - narratoai-core/src/audio/mod.rs
+    - narratoai-core/src/audio/normalizer.rs
+    - narratoai-core/src/audio/volume.rs
+    - narratoai-core/src/youtube/mod.rs
+    - narratoai-core/src/youtube/downloader.rs
+    - narratoai-core/src/material/mod.rs
+    - narratoai-core/src/material/searcher.rs
+    - narratoai-core/src/material/downloader.rs
   modified:
     - Cargo.toml
-    - src/config/types.rs
-    - src/config/defaults.rs
+    - narratoai-core/src/config/types.rs
+    - narratoai-core/src/config/defaults.rs
     - config.example.toml
-    - src/lib.rs
+    - narratoai-core/src/lib.rs
 decisions:
   - symphonia feature set: mp3, flac, pcm, wav, vorbis (no AAC -- deferred)
   - AudioSection uses deny_unknown_fields + #[serde(default)] matching existing FramesSection pattern

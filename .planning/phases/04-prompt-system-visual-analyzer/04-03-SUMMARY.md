@@ -5,15 +5,15 @@ subsystem: prompt
 tags: [prompt-system, manager, validators, template-registration]
 key-files:
   created:
-    - src/prompt/manager.rs
-    - src/prompt/validators.rs
-    - src/prompt/register.rs
-    - src/prompt/templates/documentary/frame_analysis_v1.0.md
-    - src/prompt/templates/documentary/narration_generation_v2.0.md
-    - src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
-    - src/prompt/templates/short_drama_narration/script_generation_v1.0.md
+    - narratoai-core/src/prompt/manager.rs
+    - narratoai-core/src/prompt/validators.rs
+    - narratoai-core/src/prompt/register.rs
+    - narratoai-core/src/prompt/templates/documentary/frame_analysis_v1.0.md
+    - narratoai-core/src/prompt/templates/documentary/narration_generation_v2.0.md
+    - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
+    - narratoai-core/src/prompt/templates/short_drama_narration/script_generation_v1.0.md
   modified:
-    - src/prompt/mod.rs
+    - narratoai-core/src/prompt/mod.rs
 metrics:
   tests_added: 41
   tests_passing: 41

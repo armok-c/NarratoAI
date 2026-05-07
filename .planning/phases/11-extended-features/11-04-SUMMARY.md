@@ -14,8 +14,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - src/material/searcher.rs
-    - src/material/downloader.rs
+    - narratoai-core/src/material/searcher.rs
+    - narratoai-core/src/material/downloader.rs
     - Cargo.toml
 decisions:
   - reqwest blocking Client used instead of async (sync functions in library context; tests use #[test] not #[tokio::test])

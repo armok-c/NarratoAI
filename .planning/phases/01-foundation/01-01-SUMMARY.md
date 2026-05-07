@@ -11,12 +11,12 @@ affects: [CONF-01, CONF-02, CONF-03]
 key-files:
   created:
     - Cargo.toml
-    - src/lib.rs
-    - src/error.rs
-    - src/config/types.rs
-    - src/config/defaults.rs
-    - src/config/mod.rs
-    - src/config/watcher.rs
+    - narratoai-core/src/lib.rs
+    - narratoai-core/src/error.rs
+    - narratoai-core/src/config/types.rs
+    - narratoai-core/src/config/defaults.rs
+    - narratoai-core/src/config/mod.rs
+    - narratoai-core/src/config/watcher.rs
     - Cargo.lock
   modified:
     - .gitignore

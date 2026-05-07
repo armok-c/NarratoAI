@@ -31,10 +31,10 @@ tech-stack:
 
 key-files:
   created:
-    - src/tts/edge_tts.rs (337 lines)
+    - narratoai-core/src/tts/edge_tts.rs (337 lines)
   modified:
     - Cargo.toml (3 new dependencies)
-    - src/tts/mod.rs (mod edge_tts + EdgeTtsEngine import + edge_tts route branch)
+    - narratoai-core/src/tts/mod.rs (mod edge_tts + EdgeTtsEngine import + edge_tts route branch)
 
 key-decisions:
   - "D-01: Native Rust WebSocket with tokio-tungstenite, no Python subprocess"

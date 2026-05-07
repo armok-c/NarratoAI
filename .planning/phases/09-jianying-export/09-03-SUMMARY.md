@@ -12,10 +12,10 @@ tech_stack:
   patterns: [builder pattern for draft folder hierarchy, template-based JSON generation with dynamic replacement, material collection during segment addition]
 key_files:
   created:
-    - src/jianying/builder.rs
+    - narratoai-core/src/jianying/builder.rs
   modified:
-    - src/ffmpeg/probe.rs
-    - src/jianying/mod.rs
+    - narratoai-core/src/ffmpeg/probe.rs
+    - narratoai-core/src/jianying/mod.rs
 decisions:
   - ScriptFile 自行维护素材列表（video_materials, audio_materials, speed_materials），而非通过 Track.collect_materials()——因为 Track 只存储已序列化的 SegmentOutput JSON
   - add_video_segment/add_audio_segment 分离为独立方法（替代统一的 add_segment_to_track），提供更好的类型安全

@@ -25,10 +25,10 @@ tech-stack:
 
 key-files:
   created:
-    - src/tts/mod.rs — TTS core module (types, trait, router)
+    - narratoai-core/src/tts/mod.rs — TTS core module (types, trait, router)
   modified:
-    - src/error.rs — added TTSError enum + 5 tests
-    - src/lib.rs — added pub mod tts
+    - narratoai-core/src/error.rs — added TTSError enum + 5 tests
+    - narratoai-core/src/lib.rs — added pub mod tts
     - Cargo.toml — added async-trait dependency
 
 key-decisions:

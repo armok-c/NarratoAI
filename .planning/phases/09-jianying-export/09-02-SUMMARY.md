@@ -12,11 +12,11 @@ tech_stack:
   patterns: [builder pattern, UUID hex ID generation, serde JSON serialization, canonicalize path fallback]
 key_files:
   created:
-    - src/jianying/material.rs
-    - src/jianying/segment.rs
-    - src/jianying/track.rs
+    - narratoai-core/src/jianying/material.rs
+    - narratoai-core/src/jianying/segment.rs
+    - narratoai-core/src/jianying/track.rs
   modified:
-    - src/jianying/mod.rs
+    - narratoai-core/src/jianying/mod.rs
 decisions:
   - VideoSegment 内部持有 VideoMaterial + Speed 所有权，构造时生成 UUID
   - SegmentOutput enum 让 Track 统一存储不同类型的 segment JSON

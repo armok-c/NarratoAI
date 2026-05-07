@@ -11,8 +11,8 @@ tech-stack:
   patterns: [encoding detection chain, 6-step JSON repair, async LLM via trait]
 key-files:
   created:
-    - src/sde/subtitle.rs
-    - src/sde/script_gen.rs
+    - narratoai-core/src/sde/subtitle.rs
+    - narratoai-core/src/sde/script_gen.rs
   modified: []
 decisions:
   - 'encoding detection order: BOM first (UTF-8-SIG/UTF-16), then UTF-16LE heuristic for no-BOM, then pure UTF-8, then GBK/GB18030 — avoids UTF-16LE ASCII text being misidentified as UTF-8'

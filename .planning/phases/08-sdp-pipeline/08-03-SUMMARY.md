@@ -19,12 +19,12 @@ tech-stack:
     - "uuid::Uuid::new_v4() + hex::encode 生成 narration 占位值（替代 rand）"
 key-files:
   created:
-    - src/sdp/mod.rs
-    - src/sdp/error.rs
-    - src/sdp/types.rs
-    - src/sdp/script_gen.rs
+    - narratoai-core/src/sdp/mod.rs
+    - narratoai-core/src/sdp/error.rs
+    - narratoai-core/src/sdp/types.rs
+    - narratoai-core/src/sdp/script_gen.rs
   modified:
-    - src/lib.rs
+    - narratoai-core/src/lib.rs
 decisions:
   - "narration placeholder 使用 uuid::Uuid::new_v4() 替代 rand crate（减少依赖）"
   - "SdpProgressStep 精简为 3 步（Clip/Concat/Composite），区别于 SDE 的 9 步"

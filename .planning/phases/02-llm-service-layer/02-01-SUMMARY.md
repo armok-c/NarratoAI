@@ -24,13 +24,13 @@ tech-stack:
 
 key-files:
   created:
-    - src/llm/mod.rs - llm module root
-    - src/llm/types.rs - LlmResponseFormat and VisionBatchConfig type definitions
-    - src/llm/provider.rs - LlmProvider trait definition
+    - narratoai-core/src/llm/mod.rs - llm module root
+    - narratoai-core/src/llm/types.rs - LlmResponseFormat and VisionBatchConfig type definitions
+    - narratoai-core/src/llm/provider.rs - LlmProvider trait definition
   modified:
     - Cargo.toml - added 6 [dependencies] + 1 [dev-dependencies]
-    - src/error.rs - added LLMError enum (9 variants) + From impl + 9 tests
-    - src/lib.rs - added pub mod llm
+    - narratoai-core/src/error.rs - added LLMError enum (9 variants) + From impl + 9 tests
+    - narratoai-core/src/lib.rs - added pub mod llm
 
 key-decisions:
   - "VisionBatchConfig fields (batch_size/max_concurrency) used as individual Option params in trait instead of struct — keeps trait signature flexible for implementors"

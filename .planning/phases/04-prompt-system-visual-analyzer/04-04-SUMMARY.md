@@ -25,15 +25,15 @@ tech-stack:
     - "online guardrails: zero-frame check + empty result barrier"
 key-files:
   created:
-    - "src/visual/analyzer.rs (422 lines)"
+    - "narratoai-core/src/visual/analyzer.rs (422 lines)"
   modified:
-    - "src/visual/mod.rs (added pub mod analyzer)"
-    - "src/lib.rs (added pub mod prompt; pub mod visual;)"
+    - "narratoai-core/src/visual/mod.rs (added pub mod analyzer)"
+    - "narratoai-core/src/lib.rs (added pub mod prompt; pub mod visual;)"
   restored:
-    - "src/visual/error.rs (Rule 3)"
-    - "src/visual/types.rs (Rule 3)"
-    - "src/visual/frame_extractor.rs (Rule 3)"
-    - "src/prompt/mod.rs, types.rs, error.rs, registry.rs, template.rs (Rule 3)"
+    - "narratoai-core/src/visual/error.rs (Rule 3)"
+    - "narratoai-core/src/visual/types.rs (Rule 3)"
+    - "narratoai-core/src/visual/frame_extractor.rs (Rule 3)"
+    - "narratoai-core/src/prompt/mod.rs, types.rs, error.rs, registry.rs, template.rs (Rule 3)"
     - "Cargo.toml (removed duplicate uuid, added regex)"
 decisions:
   - "D-14: Error collection — single batch JSON parse failure does not abort other batches"

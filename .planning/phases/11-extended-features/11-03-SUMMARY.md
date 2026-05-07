@@ -22,7 +22,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - src/youtube/downloader.rs
+    - narratoai-core/src/youtube/downloader.rs
 
 key-decisions:
   - "URL prefix check (http/https only) before any yt-dlp call — defense against T-11-01 injection"

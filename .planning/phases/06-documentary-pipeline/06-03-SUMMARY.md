@@ -32,8 +32,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - src/documentary/script_gen.rs
-    - src/documentary/mod.rs
+    - narratoai-core/src/documentary/script_gen.rs
+    - narratoai-core/src/documentary/mod.rs
 
 key-decisions:
   - "ScriptGenRequest.progress uses simple Fn(f32, &str) instead of ProgressStep enum"

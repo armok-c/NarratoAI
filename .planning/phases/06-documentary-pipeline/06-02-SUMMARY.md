@@ -30,10 +30,10 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - src/documentary/pipeline.rs
-    - src/documentary/clip.rs
-    - src/documentary/audio.rs
-    - src/documentary/mod.rs
+    - narratoai-core/src/documentary/pipeline.rs
+    - narratoai-core/src/documentary/clip.rs
+    - narratoai-core/src/documentary/audio.rs
+    - narratoai-core/src/documentary/mod.rs
 
 key-decisions:
   - "Sequential TTS generation (not parallel) for simplicity; parallel TTS can be added later"

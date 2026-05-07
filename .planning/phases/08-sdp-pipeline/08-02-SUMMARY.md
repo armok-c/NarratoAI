@@ -13,10 +13,10 @@ tech-stack:
   patterns: []
 key-files:
   created:
-    - src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
+    - narratoai-core/src/prompt/templates/short_drama_editing/subtitle_analysis_v2.0.md
   modified:
-    - src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
-    - src/prompt/register.rs
+    - narratoai-core/src/prompt/templates/short_drama_editing/plot_extraction_v2.0.md
+    - narratoai-core/src/prompt/register.rs
 decisions: []
 metrics:
   duration_minutes: 5

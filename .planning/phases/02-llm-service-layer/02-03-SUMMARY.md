@@ -23,11 +23,11 @@ tech-stack:
     - Integration tests in tests/ directory for public API testing
 key-files:
   created:
-    - src/llm/register.rs
-    - src/llm/test_utils.rs
+    - narratoai-core/src/llm/register.rs
+    - narratoai-core/src/llm/test_utils.rs
     - tests/llm_test.rs
   modified:
-    - src/llm/mod.rs: added openai_compatible, register, test_utils module declarations
+    - narratoai-core/src/llm/mod.rs: added openai_compatible, register, test_utils module declarations
     - Cargo.toml: reqwest bumped from 0.12 to 0.13 (async-openai compat)
     - Cargo.lock: version resolution update
 decisions:

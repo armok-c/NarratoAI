@@ -12,14 +12,14 @@ tech_stack:
   patterns: [thiserror error enum, serde derive structs, serde flatten, microsecond time representation]
 key_files:
   created:
-    - src/jianying/mod.rs
-    - src/jianying/error.rs
-    - src/jianying/time.rs
-    - src/jianying/types.rs
-    - src/jianying/template.rs
+    - narratoai-core/src/jianying/mod.rs
+    - narratoai-core/src/jianying/error.rs
+    - narratoai-core/src/jianying/time.rs
+    - narratoai-core/src/jianying/types.rs
+    - narratoai-core/src/jianying/template.rs
   modified:
     - Cargo.toml
-    - src/lib.rs
+    - narratoai-core/src/lib.rs
 decisions:
   - JianYingError::JsonSerialize 统一捕获 serde_json::Error（不区分序列化/反序列化），因为 serde_json::Error 本身不区分两者
   - Timerange 派生 PartialEq 以支持测试断言

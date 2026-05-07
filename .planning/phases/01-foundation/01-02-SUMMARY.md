@@ -25,12 +25,12 @@ tech-stack:
     - OnceLock lazy static for profile registry
 key-files:
   created:
-    - src/ffmpeg/mod.rs: module declarations (command, probe, hwaccel)
-    - src/ffmpeg/command.rs: clip_video, run_ffmpeg, ProgressCallback
-    - src/ffmpeg/probe.rs: VideoInfo, probe_video, probe_video_async
-    - src/ffmpeg/hwaccel.rs: HwAccelProfile, FFmpegProfileInfo, profiles, detection
+    - narratoai-core/src/ffmpeg/mod.rs: module declarations (command, probe, hwaccel)
+    - narratoai-core/src/ffmpeg/command.rs: clip_video, run_ffmpeg, ProgressCallback
+    - narratoai-core/src/ffmpeg/probe.rs: VideoInfo, probe_video, probe_video_async
+    - narratoai-core/src/ffmpeg/hwaccel.rs: HwAccelProfile, FFmpegProfileInfo, profiles, detection
   modified:
-    - src/lib.rs: added `pub mod ffmpeg` export
+    - narratoai-core/src/lib.rs: added `pub mod ffmpeg` export
 decisions:
   - detect_hw_encoders returns Ok(vec![]) instead of Err when ffmpeg is unavailable
   - ffprobe operations use std::process::Command (not ffmpeg-sidecar API) because ffmpeg-sidecar does not wrap ffprobe fully (WARNING 1 deviation from D-11)
