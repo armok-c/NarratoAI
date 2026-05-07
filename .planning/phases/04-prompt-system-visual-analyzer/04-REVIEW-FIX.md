@@ -1,83 +1,69 @@
 ---
 phase: 04-prompt-system-visual-analyzer
-fixed_at: 2026-05-02T20:30:00Z
+fixed_at: 2026-05-06T23:15:00Z
 review_path: .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-iteration: 14
-findings_in_scope: 3
-fixed: 3
-skipped: 0
+iteration: 17
+findings_in_scope: 1
+fixed: 0
+skipped: 1
 status: all_fixed
 ---
 
-# Phase 04: Code Review Fix Report (Iteration 14)
+# Phase 04: Code Review Fix Report (Iteration 17)
 
-**Fixed at:** 2026-05-02T20:30:00Z
+**Fixed at:** 2026-05-06T23:15:00Z
 **Source review:** .planning/phases/04-prompt-system-visual-analyzer/04-REVIEW.md
-**Iteration:** 14
+**Iteration:** 17
 
 **Summary:**
-- Findings in scope: 3 (Warning only; Info findings excluded)
-- Fixed: 3
-- Skipped: 0
+- Fix scope: critical + warning
+- Findings in scope: 1 (1 WARNING, 0 CRITICAL)
+- Fixed: 0
+- Skipped: 1 (false positive — not a real bug)
 
-## Fixed Issues
+## Skipped
 
-### WR-14-01: 快路径帧文件内容完整性检查 ✅
+| ID | File | Description | Reason |
+|----|------|-------------|--------|
+| WR-17-01 | src/visual/analyzer.rs:109-116 | format! 对 prompt_template 的所谓 panic 风险 | **误报** — 见下方详细分析 |
 
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** `e0df0b9` (逻辑) + `cb6b12b` (测试数据)
+## WR-17-01 详细分析
 
-**Applied fix:** 在 `rename_fast_path_frames()` 的目录遍历循环中，对匹配 `fastframe_*.jpg` 的文件添加大小检查。小于 100 字节的文件被视为损坏帧（有效 JPEG 最小约 625 字节），自动删除后跳过，不计入重命名列表。同时更新 `test_rename_fast_path_frames` 的 mock 数据从 15 字节增大到 200 字节以超过阈值。
+**审查结论：** `format!("{}", prompt_template)` 在 `prompt_template` 包含 `{}` 或 `{:?}` 时会 panic。
 
-**Verification:**
-- Tier 1: Re-read frame_extractor.rs, confirmed size check `< 100` present before `entries.push`.
-- Tier 2: `cargo check` passed.
-- Extended: `cargo test --lib visual` — 31 passed, 0 failed.
+**实际情况：** 这是不正确的。`prompt_template` 是 `format!` 宏的**值参数**（第二个参数），不是格式化字符串。Rust 的 `format!` 宏在编译时解析格式化字符串字面量（第一个参数），`{}` 是占位符，被替换为值参数的 `Display` 表示。`prompt_template` 的内容通过 `&str` 的 `Display` trait 直接输出，其中的 `{}`、`{:?}` 等字符不会被二次解释为格式化说明符。
 
-### WR-14-02: BatchResponse serde 字段名与 prompt schema 对齐 ✅
+```rust
+// 当前代码（安全，无需修改）
+let rendered_prompt = format!(
+    "{}\n\nIMPORTANT: ...",   // ← 格式化字符串（编译时常量）
+    prompt_template            // ← 值参数，内容不会被解释为格式说明符
+);
+```
 
-**Files modified:** `src/visual/analyzer.rs`
-**Commit:** `fabdf59`
+**验证方式：** 以下代码编译通过且运行正常：
+```rust
+let prompt_template = "hello {} world {:?}";
+let result = format!("prefix: {}", prompt_template);
+// result == "prefix: hello {} world {:?}"  — 无 panic
+```
 
-**Applied fix:** 将 `#[serde(alias = "frame_observations")]` 改为 `#[serde(rename = "frame_observations")]`。`rename` 确保反序列化和序列化均使用 `frame_observations`，与 prompt 中声明的 JSON schema 键名一致。
+`format!` 只会在**格式化字符串本身**包含无效格式说明符时 panic，而格式化字符串是编译时常量，编译器会直接拒绝无效格式。值参数的内容不可能触发 panic。
 
-**Verification:**
-- Tier 1: Re-read analyzer.rs line 30, confirmed `#[serde(rename = "frame_observations")]`.
-- Tier 2: `cargo check` passed.
-- Extended: `test_parse_and_retry_batch_response` 验证 `frame_observations` 键名正确解析。
+**结论：** 不需要修改代码。
 
-### WR-14-03: extract_frames_fallback 错误路径保留详细信息 ✅
+## Scope Explanation
 
-**Files modified:** `src/visual/frame_extractor.rs`
-**Commit:** `3695d93`
+REVIEW.md (iteration 17) 包含 1 个 WARNING 和 5 个 INFO 发现。
+- WR-17-01 经评估为误报，跳过（无需代码修改）。
+- 5 个 INFO 发现不在默认修复范围内（`critical_warning` scope）。
 
-**Applied fix:** 所有帧提取失败时，错误消息从仅包含错误数量改为包含前 5 个错误详情拼接（`errors.iter().take(5)`），调用者可获取失败帧和时间戳信息用于诊断。
-
-**Verification:**
-- Tier 1: Re-read frame_extractor.rs lines 242-249, confirmed detail string in error message.
-- Tier 2: `cargo check` passed.
-- Extended: `cargo test --lib visual::frame_extractor` 全部通过。
-
-## Build Verification
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| `cargo check` | PASS | No errors |
-| `cargo test --lib visual` | PASS | 31 passed, 0 failed |
-| `cargo clippy --lib -- src/visual/` | PASS | 0 warnings in visual module |
-
-## Skipped (Info-level, out of scope)
-
-| ID | Description | Reason |
-|----|-------------|--------|
-| IN-14-01 | template::render filter_re 3 次迭代 | Info, maintenance suggestion |
-| IN-14-02 | validate_output 未使用 &self | Info, API style |
-| IN-14-03 | seconds_to_hhmmssmmm 多余 allow(dead_code) | Info, lint suppression |
-| IN-14-04 | parse_frame_number_from_name 多余 allow(dead_code) | Info, lint suppression |
-| IN-14-05 | strip_code_fence 冗余 trim() 调用 | Info, micro-optimization |
+如需修复 INFO 级别发现，请使用 `--all` 重新运行：
+```
+/gsd-code-review-fix 4 --all
+```
 
 ---
-
-_Fixed: 2026-05-02T20:30:00Z_
+_Fixed: 2026-05-06T23:15:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 14_
+_Iteration: 17_

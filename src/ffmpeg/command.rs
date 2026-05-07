@@ -42,6 +42,8 @@ fn parse_time_to_secs(time_str: &str) -> Option<f64> {
     }
 }
 
+const CLIP_VIDEO_TIMEOUT_SECS: u64 = 600;
+
 /// 异步视频裁剪
 ///
 /// 通过 ffmpeg-sidecar 执行 FFmpeg 视频裁剪操作，通过 spawn_blocking 异步化。
@@ -138,10 +140,10 @@ pub async fn clip_video(
         result = handle => {
             result.map_err(|e| FFmpegError::ExecutionError(e.to_string()))?
         }
-        _ = tokio::time::sleep(Duration::from_secs(600)) => {
+        _ = tokio::time::sleep(Duration::from_secs(CLIP_VIDEO_TIMEOUT_SECS)) => {
             cancel.cancel();
             Err(FFmpegError::Timeout(
-                "FFmpeg clip_video timed out after 600s".into(),
+                format!("FFmpeg clip_video timed out after {}s", CLIP_VIDEO_TIMEOUT_SECS),
             ))
         }
     }

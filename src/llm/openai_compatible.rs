@@ -21,7 +21,6 @@ use async_openai::{
 use backoff::ExponentialBackoff;
 use futures::stream::{Stream, StreamExt};
 use tokio::sync::Semaphore;
-use tokio::task::JoinHandle;
 
 use crate::error::LLMError;
 use crate::llm::image_utils::image_to_base64_data_url;
@@ -420,44 +419,25 @@ impl LlmProvider for OpenAiCompatibleProvider {
         temperature: Option<f32>,
         max_tokens: Option<u32>,
     ) -> Result<Vec<String>, LLMError> {
-        // 预处理所有图片为 base64 data URL（通过 spawn_blocking 避免阻塞 tokio worker 线程）
-        let handles: Vec<JoinHandle<Result<String, LLMError>>> = images
-            .iter()
-            .map(|p| {
-                let p = p.clone();
-                tokio::task::spawn_blocking(move || image_to_base64_data_url(&p))
-            })
-            .collect();
-
-        let join_results: Vec<Result<String, LLMError>> = futures::future::join_all(handles)
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|join_err| {
-                LLMError::General(format!("图片预处理任务失败: {}", join_err))
-            })?;
-
-        let data_urls: Vec<String> = join_results
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if data_urls.is_empty() {
+        if images.is_empty() {
             return Ok(Vec::new());
         }
 
         let batch_size = batch_size.unwrap_or(10).max(1);
         let bounded_concurrency = max_concurrency.unwrap_or(1).max(1);
 
-        // 将 data_urls 分片
-        let chunks: Vec<Vec<String>> = data_urls.chunks(batch_size).map(|c| c.to_vec()).collect();
-
-        let total_batches = chunks.len();
+        // 将图片分片，每个 batch 仅在执行时才预处理自己的图片（避免所有 base64 同时驻留内存）
+        const MAX_CONCURRENT_PREPROCESSING: usize = 4;
+        let preprocess_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PREPROCESSING));
+        let image_chunks: Vec<Vec<PathBuf>> = images.chunks(batch_size).map(|c| c.to_vec()).collect();
+        let total_batches = image_chunks.len();
         let semaphore = Arc::new(Semaphore::new(bounded_concurrency));
 
         let mut handles = Vec::with_capacity(total_batches);
 
-        for (batch_idx, batch) in chunks.into_iter().enumerate() {
+        for (batch_idx, image_chunk) in image_chunks.into_iter().enumerate() {
             let sem_clone = semaphore.clone();
+            let preprocess_sem = preprocess_semaphore.clone();
             let client_clone = self.client.clone();
             let prompt_owned = prompt.to_string();
             let system_prompt_owned = system_prompt.map(|s| s.to_string());
@@ -471,11 +451,23 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     LLMError::General("信号量获取失败".to_string())
                 })?;
 
+                // 仅预处理本 batch 的图片，通过预处理信号量限制并发解码数
+                let mut data_urls = Vec::with_capacity(image_chunk.len());
+                for img_path in image_chunk {
+                    let _pp_permit = preprocess_sem.clone().acquire_owned().await.map_err(|_| {
+                        LLMError::General("预处理信号量获取失败".to_string())
+                    })?;
+                    let data_url = tokio::task::spawn_blocking(move || image_to_base64_data_url(&img_path))
+                        .await
+                        .map_err(|join_err| LLMError::General(format!("图片预处理任务失败: {}", join_err)))??;
+                    data_urls.push(data_url);
+                }
+
                 // 构建包含图片和文本的 vision 消息
                 let messages = Self::build_vision_messages(
                     &prompt_owned,
                     system_prompt_owned.as_deref(),
-                    &batch,
+                    &data_urls,
                 );
 
                 let mut request_builder = CreateChatCompletionRequestArgs::default();
@@ -501,7 +493,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                         &model_name,
                         &prompt_owned,
                         system_prompt_owned.as_deref(),
-                        &batch,
+                        &data_urls,
                         temperature,
                         max_tokens,
                     )

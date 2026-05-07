@@ -134,10 +134,7 @@ pub fn detect_hw_encoders() -> Result<Vec<String>, FFmpegError> {
     {
         Ok(o) => o,
         Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                return Err(FFmpegError::BinaryNotFound);
-            }
-            tracing::warn!("无法启动 ffmpeg: {} — 返回空编码器列表", e);
+            tracing::warn!("FFmpeg binary not found or failed to start: {} — 返回空编码器列表", e);
             return Ok(Vec::new());
         }
     };

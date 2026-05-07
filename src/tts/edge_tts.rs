@@ -271,15 +271,17 @@ impl EdgeTtsEngine {
                 loop {
                     // Read until \r\n\r\n (one complete response)
                     loop {
+                        if total_read >= 4
+                            && response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n")
+                        {
+                            break;
+                        }
                         let n = tcp.read(&mut response_buf[total_read..]).await
                             .map_err(|e| TTSError::ConnectionFailed(format!("读取代理响应失败: {}", e)))?;
                         if n == 0 {
                             return Err(TTSError::ConnectionFailed("代理连接提前关闭".to_string()));
                         }
                         total_read += n;
-                        if response_buf[..total_read].windows(4).any(|w| w == b"\r\n\r\n") {
-                            break;
-                        }
                         if total_read >= response_buf.len() {
                             return Err(TTSError::ConnectionFailed("代理响应头过大".to_string()));
                         }
