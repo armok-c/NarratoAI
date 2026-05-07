@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::documentary::error::PipelineError;
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
@@ -7,6 +9,7 @@ use crate::script::types::ScriptClip;
 use crate::visual::types::BatchAnalysisResult;
 
 /// 脚本生成请求参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptGenRequest {
     pub video_path: PathBuf,
     pub video_theme: Option<String>,

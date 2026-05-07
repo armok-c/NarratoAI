@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 use crate::tts::WordBoundary;
 
 /// 纪录片流水线请求参数
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentaryRequest {
     pub video_path: PathBuf,
     pub script_path: PathBuf,
@@ -94,8 +96,8 @@ pub enum ProgressStep {
     Composite,
 }
 
-/// 进度回调类型
-pub type ProgressCallback = Box<dyn Fn(ProgressStep, f32, &str) + Send + Sync>;
+/// 进度回调类型（字符串基——step_name, percent, message）
+pub type ProgressCallback = Box<dyn Fn(&str, f32, &str) + Send + Sync>;
 
 /// TTS 合成结果——关联到具体脚本片段
 #[derive(Debug, Clone)]
