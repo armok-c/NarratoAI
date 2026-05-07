@@ -164,7 +164,18 @@ pub async fn analyze_video_frames(
         match parse_and_retry(text) {
             Ok(batch) => {
                 success_count += 1;
-                observations.extend(batch.observations);
+                let valid: Vec<FrameObservation> = batch
+                    .observations
+                    .into_iter()
+                    .filter(|obs| match obs.validate() {
+                        Ok(_) => true,
+                        Err(e) => {
+                            warn!("Frame {} validation failed: {}", obs.frame_number, e);
+                            false
+                        }
+                    })
+                    .collect();
+                observations.extend(valid);
                 if batch.overall_activity_summary.is_some() {
                     last_summary = batch.overall_activity_summary;
                 }
