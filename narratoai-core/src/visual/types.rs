@@ -52,7 +52,8 @@ pub struct BatchAnalysisResult {
     pub errors: Vec<String>,
 }
 
-// strip_code_fence 已提取到 crate::text_utils，通过 re-export 保持兼容
+// strip_code_fence 已提取到 crate::text_utils
+// 此 re-export 仅被本文件 test 模块使用，生产代码通过 crate::text_utils 直接导入（IN-05）
 pub(crate) use crate::text_utils::strip_code_fence;
 
 #[cfg(test)]
