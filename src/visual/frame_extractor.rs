@@ -155,7 +155,6 @@ pub(crate) async fn extract_frames_fast_path(
             }
         }
 
-        let _ = child.wait();
         rename_fast_path_frames(&output, interval_seconds)
     })
     .await
