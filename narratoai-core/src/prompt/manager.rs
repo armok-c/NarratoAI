@@ -59,6 +59,17 @@ impl PromptManager {
     ) -> Result<String, PromptError> {
         let prompt = self.get_prompt(category, name, version)?;
 
+        // — 两阶段校验设计（IN-03） —
+        //
+        // 第 1 阶段（此处）：校验必需参数（ParameterDef.required == true 且无默认值）
+        // 是否全部在 caller vars 中提供。返回清晰的 Validation 错误。
+        //
+        // 第 2 阶段（template::render）：独立校验所有 ${variable} 引用是否在最终合并的
+        // 变量映射中都有对应值。这捕获模板中引用了但未在 ParameterDef 声明的变量。
+        //
+        // 两阶段分层的原因是：
+        // - 第 1 阶段提供用户友好的"缺少必需参数:X"错误（参数级语义）
+        // - 第 2 阶段是防御性检查，防止 ParameterDef 与模板内容不同步
         // 校验必需参数
         let mut missing: Vec<String> = Vec::new();
         for param in &prompt.metadata.parameters {
