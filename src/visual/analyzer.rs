@@ -184,6 +184,13 @@ pub async fn analyze_video_frames(
         });
     }
 
+    // Step 8b — 所有批次成功但均返回空观察结果的盲区检查
+    if observations.is_empty() {
+        return Err(VisualError::Analysis(
+            "所有批次返回空观察结果".into(),
+        ));
+    }
+
     // Step 9 — 返回结果
     if let Some(ref cb) = progress {
         cb(Some(1.0), "视觉分析完成");

@@ -154,11 +154,11 @@ pub async fn merge_subtitle_files(
                 if !tts.word_boundaries.is_empty() {
                     let srt_content = crate::documentary::subtitle::generate_srt_from_word_boundaries(
                         &tts.word_boundaries,
-                        cumulative_offset,
+                        0.0, // offset applied via SubtitleSegment during merge
                     );
                     segments.push(SubtitleSegment {
                         srt_content,
-                        offset_secs: 0.0,
+                        offset_secs: cumulative_offset,
                     });
                 }
             }
