@@ -19,6 +19,7 @@ pub fn generate_srt_from_word_boundaries(
     offset_secs: f64,
 ) -> String {
     let mut blocks = Vec::new();
+    let mut seq = 1u32;
     for (i, wb) in word_boundaries.iter().enumerate() {
         let start_secs = offset_secs + wb.start_offset as f64 / 10_000_000.0;
         let end_secs = offset_secs + wb.end_offset as f64 / 10_000_000.0;
@@ -33,11 +34,12 @@ pub fn generate_srt_from_word_boundaries(
         let end_str = secs_to_srt_time(end_secs);
         blocks.push(format!(
             "{}\n{} --> {}\n{}\n",
-            i + 1,
+            seq,
             start_str,
             end_str,
             wb.text
         ));
+        seq += 1;
     }
     blocks.join("\n")
 }

@@ -97,17 +97,6 @@ impl DocumentaryRequest {
     }
 }
 
-/// 流水线进度步骤
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProgressStep {
-    LoadScript,
-    Tts,
-    Clip,
-    MergeAudio,
-    Concat,
-    Composite,
-}
-
 /// 进度回调类型（字符串基——step_name, percent, message）
 pub type ProgressCallback = Box<dyn Fn(&str, f32, &str) + Send + Sync>;
 

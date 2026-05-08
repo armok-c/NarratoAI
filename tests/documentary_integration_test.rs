@@ -6,7 +6,7 @@ use narratoai_core::documentary::subtitle::{
 use narratoai_core::documentary::timestamp::{
     parse_time_to_secs, parse_timestamp_range,
 };
-use narratoai_core::documentary::{DocumentaryRequest, PipelineError, ProgressStep};
+use narratoai_core::documentary::{DocumentaryRequest, PipelineError};
 
 use narratoai_core::tts::WordBoundary;
 
@@ -114,25 +114,31 @@ fn test_subtitle_merge_with_offsets() {
 #[test]
 fn test_progress_callback_receives_all_steps() {
     use std::sync::{Arc, Mutex};
+    use narratoai_core::documentary::ProgressCallback;
 
     let records: Arc<Mutex<Vec<(String, f32, String)>>> = Arc::new(Mutex::new(Vec::new()));
     let records_clone = records.clone();
 
-    let callback = Box::new(move |step: ProgressStep, pct: f32, msg: &str| {
-        let step_name = format!("{:?}", step);
+    let callback: ProgressCallback = Box::new(move |step: &str, pct: f32, msg: &str| {
         records_clone
             .lock()
             .unwrap()
-            .push((step_name, pct, msg.to_string()));
+            .push((step.to_string(), pct, msg.to_string()));
     });
 
-    // Simulate progress emissions
-    callback(ProgressStep::LoadScript, 0.0, "加载视频脚本");
-    callback(ProgressStep::Tts, 20.0, "TTS 生成完成");
-    callback(ProgressStep::Clip, 60.0, "视频裁剪完成");
-    callback(ProgressStep::MergeAudio, 70.0, "音频字幕合并完成");
-    callback(ProgressStep::Concat, 80.0, "视频拼接完成");
-    callback(ProgressStep::Composite, 100.0, "最终合成完成");
+    // Simulate progress emissions using actual ProgressCallback signature
+    let steps: &[(&str, f32, &str)] = &[
+        ("LoadScript", 0.0, "加载视频脚本"),
+        ("Tts", 20.0, "TTS 生成完成"),
+        ("Clip", 60.0, "视频裁剪完成"),
+        ("MergeAudio", 70.0, "音频字幕合并完成"),
+        ("Concat", 80.0, "视频拼接完成"),
+        ("Composite", 100.0, "最终合成完成"),
+    ];
+
+    for &(step, pct, msg) in steps {
+        callback(step, pct, msg);
+    }
 
     let r = records.lock().unwrap();
     assert_eq!(r.len(), 6, "应收到 6 个进度回调");
