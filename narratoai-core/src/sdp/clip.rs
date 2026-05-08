@@ -58,24 +58,42 @@ pub async fn sdp_step_clip(
         // 计算片段时长：从 timestamp 中解析起止秒数
         let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
         if ts_parts.len() == 2 {
-            let start_secs = parse_srt_timestamp(ts_parts[0]).unwrap_or(0.0);
-            let end_secs = parse_srt_timestamp(ts_parts[1]).unwrap_or(0.0);
-            let clip_duration = (end_secs - start_secs).max(0.0);
-
-            if clip_duration > 0.0 {
-                clip.duration = Some(clip_duration);
-                clip.source_time_range = Some(format!(
-                    "{}-{}",
-                    secs_to_timestamp_str(start_secs),
-                    secs_to_timestamp_str(end_secs)
-                ));
-                clip.edited_time_range = Some(format!(
-                    "{}-{}",
-                    secs_to_timestamp_str(cumulative_time),
-                    secs_to_timestamp_str(cumulative_time + clip_duration)
-                ));
-                cumulative_time += clip_duration;
+            let start_secs = parse_srt_timestamp(ts_parts[0])
+                .map_err(|e| SdpError::ParseSubtitle {
+                    details: format!("片段 {} 开始时间戳解析失败: {}", clip._id, e),
+                })?;
+            let end_secs = parse_srt_timestamp(ts_parts[1])
+                .map_err(|e| SdpError::ParseSubtitle {
+                    details: format!("片段 {} 结束时间戳解析失败: {}", clip._id, e),
+                })?;
+            if end_secs < start_secs {
+                return Err(SdpError::Validation {
+                    details: format!(
+                        "片段 {} 结束时间 ({}) 早于开始时间 ({})",
+                        clip._id, end_secs, start_secs
+                    ),
+                });
             }
+            let clip_duration = end_secs - start_secs;
+
+            if clip_duration <= 0.0 {
+                return Err(SdpError::Validation {
+                    details: format!("片段 {} 时长计算为零", clip._id),
+                });
+            }
+
+            clip.duration = Some(clip_duration);
+            clip.source_time_range = Some(format!(
+                "{}-{}",
+                secs_to_timestamp_str(start_secs),
+                secs_to_timestamp_str(end_secs)
+            ));
+            clip.edited_time_range = Some(format!(
+                "{}-{}",
+                secs_to_timestamp_str(cumulative_time),
+                secs_to_timestamp_str(cumulative_time + clip_duration)
+            ));
+            cumulative_time += clip_duration;
         }
     }
 
