@@ -279,7 +279,12 @@ pub async fn generate_sdp_script(
         &task_dir,
         temperature,
         custom_clips,
-    ).await?;
+    ).await;
+
+    // WR-03: 清理临时目录（无论成功或失败）
+    let _ = tokio::fs::remove_dir_all(&task_dir).await;
+
+    let script = script?;
 
     Ok(script)
 }
