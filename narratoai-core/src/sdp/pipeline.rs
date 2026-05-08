@@ -12,12 +12,10 @@ use crate::script::types::OstType;
 ///
 /// 参数：
 /// - request: SdpRequest（含 video_path, script_path, bgm_path, volume 等）
-/// - config: 全局配置
 ///
 /// 返回最终输出视频的 PathBuf。
 pub async fn run_sdp(
     request: SdpRequest,
-    _config: &crate::config::types::AppConfig,
     progress: Option<SdpProgressCallback>,
 ) -> Result<PathBuf, SdpError> {
     // 0. 参数校验
@@ -31,7 +29,7 @@ pub async fn run_sdp(
         .output_dir
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("narratoai").join(&task_id));
-    std::fs::create_dir_all(&task_dir)?;
+    tokio::fs::create_dir_all(&task_dir).await?;
 
     // 2. 初始化流水线状态
     let mut state = SdpPipelineState::new(task_id, task_dir);
@@ -50,6 +48,18 @@ pub async fn run_sdp(
             details: "SDP 仅支持 OST=1（原声）片段，请检查脚本中的 OST 值".into(),
         });
     }
+
+    // CR-01: 解析字幕文件，填充 subtitle_segments 以支持 OST=1 精确时间戳校正
+    let subtitle_path_owned = request.subtitle_path.clone();
+    let (segments, _, _) = tokio::task::spawn_blocking(move || {
+        crate::subtitle::parse_subtitle_file(&subtitle_path_owned)
+    })
+    .await
+    .map_err(|e| SdpError::Io {
+        source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+    })?
+    .map_err(SdpError::from)?;
+    state.subtitle_segments = segments;
 
     // ============================================================
     //  步骤 1: 视频裁剪 (Clip)  —  0% → 30%
@@ -70,6 +80,7 @@ pub async fn run_sdp(
     // ============================================================
     state.emit_progress("composite", 60.0, "正在最终合成...");
     sdp_step_composite(&mut state, &request).await?;
+    state.emit_progress("composite", 90.0, "合成完成");
     state.emit_progress("composite", 100.0, "最终合成完成");
 
     // 返回结果
@@ -89,9 +100,14 @@ async fn sdp_step_concat(state: &mut SdpPipelineState) -> Result<(), SdpError> {
         if let Some(ref video_path) = clip.video {
             let path_str = video_path
                 .to_string_lossy()
-                .replace('\\', "/")
-                .replace("'", "'\\''");
-            concat_content.push_str(&format!("file '{}'\n", path_str));
+                .replace('\\', "/");
+            if path_str.contains('\n') || path_str.contains('\r') {
+                return Err(SdpError::Validation {
+                    details: format!("视频路径包含非法字符: {}", clip._id),
+                });
+            }
+            let escaped = path_str.replace("'", "'\\''");
+            concat_content.push_str(&format!("file '{}'\n", escaped));
         } else {
             return Err(SdpError::Validation {
                 details: format!("片段 {} 缺少视频文件", clip._id),
@@ -99,7 +115,7 @@ async fn sdp_step_concat(state: &mut SdpPipelineState) -> Result<(), SdpError> {
         }
     }
 
-    std::fs::write(&concat_list_path, &concat_content)?;
+    tokio::fs::write(&concat_list_path, &concat_content).await?;
 
     let combined_path = state.task_dir.join("combined_concat.mp4");
     let concat_path_str = concat_list_path.to_string_lossy().to_string();
