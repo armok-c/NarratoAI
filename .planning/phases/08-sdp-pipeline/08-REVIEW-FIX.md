@@ -1,8 +1,8 @@
 ---
 phase: 08-sdp-pipeline
-fixed_at: 2026-05-08T23:55:00Z
+fixed_at: 2026-05-08T15:40:00Z
 review_path: .planning/phases/08-sdp-pipeline/08-REVIEW.md
-iteration: 7
+iteration: 8
 findings_in_scope: 3
 fixed: 3
 skipped: 0
@@ -11,9 +11,9 @@ status: all_fixed
 
 # Phase 08: Code Review Fix Report
 
-**Fixed at:** 2026-05-08T23:55:00Z
+**Fixed at:** 2026-05-08T15:40:00Z
 **Source review:** .planning/phases/08-sdp-pipeline/08-REVIEW.md
-**Iteration:** 7
+**Iteration:** 8
 
 **Summary:**
 - Findings in scope: 3
@@ -22,26 +22,26 @@ status: all_fixed
 
 ## Fixed Issues
 
-### WR-15: `generate_sdp_script` does not validate empty `plot_titles` from step 1 LLM analysis
+### WR-18: parse_srt_timestamp rejects valid SRT timestamps with hours > 23
 
-**Files modified:** `narratoai-core/src/sdp/script_gen.rs`
-**Commit:** 2f0a5d1
-**Applied fix:** Added validation after parsing the step 1 `SubtitleAnalysis` JSON (before building `plot_titles_text`) to check that `analysis.plot_titles` is non-empty and `analysis.summary` is non-whitespace. Returns clear `SdpError::LlmError` messages instead of allowing confusing downstream failures.
+**Files modified:** `narratoai-core/src/subtitle/timestamp.rs`, `narratoai-core/src/documentary/timestamp.rs`
+**Commit:** 21c5f1b
+**Applied fix:** Removed the `h > 23` check from `parse_srt_timestamp` and the `!(0.0..=23.0).contains(&h)` check from `parse_time_to_secs`. Updated total seconds validation from 86400 (1 day) to 604800 (7 days) in both parsers. Updated `secs_to_srt_time` and `secs_to_ffmpeg_time` caps from 86399.999 to 604799.999 in the documentary module.
 
-### WR-16: `SdpRequest::validate()` does not validate `temperature` range
+### WR-19: SRT path containing single quote breaks FFmpeg subtitles filter
 
-**Files modified:** `narratoai-core/src/sdp/types.rs`
-**Commit:** 2e573a5
-**Applied fix:** Added temperature range validation `[0.0, 2.0]` in `SdpRequest::validate()`, placed after the existing `threads == 0` check. Returns a descriptive error message with the out-of-range value.
+**Files modified:** `narratoai-core/src/sde/pipeline.rs`
+**Commit:** d926892
+**Applied fix:** Changed the FFmpeg subtitles filter format from `subtitles='{}'` (single-quoted) to `subtitles={}` (unquoted). The existing escaping chain at lines 525-533 already handles special characters via FFmpeg's native escaping, so removing the single-quote wrapping avoids the issue where paths containing single quotes break FFmpeg's filter parser.
 
-### WR-17: `sdp/clip.rs` duplicates `secs_to_srt_time` logic from `documentary/timestamp.rs`
+### WR-20: Millisecond parsing inconsistency between two timestamp parsers
 
-**Files modified:** `narratoai-core/src/sdp/clip.rs`
-**Commit:** e16eb0d
-**Applied fix:** Added `use crate::documentary::timestamp::secs_to_srt_time;` import, removed the local `secs_to_timestamp_str` function, replaced all call sites with `secs_to_srt_time`, and removed the 4 redundant unit tests that tested the now-deleted local function.
+**Files modified:** `narratoai-core/src/subtitle/timestamp.rs`, `narratoai-core/src/documentary/timestamp.rs`
+**Commit:** 38db894
+**Applied fix:** Standardized both `parse_srt_timestamp` and `parse_time_to_secs` to use left-pad-to-3-digits approach: `format!("{:0<3}", millis)` then take first 3 characters, parse, and divide by 1000. This ensures consistent behavior for non-standard 1 or 2 digit millisecond inputs across both the subtitle and documentary parsers.
 
 ---
 
-_Fixed: 2026-05-08T23:55:00Z_
+_Fixed: 2026-05-08T15:40:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 7_
+_Iteration: 8_
