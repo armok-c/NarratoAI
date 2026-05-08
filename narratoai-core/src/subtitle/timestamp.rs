@@ -45,12 +45,6 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
             details: format!("秒解析失败: {}", parts[2]),
         })?;
 
-    // 范围校验
-    if h > 23 {
-        return Err(SubtitleError::ParseSubtitle {
-            details: format!("小时超出范围 (0-23): {}", h),
-        });
-    }
     if m > 59 {
         return Err(SubtitleError::ParseSubtitle {
             details: format!("分钟超出范围 (0-59): {}", m),
@@ -76,9 +70,9 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
     };
 
     let total = h as f64 * 3600.0 + m as f64 * 60.0 + s as f64 + ms;
-    if !(0.0..=86400.0).contains(&total) {
+    if !(0.0..=604800.0).contains(&total) {
         return Err(SubtitleError::ParseSubtitle {
-            details: format!("时间戳超出有效范围 (0-86400秒): {}", total),
+            details: format!("时间戳超出有效范围 (0-604800秒): {}", total),
         });
     }
 
