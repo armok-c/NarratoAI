@@ -226,10 +226,22 @@ pub async fn generate_sdp_script(
     let analysis_path = task_dir.join("subtitle_analysis.json");
     tokio::fs::write(&analysis_path, &analysis_repaired).await?;
 
-    // ---- 8. 构建 plot_titles_text ----
+    // ---- 8. 校验分析结果 ----
+    if analysis.plot_titles.is_empty() {
+        return Err(SdpError::LlmError {
+            details: "第一步字幕分析未产生任何情节点（plot_titles 为空）".into(),
+        });
+    }
+    if analysis.summary.trim().is_empty() {
+        return Err(SdpError::LlmError {
+            details: "第一步字幕分析未产生剧情梗概（summary 为空）".into(),
+        });
+    }
+
+    // ---- 9. 构建 plot_titles_text ----
     let plot_titles_text = format_plot_titles(&analysis.plot_titles);
 
-    // ---- 9. 第二步 LLM：plot_extraction ----
+    // ---- 10. 第二步 LLM：plot_extraction ----
     let mut vars_step2 = HashMap::new();
     vars_step2.insert("subtitle_content", normalized_text.as_str());
     vars_step2.insert("plot_summary", analysis.summary.as_str());
@@ -262,7 +274,7 @@ pub async fn generate_sdp_script(
             details: format!("plot_extraction LLM 调用失败: {}", e),
         })?;
 
-    // ---- 10. 修复 + 解析 PlotPointsData JSON ----
+    // ---- 11. 修复 + 解析 PlotPointsData JSON ----
     let extraction_repaired = crate::sde::script_gen::repair_json(&extraction_raw);
     let extraction_path = task_dir.join("plot_extraction_raw.json");
     tokio::fs::write(&extraction_path, &extraction_repaired).await?;
@@ -273,7 +285,7 @@ pub async fn generate_sdp_script(
         }
     })?;
 
-    // ---- 11. merge_script ----
+    // ---- 12. merge_script ----
     let script = merge_script(&points_data.plot_points, task_dir)?;
 
     Ok(script)
