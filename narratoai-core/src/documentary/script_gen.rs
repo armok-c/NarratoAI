@@ -114,6 +114,7 @@ pub async fn analyze_video(
             Some(LlmResponseFormat::Json),
             Some(0.3),
             Some(4096),
+            None,  // cancel: Option<CancellationToken>
         )
         .await
         .map_err(PipelineError::from)?;
