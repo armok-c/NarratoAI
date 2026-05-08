@@ -84,15 +84,8 @@ pub async fn extract_frames(
     )
     .await
     {
-        Ok(count) if count > 0 => {
-            if let Some(ref cb) = progress {
-                cb(Some(1.0), "帧提取完成");
-            }
-            let paths = collect_keyframe_paths_from_dir(output_dir);
-            Ok((count, paths))
-        }
-        Err(e) => {
-            tracing::warn!("Fast path failed, falling back: {}", e);
+        Ok(0) => {
+            tracing::info!("Fast path produced 0 frames, falling back");
             cleanup_fast_path_files(output_dir);
             let count = extract_frames_fallback(
                 video_path,
@@ -106,8 +99,15 @@ pub async fn extract_frames(
             let paths = collect_keyframe_paths_from_dir(output_dir);
             Ok((count, paths))
         }
-        Ok(0) => {
-            tracing::info!("Fast path produced 0 frames, falling back");
+        Ok(count) => {
+            if let Some(ref cb) = progress {
+                cb(Some(1.0), "帧提取完成");
+            }
+            let paths = collect_keyframe_paths_from_dir(output_dir);
+            Ok((count, paths))
+        }
+        Err(e) => {
+            tracing::warn!("Fast path failed, falling back: {}", e);
             cleanup_fast_path_files(output_dir);
             let count = extract_frames_fallback(
                 video_path,
