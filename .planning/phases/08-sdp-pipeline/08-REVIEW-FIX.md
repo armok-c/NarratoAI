@@ -1,45 +1,50 @@
 ---
 phase: 08-sdp-pipeline
-fixed_at: 2026-05-08T17:00:00Z
+fixed_at: 2026-05-08
 review_path: .planning/phases/08-sdp-pipeline/08-REVIEW.md
-iteration: 4
-findings_in_scope: 2
-fixed: 2
+iteration: 5
+findings_in_scope: 3
+fixed: 3
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 08: Code Review Fix Report
 
-**Fixed at:** 2026-05-08T17:00:00Z
+**Fixed at:** 2026-05-08
 **Source review:** .planning/phases/08-sdp-pipeline/08-REVIEW.md
-**Iteration:** 4
+**Iteration:** 5
 
 **Summary:**
-- Findings in scope: 2 (2 Warning)
-- Fixed: 2
+- Findings in scope: 3 (1 Critical, 2 Warning)
+- Fixed: 3
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-10: SdpRequest::validate does not check script_path existence when provided
+### CR-03: SDE pipeline computes `source_time_range` incorrectly for OST=0/OST=2 clips using TTS duration instead of source timestamp end
+
+**Files modified:** `narratoai-core/src/sde/pipeline.rs`
+**Commit:** ea8b7e6
+**Applied fix:** Replaced `end_secs = start_secs + clip_duration` (line 249) with direct timestamp parsing using `splitn(2, '-')`. Now parses both `start_secs` and `source_end_secs` from the timestamp field directly, ensuring `source_time_range` always reflects the source video time range. Added validation for missing `-` separator. `clip_duration` still determines `edited_time_range` and `cumulative_time` as before.
+
+### WR-12: `SdpRequest::validate` accepts non-existent file paths in tests
 
 **Files modified:** `narratoai-core/src/sdp/types.rs`
-**Commit:** 9639589
-**Applied fix:** Added a file existence check for optional `script_path` in `validate()` (lines 65-69). When `script_path` is `Some(path)` but the file doesn't exist, returns a clear validation error (`"脚本文件不存在: {path}"`) instead of a generic IO error from `load_script` later in the pipeline.
+**Commit:** ecb3fef
+**Applied fix:** Replaced hardcoded relative paths `"sub.srt"` / `"video.mp4"` in `test_sdp_request_validate_valid` with `tempfile::TempDir` and actual file creation, matching the SDE test pattern at `sde/types.rs:182-194`.
 
-### WR-11: run_sdp calls synchronous load_script directly on the tokio async runtime
+### WR-13: `parse_srt_timestamp` normalizes ALL dots to commas including within SS field
 
-**Files modified:** `narratoai-core/src/sdp/pipeline.rs`
-**Commit:** 16ea000
-**Applied fix:** Wrapped `load_script` call (line 43-50) in `tokio::task::spawn_blocking`, consistent with the pattern already used for `parse_subtitle_file` in the same function (lines 54-61). This prevents blocking the async runtime for large script files.
+**Files modified:** `narratoai-core/src/subtitle/timestamp.rs`
+**Commit:** ad8e44e
+**Applied fix:** Replaced `input.replace('.', ",")` (global replacement) with targeted normalization that only replaces dots in the suffix after the last colon. This ensures only millis separator dots (e.g., `HH:MM:SS.mmm`) are normalized while dots elsewhere are left untouched.
 
 ## Skipped Issues
 
-None -- all 2 findings were successfully fixed.
+None -- all 3 findings were successfully fixed.
 
 ---
-
-_Fixed: 2026-05-08T17:00:00Z_
+_Fixed: 2026-05-08_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 4_
+_Iteration: 5_
