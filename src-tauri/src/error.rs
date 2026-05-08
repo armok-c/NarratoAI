@@ -103,12 +103,3 @@ impl From<LLMError> for CommandError {
     }
 }
 
-// ---- String error (for validation error messages from validate() methods) ----
-impl From<String> for CommandError {
-    fn from(msg: String) -> Self {
-        CommandError {
-            code: "VALIDATION_ERROR".into(),
-            message: msg,
-        }
-    }
-}

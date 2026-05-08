@@ -214,12 +214,17 @@ pub async fn generate_narration(
 }
 
 /// 主入口：生成纪录片脚本
+///
+/// 接受两个独立的 LLM provider：vision_provider 用于视觉帧分析，
+/// text_provider 用于文本解说生成。两者可以指向同一个 provider，
+/// 也可以分别配置以获得最佳效果。
 pub async fn generate_documentary_script(
     request: ScriptGenRequest,
-    provider: &dyn LlmProvider,
+    vision_provider: &dyn LlmProvider,
+    text_provider: &dyn LlmProvider,
 ) -> Result<Vec<ScriptClip>, PipelineError> {
-    // Step 1: Analyze video frames
-    let analysis = analyze_video(&request, provider).await?;
+    // Step 1: Analyze video frames using vision LLM
+    let analysis = analyze_video(&request, vision_provider).await?;
     emit_progress(&request, 80.0, "生成解说文案");
 
     // Step 2: Convert analysis to markdown
@@ -228,7 +233,7 @@ pub async fn generate_documentary_script(
     // Step 3: Generate narration via text LLM
     let clips = generate_narration(
         &markdown,
-        provider,
+        text_provider,
         request.video_theme.as_deref(),
     )
     .await?;

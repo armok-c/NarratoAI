@@ -53,17 +53,17 @@ pub async fn run_documentary(
             let _ = app_handle.emit("pipeline-progress", payload);
         });
 
+    // WR-06: 从配置中提取 proxy 设置
+    let proxy_section = (config.proxy.enabled.then_some(&config.proxy));
     let output_path = narratoai_core::documentary::pipeline::run_documentary(
         request,
         &config,
-        None,        // proxy — Tauri 启动时读取 config 中的 proxy 配置
+        proxy_section,
         Some(progress_callback),
     ).await?;
 
     Ok(CommandResponse {
         output_video_path: output_path,
-        step_durations: vec![],
-        intermediate_paths: std::collections::HashMap::new(),
     })
 }
 
@@ -117,10 +117,12 @@ pub async fn run_sde(
     let registry = registry.read().await;
     let pm = prompt_manager.read().await;
 
+    // WR-06: 从配置中提取 proxy 设置
+    let proxy_section = (config.proxy.enabled.then_some(&config.proxy));
     let output_path = narratoai_core::sde::pipeline::run_sde(
         request,
         &config,
-        None,      // proxy
+        proxy_section,
         &registry,
         &pm,
         Some(progress_callback),
@@ -128,8 +130,6 @@ pub async fn run_sde(
 
     Ok(CommandResponse {
         output_video_path: output_path,
-        step_durations: vec![],
-        intermediate_paths: std::collections::HashMap::new(),
     })
 }
 
@@ -178,8 +178,6 @@ pub async fn run_sdp(
 
     Ok(CommandResponse {
         output_video_path: output_path,
-        step_durations: vec![],
-        intermediate_paths: std::collections::HashMap::new(),
     })
 }
 
@@ -189,23 +187,55 @@ pub async fn run_sdp(
 // =============================================================
 #[tauri::command]
 pub async fn generate_documentary_script(
-    _app: AppHandle,
+    app: AppHandle,
     request: ScriptGenRequest,
     config: tauri::State<'_, AppConfig>,
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
 ) -> Result<Script, CommandError> {
-    // 从配置中获取 text LLM provider（作用域化，确保 guard 在 .await 前释放）
-    let provider = {
+    // 从配置中获取 vision 和 text LLM provider（作用域化，确保 guard 在 .await 前释放）
+    let (vision_provider, text_provider) = {
         let guard = registry.read().await;
-        guard.get(&config.app.text_llm_provider).map_err(|e| CommandError {
+        let vision_name = request.vision_model.as_deref()
+            .unwrap_or(&config.app.vision_llm_provider);
+        let text_name = request.text_model.as_deref()
+            .unwrap_or(&config.app.text_llm_provider);
+        let vp = guard.get(vision_name).map_err(|e| CommandError {
             code: "PROVIDER_NOT_FOUND".into(),
-            message: format!("获取 LLM provider 失败: {}", e),
-        })?
+            message: format!("获取 vision LLM provider 失败: {}", e),
+        })?;
+        let tp = guard.get(text_name).map_err(|e| CommandError {
+            code: "PROVIDER_NOT_FOUND".into(),
+            message: format!("获取 text LLM provider 失败: {}", e),
+        })?;
+        (vp, tp)
     };
+
+    // WR-02: 构造 progress callback 以便向前端推送进度事件
+    let task_id = Uuid::new_v4().to_string();
+    let app_handle = app.clone();
+    let progress_callback: Box<dyn Fn(f32, &str) + Send + Sync> =
+        Box::new(move |pct: f32, msg: &str| {
+            let payload = ProgressPayload {
+                pipeline_type: "script_gen".to_string(),
+                task_id: task_id.clone(),
+                step_name: "script_gen".to_string(),
+                percent: pct,
+                message: msg.to_string(),
+                step_index: 0,
+                total_steps: 3,
+                status: "running".to_string(),
+                error_code: None,
+                error_message: None,
+            };
+            let _ = app_handle.emit("pipeline-progress", payload);
+        });
+    let mut request = request;
+    request.progress = Some(progress_callback);
 
     let clips = narratoai_core::documentary::script_gen::generate_documentary_script(
         request,
-        provider.as_ref(),
+        vision_provider.as_ref(),
+        text_provider.as_ref(),
     ).await?;
 
     Ok(clips)
@@ -247,7 +277,12 @@ pub async fn generate_sdp_script(
         &task_dir,
         temperature,
         custom_clips,
-    ).await?;
+    ).await;
+
+    // WR-03: 清理临时目录（无论成功或失败）
+    let _ = tokio::fs::remove_dir_all(&task_dir).await;
+
+    let script = script?;
 
     Ok(script)
 }
