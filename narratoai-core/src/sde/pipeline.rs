@@ -242,16 +242,24 @@ pub async fn run_sde(
             }));
         }
 
-        let start_secs = parse_time_to_secs(
-            clip.timestamp.split('-').next().unwrap_or(&clip.timestamp),
-        )
-        .map_err(|e| SdeError::VideoProcess(PipelineError::Timestamp(e.to_string())))?;
-        let end_secs = start_secs + clip_duration;
+        let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
+        if ts_parts.len() != 2 {
+            return Err(SdeError::Validation {
+                details: format!(
+                    "片段 {} 时间戳格式无效（缺少 '-' 分隔符）: {}",
+                    clip._id, clip.timestamp
+                ),
+            });
+        }
+        let start_secs = parse_time_to_secs(ts_parts[0])
+            .map_err(|e| SdeError::VideoProcess(PipelineError::Timestamp(e.to_string())))?;
+        let source_end_secs = parse_time_to_secs(ts_parts[1])
+            .map_err(|e| SdeError::VideoProcess(PipelineError::Timestamp(e.to_string())))?;
 
         clip.source_time_range = Some(format!(
             "{}-{}",
             secs_to_ffmpeg_time(start_secs),
-            secs_to_ffmpeg_time(end_secs)
+            secs_to_ffmpeg_time(source_end_secs)
         ));
         clip.duration = Some(clip_duration);
         clip.edited_time_range = Some(format!(
