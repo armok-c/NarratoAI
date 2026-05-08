@@ -532,7 +532,7 @@ pub async fn run_sde(
                     .replace('\n', "")
                     .replace('\r', "");
                 filter_complex_parts.push(format!(
-                    "[0:v]subtitles='{}':force_style='{}'[vout]",
+                    "[0:v]subtitles={}:force_style='{}'[vout]",
                     escaped_srt, subtitle_force_style
                 ));
                 has_video_filter = true;
