@@ -189,7 +189,7 @@ pub async fn run_sdp(
 // =============================================================
 #[tauri::command]
 pub async fn generate_documentary_script(
-    _app: AppHandle,
+    app: AppHandle,
     request: ScriptGenRequest,
     config: tauri::State<'_, AppConfig>,
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
@@ -211,6 +211,28 @@ pub async fn generate_documentary_script(
         })?;
         (vp, tp)
     };
+
+    // WR-02: 构造 progress callback 以便向前端推送进度事件
+    let task_id = Uuid::new_v4().to_string();
+    let app_handle = app.clone();
+    let progress_callback: Box<dyn Fn(f32, &str) + Send + Sync> =
+        Box::new(move |pct: f32, msg: &str| {
+            let payload = ProgressPayload {
+                pipeline_type: "script_gen".to_string(),
+                task_id: task_id.clone(),
+                step_name: "script_gen".to_string(),
+                percent: pct,
+                message: msg.to_string(),
+                step_index: 0,
+                total_steps: 3,
+                status: "running".to_string(),
+                error_code: None,
+                error_message: None,
+            };
+            let _ = app_handle.emit("pipeline-progress", payload);
+        });
+    let mut request = request;
+    request.progress = Some(progress_callback);
 
     let clips = narratoai_core::documentary::script_gen::generate_documentary_script(
         request,
