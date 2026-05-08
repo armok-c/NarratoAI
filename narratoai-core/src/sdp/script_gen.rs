@@ -231,7 +231,7 @@ pub async fn generate_sdp_script(
 
     // ---- 9. 第二步 LLM：plot_extraction ----
     let mut vars_step2 = HashMap::new();
-    vars_step2.insert("subtitle_content", subtitle_plain.as_str());
+    vars_step2.insert("subtitle_content", normalized_text.as_str());
     vars_step2.insert("plot_summary", analysis.summary.as_str());
     vars_step2.insert("plot_titles", plot_titles_text.as_str());
 
