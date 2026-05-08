@@ -6,6 +6,55 @@ use async_trait::async_trait;
 use std::path::Path;
 use std::time::Duration;
 
+/// 检查 URL 是否通过 SSRF 安全检查。
+///
+/// 允许: https:// 任意 host, http://127.0.0.1, http://localhost
+/// 拒绝: 私有 IP (10.x, 192.168.x, 172.16-31.x), 链路本地 (169.254.x),
+///        0.0.0.0, [::1], 非 https/http-localhost 的 scheme
+fn is_ssrf_safe_url(url: &str) -> bool {
+    // Scheme allowlist
+    if !url.starts_with("https://")
+        && !url.starts_with("http://127.0.0.1")
+        && !url.starts_with("http://localhost")
+    {
+        return false;
+    }
+
+    // Extract host portion (after scheme, before path/port)
+    let host = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+
+    // Reject known dangerous IPs
+    if host == "0.0.0.0"
+        || host == "[::1]"
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || host.starts_with("169.254.")
+    {
+        return false;
+    }
+
+    // 172.16.0.0 - 172.31.255.255 (172.16-31.x.x)
+    if host.starts_with("172.") {
+        if let Some(second_octet_str) = host.strip_prefix("172.").and_then(|s| s.split('.').next()) {
+            if let Ok(second_octet) = second_octet_str.parse::<u8>() {
+                if (16..=31).contains(&second_octet) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
 /// Qwen TTS 引擎 (DashScope REST API)
 ///
 /// API 流程:
@@ -89,25 +138,13 @@ impl QwenTtsEngine {
 
         // SSRF protection for the audio download URL returned by DashScope.
         //
-        // Allowlist: https://, http://127.0.0.1, http://localhost
-        // Explicitly blocked: http://0.0.0.0 (binds all interfaces),
-        //   http://[::1] (IPv6 loopback)
+        // Scheme allowlist: https://, http://127.0.0.1, http://localhost
+        // Blocked: http://0.0.0.0, http://[::1], private/link-local IPs
         //
-        // Known limitations:
-        //   - localhost URLs allowed without port restriction (intentional for testing)
-        //   - https:// scheme-only check; does not prevent private IP targets
-        //   - IPv6 long-form loopback not covered (requires URL parser)
-        if audio_url.starts_with("http://0.0.0.0") || audio_url.starts_with("http://[::1]") {
+        // localhost URLs allowed without port restriction (intentional for testing)
+        if !is_ssrf_safe_url(audio_url) {
             return Err(TTSError::SynthesisFailed(format!(
-                "Qwen audio_url 指向非标准 localhost 地址，已拒绝: {}", audio_url
-            )));
-        }
-        if !audio_url.starts_with("https://")
-            && !audio_url.starts_with("http://127.0.0.1")
-            && !audio_url.starts_with("http://localhost")
-        {
-            return Err(TTSError::SynthesisFailed(format!(
-                "Qwen audio_url 协议不合法（仅允许 https 或本地回环地址）: {}", audio_url
+                "Qwen audio_url 未通过 SSRF 安全检查: {}", audio_url
             )));
         }
 
