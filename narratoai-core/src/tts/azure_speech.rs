@@ -256,10 +256,13 @@ impl AzureSpeechEngine {
             return Err(TTSError::AuthenticationFailed("Azure Speech key/region 未配置".to_string()));
         }
 
-        // 剥离 -V2 后缀（Azure REST API 不识别此内部标记）
-        // should_use_azure_services() 已在上层用 -V2 做路由判断，
-        // 但 SSML 请求体中不能让 Azure API 看到 "-V2" 后缀，否则返回 400
-        let processed_voice_name = voice_name.trim().trim_end_matches("-V2");
+        // 剥离所有已知后缀（Azure REST API 不识别这些内部标记）
+        // 顺序: -V2 -> -Female -> -Male，确保复合后缀（如 -Female-V2）被完全剥离
+        let processed_voice_name = voice_name
+            .trim()
+            .trim_end_matches("-V2")
+            .trim_end_matches("-Female")
+            .trim_end_matches("-Male");
 
         // 从 voice_name 提取语言标签 (如 "zh-CN-YunzeNeural" → "zh-CN")
         let lang = extract_azure_lang(processed_voice_name);
