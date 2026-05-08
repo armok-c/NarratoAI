@@ -31,8 +31,19 @@ impl DoubaoTtsEngine {
         // Doubao 不使用 voice_name 前缀解析，voice_name 直接作为 voice_type
         // 配置检查
         if self.config.appid.is_empty() || self.config.token.is_empty() {
+            if !self.config.ak.is_empty() || !self.config.sk.is_empty() {
+                return Err(TTSError::AuthenticationFailed(
+                    "豆包语音 TTS: ak/sk 认证方式暂未实现，请使用 appid + token 认证".to_string()
+                ));
+            }
             return Err(TTSError::AuthenticationFailed("豆包语音 TTS 配置未完成（缺少 appid 或 token）".to_string()));
         }
+
+        let api_url = if self.config.api_url.is_empty() {
+            "https://openspeech.bytedance.com/api/v1/tts"
+        } else {
+            &self.config.api_url
+        };
 
         let speed_ratio = rate;  // 使用调用方传入的 rate 参数
 
@@ -67,10 +78,8 @@ impl DoubaoTtsEngine {
             payload["audio"]["silence_duration"] = serde_json::json!(self.config.silence_duration);
         }
 
-        const API_URL: &str = "https://openspeech.bytedance.com/api/v1/tts";
-
         let response = self.client
-            .post(API_URL)
+            .post(api_url)
             // 分号不是空格 — 对齐 Python 版: headers = {"Authorization": f"Bearer;{token}"}
             .header("Authorization", format!("Bearer;{}", self.config.token))
             .header("Content-Type", "application/json")
@@ -206,6 +215,32 @@ mod tests {
         let result = engine.synthesize_once("test text", "voice", &output_path, 1.0, 1.0).await;
         match result.unwrap_err() {
             TTSError::AuthenticationFailed(msg) => assert!(msg.contains("配置未完成"), "错误消息: {}", msg),
+            _ => panic!("应为 AuthenticationFailed"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_doubaotts_ak_sk_not_supported() {
+        // ak/sk without token should return clear error about unsupported auth method
+        let config = DoubaoTTSSection {
+            ak: "test-ak".to_string(),
+            sk: "test-sk".to_string(),
+            appid: String::new(),
+            token: String::new(),
+            cluster: String::new(),
+            volume: 1.0,
+            pitch: 1.0,
+            silence_duration: 0.0,
+            ..Default::default()
+        };
+        let proxy_config = common::ProxyConfig::from_proxy(None);
+        let engine = DoubaoTtsEngine::new(config, &proxy_config).expect("构建引擎失败");
+        let dir = TempDir::new().expect("创建临时目录失败");
+        let output_path = dir.path().join("output.mp3");
+
+        let result = engine.synthesize_once("test text", "voice", &output_path, 1.0, 1.0).await;
+        match result.unwrap_err() {
+            TTSError::AuthenticationFailed(msg) => assert!(msg.contains("ak/sk"), "错误消息应提及 ak/sk: {}", msg),
             _ => panic!("应为 AuthenticationFailed"),
         }
     }

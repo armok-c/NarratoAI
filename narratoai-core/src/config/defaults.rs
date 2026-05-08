@@ -96,6 +96,7 @@ impl Default for DoubaoTTSSection {
             appid: String::new(),
             token: String::new(),
             cluster: "volcano_tts".to_string(),
+            api_url: String::new(),
             volume: 1.0,
             pitch: 1.0,
             silence_duration: 0.125,

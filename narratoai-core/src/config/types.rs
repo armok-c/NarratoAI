@@ -179,6 +179,8 @@ pub struct DoubaoTTSSection {
     #[serde(default)]
     pub cluster: String,
     #[serde(default)]
+    pub api_url: String,
+    #[serde(default)]
     pub volume: f64,
     #[serde(default)]
     pub pitch: f64,
