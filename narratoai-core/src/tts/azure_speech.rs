@@ -11,7 +11,7 @@ use std::time::Duration;
 /// 编译一次的重用 Azure 音色正则表达式
 fn azure_voice_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^[a-z]{2}-[A-Z]{2}-\w+Neural$").expect("Azure voice regex is valid"))
+    RE.get_or_init(|| Regex::new(r"^[a-z]{2}-[A-Z]{2}-.+Neural$").expect("Azure voice regex is valid"))
 }
 
 /// 判断 voice_name 是否应使用 Azure Speech Services REST API (V2)
