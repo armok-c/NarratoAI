@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// 统一进度事件 payload（D-10）
@@ -24,20 +23,10 @@ pub struct ProgressPayload {
 
 /// 流水线命令统一返回包装（D-07）
 ///
-/// 包含输出视频路径、每步耗时统计、中间产物路径映射。
-/// 前端可预览视频和查看统计。
+/// 包含输出视频路径。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandResponse {
     pub output_video_path: PathBuf,
-    pub step_durations: Vec<StepDuration>,
-    pub intermediate_paths: HashMap<String, PathBuf>,
-}
-
-/// 每步执行耗时统计
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StepDuration {
-    pub step_name: String,
-    pub duration_secs: f64,
 }
 
 /// 脚本信息（get_script_info 命令返回）

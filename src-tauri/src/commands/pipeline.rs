@@ -64,8 +64,6 @@ pub async fn run_documentary(
 
     Ok(CommandResponse {
         output_video_path: output_path,
-        step_durations: vec![],
-        intermediate_paths: std::collections::HashMap::new(),
     })
 }
 
@@ -132,8 +130,6 @@ pub async fn run_sde(
 
     Ok(CommandResponse {
         output_video_path: output_path,
-        step_durations: vec![],
-        intermediate_paths: std::collections::HashMap::new(),
     })
 }
 
@@ -182,8 +178,6 @@ pub async fn run_sdp(
 
     Ok(CommandResponse {
         output_video_path: output_path,
-        step_durations: vec![],
-        intermediate_paths: std::collections::HashMap::new(),
     })
 }
 
