@@ -154,10 +154,6 @@ pub async fn run_sde(
     state.emit_progress("tts", 50.0, "正在生成配音...");
 
     for clip in &state.script {
-        // D-23: "播放原片" 前缀仅对 OST=1 片段跳过 TTS；OST=0/2 仍需 TTS 结果
-        if clip.narration.starts_with("播放原片") && clip.ost == OstType::OriginalSound {
-            continue;
-        }
         // OST=1 片段使用原始音轨，无需 TTS
         if clip.ost == OstType::OriginalSound {
             continue;
