@@ -29,10 +29,14 @@ pub fn should_use_azure_services(voice_name: &str) -> bool {
     if name.ends_with("-V2") {
         return true;
     }
+    // 剥离 -Female/-Male 后缀（UI 默认语音名包含这些后缀）
+    let check_name = name
+        .trim_end_matches("-Female")
+        .trim_end_matches("-Male");
     // 正则匹配 Azure Neural 格式: [language]-[REGION]-[Name]Neural
     // 如 zh-CN-YunzeNeural, en-US-AvaMultilingualNeural
     // 使用 OnceLock 缓存避免每次调用重新编译
-    azure_voice_regex().is_match(name)
+    azure_voice_regex().is_match(check_name)
 }
 
 /// 返回硬编码的 Azure Neural 音色列表（供 UI/调试用）
@@ -375,8 +379,13 @@ mod tests {
     }
 
     #[test]
-    fn test_should_use_azure_services_edge_format() {
-        assert!(!should_use_azure_services("zh-CN-XiaoyiNeural-Female"));
+    fn test_should_use_azure_services_female_suffix() {
+        assert!(should_use_azure_services("zh-CN-XiaoyiNeural-Female"));
+    }
+
+    #[test]
+    fn test_should_use_azure_services_male_suffix() {
+        assert!(should_use_azure_services("zh-CN-YunzeNeural-Male"));
     }
 
     #[test]
