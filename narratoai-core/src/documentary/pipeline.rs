@@ -389,7 +389,11 @@ pub(crate) async fn step_composite(
             if let Some(ref srt_str) = srt_path_opt {
                 let escaped_srt = srt_str
                     .replace('\\', "/")
-                    .replace('\'', "'\\''")
+                    .replace(':', "\\:")
+                    .replace("'", "\\'")
+                    .replace('[', "\\[")
+                    .replace(']', "\\]")
+                    .replace(';', "\\;")
                     .replace('\n', "")
                     .replace('\r', "");
                 filter_complex_parts.push(format!(
