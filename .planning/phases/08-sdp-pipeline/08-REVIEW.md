@@ -1,6 +1,6 @@
 ---
 phase: 08-sdp-pipeline
-reviewed: 2026-05-08T23:45:00Z
+reviewed: 2026-05-08T12:00:00Z
 depth: standard
 files_reviewed: 20
 files_reviewed_list:
@@ -32,97 +32,116 @@ findings:
 status: issues_found
 ---
 
-# Phase 08: SDP Pipeline Code Review Report (Re-review 6, Iteration 7)
+# Phase 08: SDP Pipeline Code Review Report (Re-review 7, Iteration 8)
 
-**Reviewed:** 2026-05-08T23:45:00Z
+**Reviewed:** 2026-05-08T12:00:00Z
 **Depth:** standard
 **Files Reviewed:** 20
 **Status:** issues_found
 
 ## Summary
 
-This is the SEVENTH review pass (iteration 7) of Phase 08. All previously reported issues (CR-01 through CR-03, WR-01 through WR-14) remain correctly fixed. This pass found 3 new warnings and 2 info items.
+This is the eighth review pass (iteration 8) of Phase 08. All 20 source files were read and analyzed at standard depth. All previously fixed issues (CR-01 through CR-03, WR-01 through WR-17) were verified to remain in place. Three new warnings and two informational findings were identified. No critical issues were found. The codebase is in solid shape after 7 prior fix iterations -- the new findings are robustness improvements and latent inconsistencies rather than correctness bugs affecting normal operation.
 
-The code is in good shape overall. The SDP pipeline correctly reuses infrastructure from SDE, documentary, and subtitle modules. Error handling is thorough, input validation covers most edge cases, and FFmpeg operations are properly wrapped in `spawn_blocking`. The new findings are quality/robustness improvements rather than correctness bugs.
+## Previously Fixed Issues -- Verification
 
-## Previously Confirmed Fixed Issues
+All six fixes from the most recent iterations were verified present in the current code:
 
-All previously reported issues remain correctly fixed:
+| Fix | File | Lines | Status |
+|-----|------|-------|--------|
+| CR-01 | sdp/pipeline.rs | 59-69 | VERIFIED -- subtitle_segments populated via parse_subtitle_file |
+| CR-02 | sdp/script_gen.rs | 250-275 | VERIFIED -- extraction_prompt rendered and sent to LLM via provider.generate_text |
+| CR-03 | sde/pipeline.rs | 245-272 | VERIFIED -- source_time_range parsed directly from clip.timestamp |
+| WR-15 | sdp/script_gen.rs | 230-239 | VERIFIED -- empty plot_titles and summary validated after step 1 |
+| WR-16 | sdp/types.rs | 90-95 | VERIFIED -- temperature range [0, 2] validated in SdpRequest::validate() |
+| WR-17 | sdp/clip.rs | 3 | VERIFIED -- uses crate::documentary::timestamp::secs_to_srt_time, no local duplicate |
 
-- **CR-01** (subtitle_segments never populated in SDP pipeline): Fixed in `sdp/pipeline.rs:59-69`
-- **CR-02** (step 2 sends plain text to LLM instead of rendered prompt): Fixed in `sdp/script_gen.rs:238-244`
-- **CR-03** (SDE pipeline computes source_time_range incorrectly for OST=0/OST=2): Fixed in `sde/pipeline.rs:245-271`
-- **WR-01 through WR-14**: All remain correctly fixed
+Earlier fixes (WR-01 through WR-14) were also confirmed intact based on the code reviewed.
 
 ## Warnings
 
-### WR-15: `generate_sdp_script` does not validate empty `plot_titles` from step 1 LLM analysis
+### WR-18: parse_srt_timestamp rejects valid SRT timestamps with hours > 23
 
-**File:** `narratoai-core/src/sdp/script_gen.rs:229-236`
-**Issue:** After step 1 (subtitle_analysis), the `analysis.plot_titles` vector is used directly without checking if it is empty. If the LLM returns an empty `plot_titles` array, `format_plot_titles` returns `""`, and step 2 (plot_extraction) receives an empty `plot_titles` variable in the prompt. This will likely cause the LLM to produce garbage results or fail to generate meaningful plot points, but the error message will be confusing (a JSON parse error or "plot_points 为空" from `merge_script`) rather than a clear "第一步分析未产生情节点" message.
-
-The `summary` field has the same problem -- an empty summary is passed directly to step 2.
-
-**Fix:** Add validation after parsing the step 1 result:
+**File:** `narratoai-core/src/subtitle/timestamp.rs:49-53`
+**Issue:** The hour validation `if h > 23` rejects valid SRT timestamps for long-form content (videos exceeding 24 hours). SRT format imposes no upper limit on hours. The total seconds validation at line 79 (`0.0..=86400.0`) also constrains timestamps to exactly one day. This affects both the subtitle parser and the `find_precise_range` function used for OST=1 precise timestamp correction -- if any subtitle segment has hours > 23, `parse_srt_timestamp` fails on it, causing `find_precise_range` to return None and fall back to uncorrected LLM timestamps. The `parse_time_to_secs` function in `documentary/timestamp.rs` has the same `h > 23` constraint at line 51.
+**Fix:** Remove the hour range check and increase the total seconds upper bound to accommodate realistic long-form content:
 
 ```rust
-// ---- 8. 校验分析结果 ----
-if analysis.plot_titles.is_empty() {
-    return Err(SdpError::LlmError {
-        details: "第一步字幕分析未产生任何情节点（plot_titles 为空）".into(),
-    });
-}
-if analysis.summary.trim().is_empty() {
-    return Err(SdpError::LlmError {
-        details: "第一步字幕分析未产生剧情梗概（summary 为空）".into(),
-    });
-}
+// Remove lines 49-53 (h > 23 check entirely)
+// Change line 79 total validation to allow longer videos:
+if !(0.0..=604800.0).contains(&total) {  // 7 days = 604800 seconds
 ```
 
-### WR-16: `SdpRequest::validate()` does not validate `temperature` range
+### WR-19: SRT path containing single quote breaks FFmpeg subtitles filter
 
-**File:** `narratoai-core/src/sdp/types.rs:52-91`
-**Issue:** The `validate()` function validates volume ranges, thread count, and file existence, but does not validate the `temperature` field. Extreme values (negative, > 2.0) would be passed directly to the LLM API call in `generate_sdp_script` (`sdp/script_gen.rs:209`), potentially causing API errors or unpredictable LLM behavior. Compare with `SdeRequest` which also does not validate `temperature` (same pattern, same risk).
-
-**Fix:** Add range validation in `validate()`:
+**File:** `narratoai-core/src/sde/pipeline.rs:525-537`
+**Issue:** The SRT path escaping for the FFmpeg `subtitles` filter wraps the path in single quotes within the filter string: `subtitles='{}':force_style='{}'` (line 534-535). The code at line 529 attempts to escape single quotes with `replace("'", "\\'")`, but FFmpeg's filter parser does not support backslash-escaping of single quotes within single-quoted strings. If the SRT file path contains a single quote character, the FFmpeg command will fail with a parse error. The SDP composite step does not burn subtitles, so it is not affected. While paths with single quotes are rare, this is a latent failure that would produce an opaque FFmpeg error.
+**Fix:** Remove the single-quote wrapping and use FFmpeg's native escaping for the entire path value:
 
 ```rust
-if self.temperature < 0.0 || self.temperature > 2.0 {
-    return Err(format!(
-        "temperature 超出有效范围 [0, 2]: {}",
-        self.temperature
-    ));
-}
+let escaped_srt = srt_str
+    .replace('\\', "/")
+    .replace(':', "\\:")
+    .replace("'", "\\'")
+    .replace('[', "\\[")
+    .replace(']', "\\]")
+    .replace(';', "\\;")
+    .replace(',', "\\,")
+    .replace('\n', "")
+    .replace('\r', "");
+filter_complex_parts.push(format!(
+    "[0:v]subtitles={}:force_style='{}'[vout]",
+    escaped_srt, subtitle_force_style
+));
 ```
 
-### WR-17: `sdp/clip.rs` duplicates `secs_to_srt_time` logic from `documentary/timestamp.rs`
+### WR-20: Millisecond parsing inconsistency between two timestamp parsers
 
-**File:** `narratoai-core/src/sdp/clip.rs:112-125`
-**Issue:** The local `secs_to_timestamp_str` function is functionally identical to `crate::documentary::timestamp::secs_to_srt_time` (same logic, same output format). This duplication creates a maintenance risk: if one version is fixed (e.g., for an edge case), the other may be missed. The `sdp/clip.rs` file already imports `crate::sde::timestamp::parse_srt_timestamp`, so it could also import or use `secs_to_srt_time` from the documentary module.
+**File:** `narratoai-core/src/subtitle/timestamp.rs:74` vs `narratoai-core/src/documentary/timestamp.rs:67`
+**Issue:** Two functions parse millisecond timestamps differently:
+- `parse_srt_timestamp` (subtitle module, line 74): divides by `10^min(len,3)`, so 2-digit input "50" becomes 0.5 (500ms)
+- `parse_time_to_secs` (documentary module, line 67): divides by 1000.0 unconditionally, so "50" becomes 0.05 (50ms)
 
-**Fix:** Replace the local `secs_to_timestamp_str` with the existing shared function:
+For standard 3-digit SRT millis ("500"), both produce 0.5 correctly. But for non-standard 1 or 2 digit millis, the results diverge. The SDP clip step uses `parse_srt_timestamp` while the SDE pipeline uses `parse_time_to_secs`. In practice, the normalization layer always produces 3-digit millis, so this inconsistency does not trigger in normal operation. However, if raw un-normalized timestamps ever reach these functions, they would compute different durations in the SDP vs SDE pipelines.
+**Fix:** Standardize both functions. Prefer the simpler approach -- always left-pad to 3 digits then divide by 1000:
 
 ```rust
-use crate::documentary::timestamp::secs_to_srt_time;
-// Replace all calls to secs_to_timestamp_str(x) with secs_to_srt_time(x)
+// In parse_srt_timestamp, replace lines 65-75:
+let ms: f64 = if millis.is_empty() {
+    0.0
+} else {
+    let padded = format!("{:0<3}", millis);
+    let ms_val: u32 = padded[..3].parse().map_err(|_| SubtitleError::ParseSubtitle {
+        details: format!("毫秒解析失败: {}", millis),
+    })?;
+    ms_val as f64 / 1000.0
+};
 ```
 
 ## Info
 
-### IN-01: `SdpRequest` fields `temperature` and `custom_clips` are unused by `run_sdp()`
+### IN-03: Empty script not explicitly validated before SDP clip step
 
-**File:** `narratoai-core/src/sdp/pipeline.rs:17-97`
-**Issue:** The `SdpRequest` struct contains `temperature` and `custom_clips` fields that are used by `generate_sdp_script` but never referenced in `run_sdp()`. This is by design (the same request type serves both the script generation and video processing entry points), but callers might be confused about which fields matter for which function. No code change needed -- this is a documentation/ergonomics observation.
+**File:** `narratoai-core/src/sdp/pipeline.rs:53-57`
+**Issue:** The G4 OST validation at line 53 uses `script.iter().any(|c| c.ost != OstType::OriginalSound)`. For an empty script, `iter().any()` returns false, so validation passes. The downstream concat step would fail because FFmpeg errors on an empty concat list file, but the error message would be an opaque FFmpeg error rather than a clear "script is empty" message. An explicit empty-script check would provide better error reporting.
+**Fix:** Add an explicit check before the OST validation:
+```rust
+if state.script.is_empty() {
+    return Err(SdpError::Validation {
+        details: "脚本为空，无片段可处理".into(),
+    });
+}
+```
 
-### IN-02: Test `test_sdp_progress_step_names` is a no-op tautology
+### IN-04: sde/timestamp.rs is a pure re-export shim
 
-**File:** `narratoai-core/src/sdp/pipeline.rs:366-377`
-**Issue:** The test `test_sdp_progress_step_names` compares string literals to themselves (e.g., `assert_eq!("clip", "clip")`). This test can never fail and does not test any actual code. It provides no value as a regression test.
-
-**Fix:** Either remove the test or make it test actual runtime behavior (e.g., verifying that progress step name strings match the `SdpProgressStep` enum discriminant names).
+**File:** `narratoai-core/src/sde/timestamp.rs:1-2`
+**Issue:** This file only re-exports `parse_srt_timestamp` and `find_precise_range` from `crate::subtitle::timestamp`. It exists as a backward-compatibility shim after the timestamp logic was migrated to the shared subtitle module. All callers could import directly from `crate::subtitle::timestamp` instead. This is a maintainability note, not a defect.
+**Fix:** No action needed now. During future refactoring, update all `use crate::sde::timestamp::{...}` imports to `use crate::subtitle::timestamp::{...}` and remove the shim file.
 
 ---
 
-_Reviewed: 2026-05-08T23:45:00Z_
+_Reviewed: 2026-05-08T12:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Iteration: 8 (re-review)_
