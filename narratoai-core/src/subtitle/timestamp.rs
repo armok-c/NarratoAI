@@ -7,8 +7,16 @@ use crate::subtitle::types::SubtitleSegment;
 pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
     let input = input.trim();
 
-    // 统一分隔符：同时支持逗号和点号
-    let normalized = input.replace('.', ",");
+    // 仅替换毫秒分隔符位置的点号（最后一个冒号之后）
+    let normalized = {
+        if let Some(last_colon) = input.rfind(':') {
+            let prefix = &input[..last_colon + 1];
+            let suffix = &input[last_colon + 1..];
+            format!("{}{}", prefix, suffix.replace('.', ","))
+        } else {
+            input.to_string()
+        }
+    };
     let (time_part, millis) = match normalized.find(',') {
         Some(pos) => (normalized[..pos].to_string(), normalized[pos + 1..].to_string()),
         None => (normalized, String::new()),
