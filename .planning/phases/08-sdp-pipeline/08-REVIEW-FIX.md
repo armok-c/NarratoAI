@@ -1,81 +1,88 @@
 ---
 phase: 08-sdp-pipeline
-fixed_at: 2026-05-07T06:23:59Z
+fixed_at: 2026-05-08T00:00:00Z
 review_path: .planning/phases/08-sdp-pipeline/08-REVIEW.md
-iteration: 1
-findings_in_scope: 8
-fixed: 8
+iteration: 2
+findings_in_scope: 9
+fixed: 9
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 08: Code Review Fix Report
 
-**Fixed at:** 2026-05-07T06:23:59Z
+**Fixed at:** 2026-05-08T00:00:00Z
 **Source review:** .planning/phases/08-sdp-pipeline/08-REVIEW.md
-**Iteration:** 1
+**Iteration:** 2
 
 **Summary:**
-- Findings in scope: 8 (all Warnings)
-- Fixed: 8
+- Findings in scope: 9 (1 Critical + 8 Warnings)
+- Fixed: 9
 - Skipped: 0
 
 ## Fixed Issues
 
+### CR-01: subtitle_segments never populated in SDP pipeline
+
+**Files modified:** `narratoai-core/src/sdp/pipeline.rs`
+**Commit:** f12e83e
+**Applied fix:** Added `parse_subtitle_file` call via `tokio::task::spawn_blocking` before `sdp_step_clip` to populate `state.subtitle_segments`. This enables the OST=1 precise timestamp correction in `find_precise_range` to work correctly instead of always receiving an empty slice.
+**Note:** This is a logic fix -- requires human verification to confirm the subtitle parsing and segment population works end-to-end.
+
 ### WR-01: Silent timestamp parse failure in SDP clip step
 
 **Files modified:** `narratoai-core/src/sdp/clip.rs`
-**Commit:** 3fb2e51
-**Applied fix:** Replaced `unwrap_or(0.0)` on `parse_srt_timestamp()` with `map_err` + `?` to propagate parse errors as `SdpError::ParseSubtitle`. Added inverted timestamp range check (`end_secs < start_secs`) returning `SdpError::Validation`.
+**Commit:** af2eca0
+**Applied fix:** Replaced `unwrap_or(0.0)` with `map_err` to propagate `parse_srt_timestamp` errors as `SdpError::ParseSubtitle`. Added inverted range check (`end_secs < start_secs`) returning `SdpError::Validation`.
 
 ### WR-02: Zero-duration clips silently skipped without error
 
 **Files modified:** `narratoai-core/src/sdp/clip.rs`
-**Commit:** 3fb2e51
-**Applied fix:** Replaced `if clip_duration > 0.0` silent skip guard with `if clip_duration <= 0.0` error return (`SdpError::Validation`), matching the SDE pipeline pattern. Applied together with WR-01 as they modify overlapping code in the same block.
+**Commit:** af2eca0
+**Applied fix:** Replaced silent `if clip_duration > 0.0` skip with explicit error return `SdpError::Validation` when `clip_duration <= 0.0`. This prevents silent timeline gaps and incorrect BGM fade-out timing.
 
-### WR-03: Missing file existence checks in SdpRequest::validate
+### WR-03: Missing file existence checks in SdpRequest validate
 
 **Files modified:** `narratoai-core/src/sdp/types.rs`
-**Commit:** 4b15f3a
-**Applied fix:** Added `self.subtitle_path.exists()` and `self.video_path.exists()` checks in `SdpRequest::validate()`, matching SDE's pattern. Updated `test_sdp_request_validate_valid` to create temp files before testing.
+**Commit:** 181dad3
+**Applied fix:** Added `.exists()` checks for `subtitle_path` and `video_path` after the empty-path checks, matching SDE pipeline's validation pattern.
 
 ### WR-04: Missing newline/control-character guard in SDP concat step
 
 **Files modified:** `narratoai-core/src/sdp/pipeline.rs`
-**Commit:** 83d55c1
-**Applied fix:** Added newline (`\n`, `\r`) detection before path escaping in `sdp_step_concat`, matching the SDE concat guard pattern. Returns `SdpError::Validation` if path contains illegal characters.
+**Commit:** f12e83e
+**Applied fix:** Added `\n` and `\r` validation on path strings in `sdp_step_concat`, matching SDE pipeline's pattern. Split the replace chain to check for control characters before escaping quotes.
 
-### WR-05: Unused `_config` parameter on public API `run_sdp`
+### WR-05: Unused _config parameter on run_sdp
 
 **Files modified:** `narratoai-core/src/sdp/pipeline.rs`, `src-tauri/src/commands/pipeline.rs`
-**Commit:** 566513f
-**Applied fix:** Removed `_config: &crate::config::types::AppConfig` parameter from `run_sdp` function signature and updated the caller in the Tauri command layer to not pass the argument. Prefixed `config` with `_` in the Tauri command signature.
+**Commit:** f12e83e
+**Applied fix:** Removed `_config: &crate::config::types::AppConfig` parameter from `run_sdp` public API. Updated Tauri command layer to prefix the now-unused state parameter with `_` to suppress warnings.
 
 ### WR-06: Synchronous blocking I/O in async context
 
 **Files modified:** `narratoai-core/src/sdp/pipeline.rs`
-**Commit:** b27d44a
-**Applied fix:** Changed `std::fs::create_dir_all(&task_dir)?` to `tokio::fs::create_dir_all(&task_dir).await?` (line 34) and `std::fs::write(&concat_list_path, &concat_content)?` to `tokio::fs::write(&concat_list_path, &concat_content).await?` (line 107), matching SDE's async I/O patterns.
+**Commit:** f12e83e
+**Applied fix:** Replaced `std::fs::create_dir_all` with `tokio::fs::create_dir_all().await` and `std::fs::write` with `tokio::fs::write().await` in `sdp_step_concat`.
 
 ### WR-07: Redundant TTS skip condition in SDE pipeline
 
 **Files modified:** `narratoai-core/src/sde/pipeline.rs`
-**Commit:** 9c9c254
-**Applied fix:** Removed the redundant `if clip.narration.starts_with("播放原片") && clip.ost == OstType::OriginalSound { continue; }` block, which was dead code since the subsequent `if clip.ost == OstType::OriginalSound { continue; }` already handles all OST=1 clips. Updated the section comment to remove the stale D-23 reference.
+**Commit:** 9a612c2
+**Applied fix:** Removed the first `if` block checking `clip.narration.starts_with("播放原片") && clip.ost == OstType::OriginalSound` since the second block already handles all `OstType::OriginalSound` clips.
 
-### WR-08: Missing intermediate progress checkpoint in SDP composite step
+### WR-08: Missing 90% progress checkpoint in SDP composite step
 
 **Files modified:** `narratoai-core/src/sdp/pipeline.rs`
-**Commit:** 681fe7a
-**Applied fix:** Added `state.emit_progress("composite", 90.0, "合成完成");` between `sdp_step_composite` and the final 100% progress emission, matching the documented step granularity (`60% to 90% to 100%`).
+**Commit:** f12e83e
+**Applied fix:** Added `state.emit_progress("composite", 90.0, "合成完成")` between the `sdp_step_composite` call and the final 100% emission, matching the documented 60% -> 90% -> 100% step granularity.
 
 ## Skipped Issues
 
-None -- all 8 warnings were successfully fixed.
+None -- all 9 findings (1 Critical + 8 Warnings) were successfully fixed.
 
 ---
 
-_Fixed: 2026-05-07T06:23:59Z_
+_Fixed: 2026-05-08T00:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 1_
+_Iteration: 2_
