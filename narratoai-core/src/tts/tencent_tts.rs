@@ -44,7 +44,16 @@ impl TencentTtsEngine {
         // 解析 voice_name: 去除 "tencent:" 前缀 = voice_type 数字
         // Python 版 parse_tencent_voice — voice.py:1821
         let voice_type_str = common::parse_engine_prefix(voice_name, &["tencent:"]);
-        let voice_type: i64 = voice_type_str.parse().unwrap_or(101001);
+        let voice_type: i64 = voice_type_str.parse().map_err(|_| {
+            TTSError::SynthesisFailed(format!(
+                "腾讯云 voice_type 必须是正整数, 收到: '{}'", voice_type_str
+            ))
+        })?;
+        if voice_type <= 0 {
+            return Err(TTSError::SynthesisFailed(format!(
+                "腾讯云 voice_type 必须是正整数, 收到: '{}'", voice_type_str
+            )));
+        }
 
         // 速度映射: rate=1.0 -> speed=0, rate=1.5 -> speed=1.0, rate=0.5 -> speed=-1.0
         // Python 版: speed_value = max(-2.0, min(2.0, (speed - 1.0) * 2))
