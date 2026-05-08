@@ -268,10 +268,7 @@ impl AzureSpeechEngine {
         // REST API 使用 SSML 格式:
         let rate_str = Self::convert_rate_to_percent(rate);
         let pitch_str = Self::convert_pitch_to_hz(pitch);
-        let escaped_text: String = text
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
+        let escaped_text: String = common::escape_xml_text(text)
             .chars()
             .filter(|&c| {
                 c == '\t' || c == '\n' || c == '\r'

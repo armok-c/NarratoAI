@@ -115,6 +115,14 @@ pub fn escape_xml_attr(s: &str) -> String {
      .replace('\'', "&apos;")
 }
 
+/// XML 文本内容转义（仅需转义 &, <, >）。
+/// 与 escape_xml_attr 不同，文本节点不需要转义 " 和 '。
+pub fn escape_xml_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+}
+
 /// 解析 TTS 引擎语音名前缀
 ///
 /// 检查 `voice_name` 是否以 `prefixes` 中的某个字符串开头。
