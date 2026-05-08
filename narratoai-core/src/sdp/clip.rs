@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::documentary::timestamp::secs_to_srt_time;
 use crate::documentary::types::TtsResult;
 use crate::sde::timestamp::{find_precise_range, parse_srt_timestamp};
 use crate::sdp::error::SdpError;
@@ -27,8 +28,8 @@ pub async fn sdp_step_clip(
             if let Some((precise_start, precise_end)) =
                 find_precise_range(&clip.timestamp, &state.subtitle_segments)
             {
-                let start_str = secs_to_timestamp_str(precise_start);
-                let end_str = secs_to_timestamp_str(precise_end);
+                let start_str = secs_to_srt_time(precise_start);
+                let end_str = secs_to_srt_time(precise_end);
                 clip.timestamp = format!("{}-{}", start_str, end_str);
             }
             // fallback: 如果找不到精确匹配，保留 LLM 原始时间戳（不崩溃）
@@ -85,13 +86,13 @@ pub async fn sdp_step_clip(
             clip.duration = Some(clip_duration);
             clip.source_time_range = Some(format!(
                 "{}-{}",
-                secs_to_timestamp_str(start_secs),
-                secs_to_timestamp_str(end_secs)
+                secs_to_srt_time(start_secs),
+                secs_to_srt_time(end_secs)
             ));
             clip.edited_time_range = Some(format!(
                 "{}-{}",
-                secs_to_timestamp_str(cumulative_time),
-                secs_to_timestamp_str(cumulative_time + clip_duration)
+                secs_to_srt_time(cumulative_time),
+                secs_to_srt_time(cumulative_time + clip_duration)
             ));
             cumulative_time += clip_duration;
         } else {
@@ -108,22 +109,6 @@ pub async fn sdp_step_clip(
     Ok(())
 }
 
-/// 将秒数转换为 SRT 时间格式 "HH:MM:SS,mmm"
-fn secs_to_timestamp_str(secs: f64) -> String {
-    if secs < 0.0 {
-        return "00:00:00,000".to_string();
-    }
-    let secs = secs.min(86399.999);
-    let total_ms = (secs * 1000.0).round() as u64;
-    let ms = total_ms % 1000;
-    let total_secs = total_ms / 1000;
-    let s = total_secs % 60;
-    let total_mins = total_secs / 60;
-    let m = total_mins % 60;
-    let h = total_mins / 60;
-    format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,26 +122,6 @@ mod tests {
             end_secs: end,
             text: text.to_string(),
         }
-    }
-
-    #[test]
-    fn test_secs_to_timestamp_str_zero() {
-        assert_eq!(secs_to_timestamp_str(0.0), "00:00:00,000");
-    }
-
-    #[test]
-    fn test_secs_to_timestamp_str_normal() {
-        assert_eq!(secs_to_timestamp_str(3661.5), "01:01:01,500");
-    }
-
-    #[test]
-    fn test_secs_to_timestamp_str_negative() {
-        assert_eq!(secs_to_timestamp_str(-1.0), "00:00:00,000");
-    }
-
-    #[test]
-    fn test_secs_to_timestamp_str_overflow() {
-        assert_eq!(secs_to_timestamp_str(999999.0), "23:59:59,999");
     }
 
     #[test]
@@ -186,8 +151,8 @@ mod tests {
         if let Some((precise_start, precise_end)) =
             find_precise_range(&clip.timestamp, &segments)
         {
-            let start_str = secs_to_timestamp_str(precise_start);
-            let end_str = secs_to_timestamp_str(precise_end);
+            let start_str = secs_to_srt_time(precise_start);
+            let end_str = secs_to_srt_time(precise_end);
             clip.timestamp = format!("{}-{}", start_str, end_str);
         }
 
@@ -221,8 +186,8 @@ mod tests {
             if let Some((precise_start, precise_end)) =
                 find_precise_range(&clip.timestamp, &segments)
             {
-                let start_str = secs_to_timestamp_str(precise_start);
-                let end_str = secs_to_timestamp_str(precise_end);
+                let start_str = secs_to_srt_time(precise_start);
+                let end_str = secs_to_srt_time(precise_end);
                 clip.timestamp = format!("{}-{}", start_str, end_str);
             }
         }
