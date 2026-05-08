@@ -25,7 +25,7 @@ fn timestamp_to_millis(ts: &str) -> Option<u64> {
     let h: u64 = time_parts[0].parse().ok()?;
     let m: u64 = time_parts[1].parse().ok()?;
     let s: u64 = time_parts[2].parse().ok()?;
-    if h > 23 || m > 59 || s > 59 {
+    if m > 59 || s > 59 {
         return None;
     }
     let ms: u64 = if sub_parts.len() > 1 {
@@ -534,8 +534,8 @@ mod tests {
             "超出范围的时间值应失败"
         );
         assert!(
-            !validate_timestamp("24:00:00,000-25:00:00,000"),
-            "小时 > 23 应失败"
+            validate_timestamp("24:00:00,000-25:00:00,000"),
+            "小时 > 23 应通过（与 WR-18 修复对齐）"
         );
         assert!(
             !validate_timestamp("00:60:00,000-00:61:00,000"),
