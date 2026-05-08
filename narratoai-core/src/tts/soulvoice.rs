@@ -42,6 +42,16 @@ impl SoulVoiceEngine {
             &self.config.api_url
         };
 
+        // HTTPS enforcement for cloud APIs — prevent credential leakage over cleartext HTTP
+        if !api_url.starts_with("https://")
+            && !api_url.starts_with("http://127.0.0.1")
+            && !api_url.starts_with("http://localhost")
+        {
+            return Err(TTSError::SynthesisFailed(
+                "SoulVoice API URL must use HTTPS for cloud services".to_string()
+            ));
+        }
+
         let model = if self.config.model.is_empty() {
             "FunAudioLLM/CosyVoice2-0.5B"
         } else {

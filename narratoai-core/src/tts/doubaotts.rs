@@ -45,6 +45,16 @@ impl DoubaoTtsEngine {
             &self.config.api_url
         };
 
+        // HTTPS enforcement for cloud APIs — prevent credential leakage over cleartext HTTP
+        if !api_url.starts_with("https://")
+            && !api_url.starts_with("http://127.0.0.1")
+            && !api_url.starts_with("http://localhost")
+        {
+            return Err(TTSError::SynthesisFailed(
+                "Doubao API URL must use HTTPS for cloud services".to_string()
+            ));
+        }
+
         let speed_ratio = rate;  // 使用调用方传入的 rate 参数
 
         // 构建请求体 (对齐 Python 版 payload — voice.py:1149-1176)
