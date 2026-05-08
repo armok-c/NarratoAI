@@ -219,6 +219,12 @@ impl TencentTtsEngine {
                     sub["EndTime"].as_i64().or_else(|| sub["EndTime"].as_f64().map(|f| f as i64)),
                     sub["Text"].as_str(),
                 ) {
+                    if start_ms < 0 || end_ms < 0 {
+                        tracing::warn!(
+                            "Tencent subtitle has negative timestamp: start={}, end={}, text={}",
+                            start_ms, end_ms, text_val
+                        );
+                    }
                     let start_offset = if start_ms >= 0 { (start_ms as u64) * 10000 } else { 0 };
                     let end_offset = if end_ms >= 0 { (end_ms as u64) * 10000 } else { 0 };
                     word_boundaries.push(WordBoundary {
