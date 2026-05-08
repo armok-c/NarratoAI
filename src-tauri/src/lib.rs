@@ -80,7 +80,7 @@ pub fn run() {
 /// 1. Tauri resource_dir()/config.toml（production bundle 时使用）
 /// 2. 当前工作目录/config.toml（development 常用）
 /// 3. ./config.toml（fallback，与 Python 版兼容）
-fn find_config(app: &tauri::App) -> Result<PathBuf, String> {
+fn find_config(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
     // Path 1: resource_dir
     if let Ok(resource_dir) = app.path().resource_dir() {
         let path = resource_dir.join("config.toml");
