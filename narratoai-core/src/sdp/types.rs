@@ -67,6 +67,11 @@ impl SdpRequest {
                 return Err(format!("脚本文件不存在: {}", sp.display()));
             }
         }
+        if let Some(ref bp) = self.bgm_path {
+            if !bp.exists() {
+                return Err(format!("BGM 文件不存在: {}", bp.display()));
+            }
+        }
         if !(0.0..=10.0).contains(&self.original_volume) {
             return Err(format!(
                 "original_volume 超出有效范围 [0, 10]: {}",
@@ -160,6 +165,23 @@ mod tests {
             ..Default::default()
         };
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sdp_request_validate_invalid_bgm_path() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("sub.srt");
+        let vid = dir.path().join("video.mp4");
+        std::fs::write(&sub, "").unwrap();
+        std::fs::write(&vid, "").unwrap();
+        let req = SdpRequest {
+            subtitle_path: sub,
+            video_path: vid,
+            bgm_path: Some(PathBuf::from("/nonexistent/bgm.mp3")),
+            ..Default::default()
+        };
+        let err = req.validate().unwrap_err();
+        assert!(err.contains("BGM"), "应提示 BGM 文件不存在: {}", err);
     }
 
     #[test]
