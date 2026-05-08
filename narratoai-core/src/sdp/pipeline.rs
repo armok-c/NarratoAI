@@ -56,6 +56,30 @@ pub async fn run_sdp(
         });
     }
 
+    // G2: 时间戳非重叠校验
+    for i in 0..state.script.len().saturating_sub(1) {
+        let current = &state.script[i];
+        let next = &state.script[i + 1];
+        let cur_parts: Vec<&str> = current.timestamp.splitn(2, '-').collect();
+        let next_parts: Vec<&str> = next.timestamp.splitn(2, '-').collect();
+        if cur_parts.len() == 2 && next_parts.len() == 2 {
+            if let (Ok(cur_end), Ok(next_start)) = (
+                crate::subtitle::timestamp::parse_srt_timestamp(cur_parts[1]),
+                crate::subtitle::timestamp::parse_srt_timestamp(next_parts[0]),
+            ) {
+                if cur_end > next_start {
+                    return Err(SdpError::Validation {
+                        details: format!(
+                            "片段 {} 和 {} 时间戳重叠: {} 结束于 {:.3}s, {} 开始于 {:.3}s",
+                            current._id, next._id, current.timestamp, cur_end,
+                            next.timestamp, next_start
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     // CR-01: 解析字幕文件，填充 subtitle_segments 以支持 OST=1 精确时间戳校正
     let subtitle_path_owned = request.subtitle_path.clone();
     let (segments, _, _) = tokio::task::spawn_blocking(move || {
