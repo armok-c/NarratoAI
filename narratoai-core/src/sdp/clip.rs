@@ -94,6 +94,13 @@ pub async fn sdp_step_clip(
                 secs_to_timestamp_str(cumulative_time + clip_duration)
             ));
             cumulative_time += clip_duration;
+        } else {
+            return Err(SdpError::Validation {
+                details: format!(
+                    "片段 {} 时间戳格式无效（缺少 '-' 分隔符）: {}",
+                    clip._id, clip.timestamp
+                ),
+            });
         }
     }
 
