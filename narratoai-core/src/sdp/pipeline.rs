@@ -40,7 +40,14 @@ pub async fn run_sdp(
         .script_path
         .clone()
         .unwrap_or_else(|| state.task_dir.join("merged_subtitle.json"));
-    state.script = crate::script::load_script(&script_path)?;
+    let script_path_clone = script_path.clone();
+    state.script = tokio::task::spawn_blocking(move || {
+        crate::script::load_script(&script_path_clone)
+    })
+    .await
+    .map_err(|e| SdpError::Io {
+        source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+    })??;
 
     // G4: OST 校验——所有片段必须为 OST=1（OriginalSound）
     if state.script.iter().any(|c| c.ost != OstType::OriginalSound) {
