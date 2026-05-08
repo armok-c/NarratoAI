@@ -1,106 +1,96 @@
 ---
 phase: 07-sde-pipeline
-reviewed: 2026-05-07T12:00:00Z
+reviewed: 2026-05-08T14:30:00Z
 depth: standard
-files_reviewed: 15
+files_reviewed: 16
 files_reviewed_list:
-  - src/sde/error.rs
-  - src/sde/mod.rs
-  - src/sde/pipeline.rs
-  - src/sde/script_gen.rs
-  - src/sde/timestamp.rs
-  - src/sde/types.rs
-  - src/subtitle/error.rs
-  - src/subtitle/mod.rs
-  - src/subtitle/parser.rs
-  - src/subtitle/timestamp.rs
-  - src/subtitle/types.rs
-  - src/documentary/pipeline.rs
-  - src/documentary/types.rs
-  - src/documentary/audio.rs
-  - src/documentary/subtitle.rs
+  - narratoai-core/src/sde/error.rs
+  - narratoai-core/src/sde/mod.rs
+  - narratoai-core/src/sde/script_gen.rs
+  - narratoai-core/src/sde/timestamp.rs
+  - narratoai-core/src/sde/pipeline.rs
+  - narratoai-core/src/sde/types.rs
+  - narratoai-core/src/documentary/mod.rs
+  - narratoai-core/src/documentary/script_gen.rs
+  - narratoai-core/src/documentary/subtitle.rs
+  - narratoai-core/src/documentary/types.rs
+  - narratoai-core/src/documentary/pipeline.rs
+  - narratoai-core/src/documentary/clip.rs
+  - narratoai-core/src/documentary/error.rs
+  - narratoai-core/src/documentary/timestamp.rs
+  - narratoai-core/src/documentary/audio.rs
+  - tests/documentary_integration_test.rs
 findings:
   critical: 0
   warning: 0
-  info: 0
-  total: 0
+  info: 3
+  total: 3
 status: clean
 ---
 
-# Phase 07: 代码审查报告（第十二轮）
+# Phase 07: Code Review Report (15th Pass)
 
-**审查时间:** 2026-05-07T12:00:00Z
-**审查深度:** standard
-**审查文件数:** 15
-**状态:** clean
+**Reviewed:** 2026-05-08
+**Depth:** standard
+**Files Reviewed:** 16
+**Status:** clean
 
-## 摘要
+## Summary
 
-第十二轮审查对全部 15 个文件进行了逐行标准深度审查。本轮审查重点验证第十一轮修复的两个 Info 级别问题是否正确应用，以及修复是否引入了新的回归问题。
+15th pass review covering all 16 files in the SDE and documentary pipeline modules. Previous pass (14th) found 1 warning (WR-01: documentary pipeline SRT path escaping incomplete). That warning is verified as fixed in commit `ca0f449` -- `documentary/pipeline.rs:390-398` now escapes `:`, `[`, `]`, `;` identically to `sde/pipeline.rs:521-529`.
 
-### 修复验证结果
+The new uncommitted changes are clean:
+- Dead code removal (`ProgressStep` enum, `collect_keyframe_paths`) is correct -- no remaining references found.
+- SRT sequence numbering fix in `generate_srt_from_word_boundaries` is a legitimate correctness fix: the old `i + 1` from `enumerate()` produced non-contiguous SRT sequence numbers when word boundaries with negative timestamps were skipped via `continue`. The new `seq` counter ensures contiguous 1-based numbering.
+- Test update correctly aligns with the string-based `ProgressCallback` signature.
 
-**IN-01（已修复）**：`src/documentary/subtitle.rs` 中已成功移除 `write_srt_file` 函数、其测试以及不再需要的 `use std::path::Path` 导入。全局搜索确认 `write_srt_file` 无任何残留引用。
+All 16 reviewed files meet quality standards. No issues found.
 
-**IN-02（已修复）**：`src/sde/script_gen.rs` 中 `parse_script` 函数签名已从 `(raw_json: &str, _task_dir: &Path)` 简化为 `(raw_json: &str)`。调用点 `src/sde/pipeline.rs:126` 已同步更新为 `parse_script(&state.narration_raw)`，不再传递路径参数。6 个测试调用也已全部更新。`use std::path::Path` 导入已正确移除。
+## Warning Verification
 
-### 代码质量评估
+### WR-01 (14th pass): Documentary pipeline SRT path escaping -- VERIFIED FIXED
 
-经过十二轮审查和修复，所有文件均达到以下标准：
+**File:** `narratoai-core/src/documentary/pipeline.rs:390-398`
 
-- **错误处理**：所有 `Result` 路径均被正确传播或转换，无吞异常或空 catch
-- **类型安全**：无 `unwrap()` 在生产代码中的不当使用（仅出现在测试代码和 `LazyLock` 初始化等安全场景）
-- **编码检测**：`detect_encoding` 覆盖 BOM/UTF-8/UTF-16/GBK/GB18030 五种编码，包含充分的质量检查
-- **输入校验**：`SdeRequest::validate()` 和 `DocumentaryRequest::validate()` 覆盖所有数值范围和路径有效性检查
-- **模块组织**：`src/subtitle/` 作为共享模块被 `sde` 和 `documentary` 正确引用，re-export 链完整
-- **FFmpeg 调用**：路径转义、错误收集、子进程清理均按统一模式处理
-- **测试覆盖**：每个模块均有对应的单元测试，覆盖正常路径和边界条件
+The documentary pipeline's SRT path escaping now matches the SDE pipeline exactly:
 
-全部 15 个审查文件均通过质量标准检查，无任何 Critical、Warning 或 Info 级别问题。
+```rust
+let escaped_srt = srt_str
+    .replace('\\', "/")
+    .replace(':', "\\:")
+    .replace("'", "\\'")
+    .replace('[', "\\[")
+    .replace(']', "\\]")
+    .replace(';', "\\;")
+    .replace('\n', "")
+    .replace('\r', "");
+```
 
-## 审查组 A：共享字幕模块 `src/subtitle/`（5 文件）
+Fix confirmed in commit `ca0f449`.
 
-| 文件 | 行数 | 结论 |
-|------|------|------|
-| error.rs | 61 | 通过 |
-| mod.rs | 10 | 通过 |
-| types.rs | 40 | 通过 |
-| timestamp.rs | 217 | 通过 |
-| parser.rs | 747 | 通过 |
+## Info
 
-## 审查组 B：SDE 核心模块 `src/sde/`（6 文件）
+### IN-01: Dead code removal is correct
 
-| 文件 | 行数 | 结论 |
-|------|------|------|
-| error.rs | 97 | 通过 |
-| mod.rs | 10 | 通过 |
-| timestamp.rs | 2 | 通过（re-export 层） |
-| types.rs | 235 | 通过 |
-| script_gen.rs | 591 | 通过（IN-02 修复已验证） |
-| pipeline.rs | 840 | 通过（IN-02 调用点已更新） |
+**Files:** `narratoai-core/src/documentary/types.rs`, `narratoai-core/src/documentary/mod.rs`, `narratoai-core/src/documentary/script_gen.rs`
 
-## 审查组 C：纪录片依赖 `src/documentary/`（4 文件）
+The `ProgressStep` enum was removed from `documentary/types.rs` and its re-export from `documentary/mod.rs`. No source code references remain. The `collect_keyframe_paths` function (19 lines) was removed from `script_gen.rs` -- it was a dead duplicate of `collect_keyframe_paths_from_dir` in `visual/frame_extractor.rs`. The `analyze_video` function receives `keyframe_files` directly from `extract_frames` and never calls this function.
 
-| 文件 | 行数 | 结论 |
-|------|------|------|
-| pipeline.rs | 592 | 通过 |
-| types.rs | 109 | 通过 |
-| audio.rs | 275 | 通过 |
-| subtitle.rs | 223 | 通过（IN-01 修复已验证） |
+### IN-02: SRT sequence numbering is a correctness fix, not just refactor
 
-## 安全 / Unsafe / Panic 扫描
+**File:** `narratoai-core/src/documentary/subtitle.rs:22-42`
 
-| 检查项 | 结果 |
-|--------|------|
-| `unsafe` 块 | 无 |
-| 生产代码中的裸 `.unwrap()` | 无（仅 `LazyLock` regex 初始化，编译期安全） |
-| 硬编码密钥 | 无 |
-| Panic 路径 | `script_gen.rs:253` 的 `unreachable!()` 在穷尽匹配后，逻辑安全 |
-| sync-in-async | 无（`parse_subtitle_file` 通过 `spawn_blocking` 包装） |
+The old code used `i + 1` from `enumerate()` as the SRT sequence number. When a word boundary produced a negative timestamp (lines 26-31 `continue`), the sequence would skip a number (e.g., 1, 2, 4, 5 instead of 1, 2, 3, 4). The SRT format requires contiguous sequence numbers. The new `seq` counter (initialized to 1, incremented only when a block is pushed) produces correct contiguous numbering.
+
+### IN-03: Test update is clean
+
+**File:** `tests/documentary_integration_test.rs:115-166`
+
+The progress callback test was updated to use the string-based `ProgressCallback` type alias (`Fn(&str, f32, &str)`) instead of the removed `ProgressStep` enum. The test correctly imports `ProgressCallback` from `narratoai_core::documentary` and uses `&str` step names. All assertions (step count, step names, non-decreasing percentages, final 100%) remain valid.
 
 ---
 
-_审查时间: 2026-05-07T12:00:00Z_
-_审查者: Claude (gsd-code-reviewer)_
-_审查深度: standard_
-_审查轮次: 第十二轮（最终确认）_
+_Reviewed: 2026-05-08_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: standard_
+_Pass: 15th_
