@@ -53,10 +53,12 @@ pub async fn run_documentary(
             let _ = app_handle.emit("pipeline-progress", payload);
         });
 
+    // WR-06: 从配置中提取 proxy 设置
+    let proxy_section = (config.proxy.enabled.then_some(&config.proxy));
     let output_path = narratoai_core::documentary::pipeline::run_documentary(
         request,
         &config,
-        None,        // proxy — Tauri 启动时读取 config 中的 proxy 配置
+        proxy_section,
         Some(progress_callback),
     ).await?;
 
@@ -117,10 +119,12 @@ pub async fn run_sde(
     let registry = registry.read().await;
     let pm = prompt_manager.read().await;
 
+    // WR-06: 从配置中提取 proxy 设置
+    let proxy_section = (config.proxy.enabled.then_some(&config.proxy));
     let output_path = narratoai_core::sde::pipeline::run_sde(
         request,
         &config,
-        None,      // proxy
+        proxy_section,
         &registry,
         &pm,
         Some(progress_callback),
