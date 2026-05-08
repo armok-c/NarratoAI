@@ -266,4 +266,10 @@ mod tests {
         let parsed = common::parse_engine_prefix("indextts2:/path/to/ref.wav", &["indextts2:"]);
         assert_eq!(parsed, "/path/to/ref.wav");
     }
+
+    #[test]
+    fn test_default_config() {
+        let config = IndexTTS2Section::default();
+        assert_eq!(config.repetition_penalty, 1.5);
+    }
 }
