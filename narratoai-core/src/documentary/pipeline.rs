@@ -373,7 +373,7 @@ pub(crate) async fn step_composite(
             }
             let mix_inputs = mix_labels.join("");
             let compensation = if amix_input_count > 1 {
-                format!(",volume={:.1}", amix_input_count as f64 * 0.5)
+                format!(",volume={}", amix_input_count)
             } else {
                 String::new()
             };
