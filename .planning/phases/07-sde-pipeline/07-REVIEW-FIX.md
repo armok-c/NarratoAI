@@ -1,38 +1,32 @@
 ---
 phase: 07-sde-pipeline
-fixed_at: 2026-05-08T12:30:00Z
+fixed_at: 2026-05-08T13:00:00Z
 review_path: .planning/phases/07-sde-pipeline/07-REVIEW.md
-iteration: 12
-findings_in_scope: 2
-fixed: 2
+iteration: 14
+findings_in_scope: 1
+fixed: 1
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 07: Code Review Fix Report
 
-**Fixed at:** 2026-05-08T12:30:00Z
+**Fixed at:** 2026-05-08T13:00:00Z
 **Source review:** .planning/phases/07-sde-pipeline/07-REVIEW.md
-**Iteration:** 12
+**Iteration:** 14
 
 **Summary:**
-- Findings in scope: 2 (WR-01, WR-02)
-- Fixed: 2
+- Findings in scope: 1 (WR-01)
+- Fixed: 1
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: SDE composite step missing amix volume compensation (regression from prior WR-01 fix)
+### WR-01: Documentary pipeline SRT path escaping incomplete vs SDE pipeline
 
-**Files modified:** `narratoai-core/src/sde/pipeline.rs`
-**Commit:** `1a1300d`
-**Applied fix:** Added `volume=N` compensation after `amix=inputs=N:duration=longest` in the SDE pipeline's composite step (lines 506-514), matching the pattern already present in `documentary/pipeline.rs:375-383`. The compensation multiplies volume by the number of amix inputs to counteract FFmpeg's built-in 1/N normalization.
-
-### WR-02: SdeRequest::validate() missing subtitle_font_size range check
-
-**Files modified:** `narratoai-core/src/sde/types.rs`
-**Commit:** `cfed052`
-**Applied fix:** Added `subtitle_font_size` range validation `[1, 200]` in `SdeRequest::validate()` after the `threads == 0` check (lines 91-96), matching the identical check in `DocumentaryRequest::validate()` at `documentary/types.rs:85-90`.
+**Files modified:** `narratoai-core/src/documentary/pipeline.rs`
+**Commit:** `ca0f449`
+**Applied fix:** Added escaping for colons (`:` -> `\:`), brackets (`[` -> `\[`, `]` -> `\]`), and semicolons (`;` -> `\;`) in the FFmpeg `subtitles=` filter SRT path. Also aligned single-quote escaping from POSIX shell style (`'\\''`) to FFmpeg filter escaping style (`\'`). The escaping sequence now matches the SDE pipeline at `sde/pipeline.rs:521-529`, ensuring both pipelines handle Windows paths (e.g. `C:\Users\...`) and paths with special FFmpeg filter characters correctly.
 
 ## Skipped Issues
 
@@ -40,6 +34,6 @@ None -- all in-scope findings were fixed.
 
 ---
 
-_Fixed: 2026-05-08T12:30:00Z_
+_Fixed: 2026-05-08T13:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 12_
+_Iteration: 14_
