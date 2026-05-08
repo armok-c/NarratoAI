@@ -59,16 +59,12 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
     let ms: f64 = if millis.is_empty() {
         0.0
     } else {
-        let ms_val: u32 = millis
-            .parse()
-            .map_err(|_| SubtitleError::ParseSubtitle {
-                details: format!("毫秒解析失败: {}", millis),
-            })?;
-        // 处理毫秒位数：最多 3 位
-        let divisor = 10u32.pow((millis.len() as u32).min(3));
-        ms_val as f64 / divisor as f64
+        let padded = format!("{:0<3}", millis);
+        let ms_val: u32 = padded[..3].parse().map_err(|_| SubtitleError::ParseSubtitle {
+            details: format!("毫秒解析失败: {}", millis),
+        })?;
+        ms_val as f64 / 1000.0
     };
-
     let total = h as f64 * 3600.0 + m as f64 * 60.0 + s as f64 + ms;
     if !(0.0..=604800.0).contains(&total) {
         return Err(SubtitleError::ParseSubtitle {

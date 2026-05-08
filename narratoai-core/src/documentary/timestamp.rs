@@ -58,12 +58,10 @@ pub fn parse_time_to_secs(input: &str) -> Result<f64, PipelineError> {
     let ms: f64 = if millis.is_empty() {
         0.0
     } else {
-        let ms_val: f64 = millis
-            .parse()
-            .map_err(|_| PipelineError::Timestamp(format!("毫秒解析失败: {}", millis)))?;
+        let padded = format!("{:0<3}", millis);
+        let ms_val: f64 = padded[..3].parse().map_err(|_| PipelineError::Timestamp(format!("毫秒解析失败: {}", millis)))?;
         ms_val / 1000.0
     };
-
     let total = h * 3600.0 + m * 60.0 + s + ms;
     if total < 0.0 || total > 604800.0 {
         return Err(PipelineError::Timestamp(format!(
