@@ -194,18 +194,28 @@ pub async fn generate_documentary_script(
     config: tauri::State<'_, AppConfig>,
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
 ) -> Result<Script, CommandError> {
-    // 从配置中获取 text LLM provider（作用域化，确保 guard 在 .await 前释放）
-    let provider = {
+    // 从配置中获取 vision 和 text LLM provider（作用域化，确保 guard 在 .await 前释放）
+    let (vision_provider, text_provider) = {
         let guard = registry.read().await;
-        guard.get(&config.app.text_llm_provider).map_err(|e| CommandError {
+        let vision_name = request.vision_model.as_deref()
+            .unwrap_or(&config.app.vision_llm_provider);
+        let text_name = request.text_model.as_deref()
+            .unwrap_or(&config.app.text_llm_provider);
+        let vp = guard.get(vision_name).map_err(|e| CommandError {
             code: "PROVIDER_NOT_FOUND".into(),
-            message: format!("获取 LLM provider 失败: {}", e),
-        })?
+            message: format!("获取 vision LLM provider 失败: {}", e),
+        })?;
+        let tp = guard.get(text_name).map_err(|e| CommandError {
+            code: "PROVIDER_NOT_FOUND".into(),
+            message: format!("获取 text LLM provider 失败: {}", e),
+        })?;
+        (vp, tp)
     };
 
     let clips = narratoai_core::documentary::script_gen::generate_documentary_script(
         request,
-        provider.as_ref(),
+        vision_provider.as_ref(),
+        text_provider.as_ref(),
     ).await?;
 
     Ok(clips)
