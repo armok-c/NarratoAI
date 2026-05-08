@@ -11,6 +11,12 @@ use crate::models::progress::ScriptInfo;
 pub async fn load_script(
     path: PathBuf,
 ) -> Result<Script, CommandError> {
+    if path.extension().map_or(true, |ext| ext != "json") {
+        return Err(CommandError {
+            code: "INVALID_PATH".into(),
+            message: "仅支持 .json 文件".into(),
+        });
+    }
     let script = narratoai_core::script::load_script(&path)?;
     Ok(script)
 }
@@ -21,6 +27,12 @@ pub async fn save_script(
     script: Script,
     path: PathBuf,
 ) -> Result<(), CommandError> {
+    if path.extension().map_or(true, |ext| ext != "json") {
+        return Err(CommandError {
+            code: "INVALID_PATH".into(),
+            message: "仅支持 .json 文件".into(),
+        });
+    }
     narratoai_core::script::save_script(&script, &path)?;
     Ok(())
 }
