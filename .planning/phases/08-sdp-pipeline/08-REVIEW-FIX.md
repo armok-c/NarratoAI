@@ -1,8 +1,8 @@
 ---
 phase: 08-sdp-pipeline
-fixed_at: 2026-05-08T15:40:00Z
+fixed_at: 2026-05-08T21:00:00Z
 review_path: .planning/phases/08-sdp-pipeline/08-REVIEW.md
-iteration: 8
+iteration: 9
 findings_in_scope: 3
 fixed: 3
 skipped: 0
@@ -11,9 +11,9 @@ status: all_fixed
 
 # Phase 08: Code Review Fix Report
 
-**Fixed at:** 2026-05-08T15:40:00Z
+**Fixed at:** 2026-05-08T21:00:00Z
 **Source review:** .planning/phases/08-sdp-pipeline/08-REVIEW.md
-**Iteration:** 8
+**Iteration:** 9
 
 **Summary:**
 - Findings in scope: 3
@@ -22,26 +22,25 @@ status: all_fixed
 
 ## Fixed Issues
 
-### WR-18: parse_srt_timestamp rejects valid SRT timestamps with hours > 23
+### CR-01: Documentary pipeline subtitles filter still wraps path in single quotes
 
-**Files modified:** `narratoai-core/src/subtitle/timestamp.rs`, `narratoai-core/src/documentary/timestamp.rs`
-**Commit:** 21c5f1b
-**Applied fix:** Removed the `h > 23` check from `parse_srt_timestamp` and the `!(0.0..=23.0).contains(&h)` check from `parse_time_to_secs`. Updated total seconds validation from 86400 (1 day) to 604800 (7 days) in both parsers. Updated `secs_to_srt_time` and `secs_to_ffmpeg_time` caps from 86399.999 to 604799.999 in the documentary module.
+**Files modified:** `narratoai-core/src/documentary/pipeline.rs`
+**Commit:** dea19eb
+**Applied fix:** Changed the FFmpeg subtitles filter format from `subtitles='{}'` (single-quoted path) to `subtitles={}` (unquoted path) at line 400. This aligns with the WR-19 fix already applied to `sde/pipeline.rs` and avoids the bug where paths containing single quotes break FFmpeg's filter parser. The existing escaping chain already handles special characters via FFmpeg's native escaping conventions.
 
-### WR-19: SRT path containing single quote breaks FFmpeg subtitles filter
+### WR-21: validate_timestamp in script/mod.rs still rejects hours > 23
 
-**Files modified:** `narratoai-core/src/sde/pipeline.rs`
-**Commit:** d926892
-**Applied fix:** Changed the FFmpeg subtitles filter format from `subtitles='{}'` (single-quoted) to `subtitles={}` (unquoted). The existing escaping chain at lines 525-533 already handles special characters via FFmpeg's native escaping, so removing the single-quote wrapping avoids the issue where paths containing single quotes break FFmpeg's filter parser.
+**Files modified:** `narratoai-core/src/script/mod.rs`
+**Commit:** 03d592c
+**Applied fix:** Removed the `h > 23` check from `timestamp_to_millis` on line 28, changing `if h > 23 || m > 59 || s > 59` to `if m > 59 || s > 59`. This makes `validate_timestamp` consistent with the relaxed `parse_srt_timestamp` and `parse_time_to_secs` parsers (fixed in WR-18). Updated the corresponding test to assert that hours > 23 now passes validation.
 
-### WR-20: Millisecond parsing inconsistency between two timestamp parsers
+### WR-22: SDP pipeline has no timestamp overlap detection
 
-**Files modified:** `narratoai-core/src/subtitle/timestamp.rs`, `narratoai-core/src/documentary/timestamp.rs`
-**Commit:** 38db894
-**Applied fix:** Standardized both `parse_srt_timestamp` and `parse_time_to_secs` to use left-pad-to-3-digits approach: `format!("{:0<3}", millis)` then take first 3 characters, parse, and divide by 1000. This ensures consistent behavior for non-standard 1 or 2 digit millisecond inputs across both the subtitle and documentary parsers.
+**Files modified:** `narratoai-core/src/sdp/pipeline.rs`
+**Commit:** 01db339
+**Applied fix:** Added timestamp overlap detection after OST validation (G2 guard). Uses `parse_srt_timestamp` from `crate::subtitle::timestamp` to parse adjacent clip boundaries and returns `SdpError::Validation` with a descriptive Chinese error message when overlapping timestamps are detected. Inline implementation (24 lines) avoids cross-module coupling with SDE's private `detect_and_abort_overlaps` function.
 
 ---
-
-_Fixed: 2026-05-08T15:40:00Z_
+_Fixed: 2026-05-08T21:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 8_
+_Iteration: 9_
