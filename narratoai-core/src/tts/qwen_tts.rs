@@ -87,6 +87,21 @@ impl QwenTtsEngine {
         let audio_url = result["output"]["audio"]["url"].as_str()
             .ok_or_else(|| TTSError::SynthesisFailed("Qwen 响应中无 output.audio.url".to_string()))?;
 
+        // SSRF protection for the audio download URL returned by DashScope.
+        //
+        // Allowlist: https://, http://127.0.0.1, http://localhost
+        // Explicitly blocked: http://0.0.0.0 (binds all interfaces),
+        //   http://[::1] (IPv6 loopback)
+        //
+        // Known limitations:
+        //   - localhost URLs allowed without port restriction (intentional for testing)
+        //   - https:// scheme-only check; does not prevent private IP targets
+        //   - IPv6 long-form loopback not covered (requires URL parser)
+        if audio_url.starts_with("http://0.0.0.0") || audio_url.starts_with("http://[::1]") {
+            return Err(TTSError::SynthesisFailed(format!(
+                "Qwen audio_url 指向非标准 localhost 地址，已拒绝: {}", audio_url
+            )));
+        }
         if !audio_url.starts_with("https://")
             && !audio_url.starts_with("http://127.0.0.1")
             && !audio_url.starts_with("http://localhost")
