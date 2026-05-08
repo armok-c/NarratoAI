@@ -1,6 +1,6 @@
 ---
 phase: 08-sdp-pipeline
-reviewed: 2026-05-08T21:00:00Z
+reviewed: 2026-05-08T23:45:00Z
 depth: standard
 files_reviewed: 20
 files_reviewed_list:
@@ -25,135 +25,104 @@ files_reviewed_list:
   - narratoai-core/src/subtitle/timestamp.rs
   - narratoai-core/src/subtitle/types.rs
 findings:
-  critical: 1
-  warning: 2
-  info: 0
-  total: 3
+  critical: 0
+  warning: 3
+  info: 2
+  total: 5
 status: issues_found
 ---
 
-# Phase 08: SDP Pipeline Code Review Report (Re-review 4, Iteration 5)
+# Phase 08: SDP Pipeline Code Review Report (Re-review 6, Iteration 7)
 
-**Reviewed:** 2026-05-08T21:00:00Z
+**Reviewed:** 2026-05-08T23:45:00Z
 **Depth:** standard
 **Files Reviewed:** 20
 **Status:** issues_found
 
 ## Summary
 
-This is the FIFTH review pass (iteration 5) of Phase 08. Previous reviews found and fixed CR-01, CR-02, WR-01 through WR-09, and the last re-review (iteration 4) found and fixed WR-10 (script_path existence check) and WR-11 (load_script in spawn_blocking). Both are confirmed fixed in the current code.
+This is the SEVENTH review pass (iteration 7) of Phase 08. All previously reported issues (CR-01 through CR-03, WR-01 through WR-14) remain correctly fixed. This pass found 3 new warnings and 2 info items.
 
-This pass found 1 new critical issue and 2 new warnings. The critical issue is a logic bug in SDE pipeline where `source_time_range` is computed incorrectly for OST=0/OST=2 clips by using TTS duration instead of the actual source video timestamp range.
+The code is in good shape overall. The SDP pipeline correctly reuses infrastructure from SDE, documentary, and subtitle modules. Error handling is thorough, input validation covers most edge cases, and FFmpeg operations are properly wrapped in `spawn_blocking`. The new findings are quality/robustness improvements rather than correctness bugs.
 
 ## Previously Confirmed Fixed Issues
 
 All previously reported issues remain correctly fixed:
 
-- **CR-01** (subtitle_segments never populated): Fixed in `sdp/pipeline.rs:52-62`
-- **CR-02** (step 2 sends plain text to LLM): Fixed in `sdp/script_gen.rs:234`
-- **WR-01 through WR-09**: All remain correctly fixed
-- **WR-10** (script_path existence check): Fixed in `sdp/types.rs:65-69`
-- **WR-11** (load_script blocking call): Fixed in `sdp/pipeline.rs:44-50`
+- **CR-01** (subtitle_segments never populated in SDP pipeline): Fixed in `sdp/pipeline.rs:59-69`
+- **CR-02** (step 2 sends plain text to LLM instead of rendered prompt): Fixed in `sdp/script_gen.rs:238-244`
+- **CR-03** (SDE pipeline computes source_time_range incorrectly for OST=0/OST=2): Fixed in `sde/pipeline.rs:245-271`
+- **WR-01 through WR-14**: All remain correctly fixed
 
-## Critical Issues
+## Warnings
 
-### CR-03: SDE pipeline computes `source_time_range` incorrectly for OST=0/OST=2 clips using TTS duration instead of source timestamp end
+### WR-15: `generate_sdp_script` does not validate empty `plot_titles` from step 1 LLM analysis
 
-**File:** `narratoai-core/src/sde/pipeline.rs:245-255`
-**Issue:** In the SDE clip step (step 5), after calculating `clip_duration` via `calculate_clip_duration()`, the code computes `end_secs = start_secs + clip_duration` (line 249) and uses this to set `source_time_range`. However, `clip_duration` for OST=0 (NarrationOnly) and OST=2 (Mixed) clips comes from TTS duration, not from the source video timestamp. This means `source_time_range` records the *narration* duration starting from the source start time, not the actual source video segment end time.
+**File:** `narratoai-core/src/sdp/script_gen.rs:229-236`
+**Issue:** After step 1 (subtitle_analysis), the `analysis.plot_titles` vector is used directly without checking if it is empty. If the LLM returns an empty `plot_titles` array, `format_plot_titles` returns `""`, and step 2 (plot_extraction) receives an empty `plot_titles` variable in the prompt. This will likely cause the LLM to produce garbage results or fail to generate meaningful plot points, but the error message will be confusing (a JSON parse error or "plot_points 为空" from `merge_script`) rather than a clear "第一步分析未产生情节点" message.
 
-For OST=0 clips: the video clip is cut to TTS duration (not the original timestamp range), so `source_time_range` is misleading -- it shows `timestamp_start to (timestamp_start + tts_duration)` rather than the original `timestamp_start to timestamp_end`.
+The `summary` field has the same problem -- an empty summary is passed directly to step 2.
 
-For OST=1 (OriginalSound) clips: `clip_duration` happens to be computed from the timestamp (since no TTS is generated), so this is accidentally correct. But the same code path is shared for all OST types.
-
-The `source_time_range` field semantically should represent the source video time range (from the script timestamp), while `edited_time_range` represents the output timeline. Mixing TTS duration into `source_time_range` conflates these two concepts.
-
-Compare with `sdp/clip.rs:60-90` which correctly parses both `start_secs` and `end_secs` from the timestamp and computes duration from those values.
-
-**Fix:** Parse `end_secs` from the timestamp directly for `source_time_range`:
+**Fix:** Add validation after parsing the step 1 result:
 
 ```rust
-let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
-if ts_parts.len() == 2 {
-    let start_secs = parse_time_to_secs(ts_parts[0])
-        .map_err(|e| SdeError::VideoProcess(PipelineError::Timestamp(e.to_string())))?;
-    let source_end_secs = parse_time_to_secs(ts_parts[1])
-        .map_err(|e| SdeError::VideoProcess(PipelineError::Timestamp(e.to_string())))?;
-    
-    clip.source_time_range = Some(format!(
-        "{}-{}",
-        secs_to_ffmpeg_time(start_secs),
-        secs_to_ffmpeg_time(source_end_secs)
-    ));
-    clip.duration = Some(clip_duration);
-    clip.edited_time_range = Some(format!(
-        "{}-{}",
-        secs_to_ffmpeg_time(cumulative_time),
-        secs_to_ffmpeg_time(cumulative_time + clip_duration)
-    ));
-    cumulative_time += clip_duration;
-} else {
-    return Err(SdeError::Validation {
-        details: format!("片段 {} 时间戳格式无效（缺少 '-' 分隔符）: {}", clip._id, clip.timestamp),
+// ---- 8. 校验分析结果 ----
+if analysis.plot_titles.is_empty() {
+    return Err(SdpError::LlmError {
+        details: "第一步字幕分析未产生任何情节点（plot_titles 为空）".into(),
+    });
+}
+if analysis.summary.trim().is_empty() {
+    return Err(SdpError::LlmError {
+        details: "第一步字幕分析未产生剧情梗概（summary 为空）".into(),
     });
 }
 ```
 
-## Warnings
+### WR-16: `SdpRequest::validate()` does not validate `temperature` range
 
-### WR-12: `SdpRequest::validate` accepts non-existent file paths in tests because it checks `PathBuf::from("sub.srt")` without requiring file existence
+**File:** `narratoai-core/src/sdp/types.rs:52-91`
+**Issue:** The `validate()` function validates volume ranges, thread count, and file existence, but does not validate the `temperature` field. Extreme values (negative, > 2.0) would be passed directly to the LLM API call in `generate_sdp_script` (`sdp/script_gen.rs:209`), potentially causing API errors or unpredictable LLM behavior. Compare with `SdeRequest` which also does not validate `temperature` (same pattern, same risk).
 
-**File:** `narratoai-core/src/sdp/types.rs:151-158`
-**Issue:** The test `test_sdp_request_validate_valid` creates an `SdpRequest` with `subtitle_path: PathBuf::from("sub.srt")` and `video_path: PathBuf::from("video.mp4")`. The `validate()` function at lines 59-63 checks `self.subtitle_path.exists()` and `self.video_path.exists()`, which should fail for these relative paths (since the files don't actually exist in the working directory). Yet the test asserts `req.validate().is_ok()`.
-
-This test will pass only if there happen to be files named `sub.srt` and `video.mp4` in the current working directory at test time, which makes the test brittle and environment-dependent. This is a test reliability bug.
-
-Compare with the SDE equivalent test at `sde/types.rs:183-194` which correctly uses `tempfile::TempDir` to create real files.
-
-**Fix:** Use `tempfile::TempDir` and create actual files, matching the SDE test pattern:
+**Fix:** Add range validation in `validate()`:
 
 ```rust
-#[test]
-fn test_sdp_request_validate_valid() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let sub = dir.path().join("sub.srt");
-    let vid = dir.path().join("video.mp4");
-    std::fs::write(&sub, "").unwrap();
-    std::fs::write(&vid, "").unwrap();
-    let req = SdpRequest {
-        subtitle_path: sub,
-        video_path: vid,
-        ..Default::default()
-    };
-    assert!(req.validate().is_ok());
+if self.temperature < 0.0 || self.temperature > 2.0 {
+    return Err(format!(
+        "temperature 超出有效范围 [0, 2]: {}",
+        self.temperature
+    ));
 }
 ```
 
-### WR-13: `parse_srt_timestamp` normalizes ALL dots to commas including within SS field, causing ambiguous parsing
+### WR-17: `sdp/clip.rs` duplicates `secs_to_srt_time` logic from `documentary/timestamp.rs`
 
-**File:** `narratoai-core/src/subtitle/timestamp.rs:11-15`
-**Issue:** The function replaces ALL dots with commas at line 12 (`input.replace('.', ",")`). This means a timestamp like `00.01.02,500` (dots instead of colons, which is invalid but conceivable as malformed input) would become `00,01,02,500` and potentially parse incorrectly. More practically, the timestamp `1.5` (a bare float seconds value) would become `1,5` and be parsed as `HH:MM:SS` with `1` as hours and `5` as minutes. While SRT timestamps use dots as millisecond separators, the blanket replacement could mask malformed input instead of rejecting it.
+**File:** `narratoai-core/src/sdp/clip.rs:112-125`
+**Issue:** The local `secs_to_timestamp_str` function is functionally identical to `crate::documentary::timestamp::secs_to_srt_time` (same logic, same output format). This duplication creates a maintenance risk: if one version is fixed (e.g., for an edge case), the other may be missed. The `sdp/clip.rs` file already imports `crate::sde::timestamp::parse_srt_timestamp`, so it could also import or use `secs_to_srt_time` from the documentary module.
 
-The current SRT/ASS formats always use `HH:MM:SS.mmm` where the dot is only in the millis separator position. The normalization should be more targeted -- only replacing dots in the expected millis position (after the SS field) rather than globally.
-
-**Fix:** Use a more targeted normalization that only replaces the dot between seconds and milliseconds:
+**Fix:** Replace the local `secs_to_timestamp_str` with the existing shared function:
 
 ```rust
-// Only normalize dot in the expected millis position (after the last colon-separated group)
-let normalized = if let Some(pos) = input.rfind('.') {
-    // Check if the dot is after the last colon (i.e., it's a millis separator)
-    if input.rfind(':').map_or(false, |cp| cp < pos) {
-        format!("{}{}", &input[..pos], &input[pos..].replace('.', ","))
-    } else {
-        input.to_string()
-    }
-} else {
-    input.to_string()
-};
+use crate::documentary::timestamp::secs_to_srt_time;
+// Replace all calls to secs_to_timestamp_str(x) with secs_to_srt_time(x)
 ```
+
+## Info
+
+### IN-01: `SdpRequest` fields `temperature` and `custom_clips` are unused by `run_sdp()`
+
+**File:** `narratoai-core/src/sdp/pipeline.rs:17-97`
+**Issue:** The `SdpRequest` struct contains `temperature` and `custom_clips` fields that are used by `generate_sdp_script` but never referenced in `run_sdp()`. This is by design (the same request type serves both the script generation and video processing entry points), but callers might be confused about which fields matter for which function. No code change needed -- this is a documentation/ergonomics observation.
+
+### IN-02: Test `test_sdp_progress_step_names` is a no-op tautology
+
+**File:** `narratoai-core/src/sdp/pipeline.rs:366-377`
+**Issue:** The test `test_sdp_progress_step_names` compares string literals to themselves (e.g., `assert_eq!("clip", "clip")`). This test can never fail and does not test any actual code. It provides no value as a regression test.
+
+**Fix:** Either remove the test or make it test actual runtime behavior (e.g., verifying that progress step name strings match the `SdpProgressStep` enum discriminant names).
 
 ---
 
-_Reviewed: 2026-05-08T21:00:00Z_
+_Reviewed: 2026-05-08T23:45:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
