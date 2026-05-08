@@ -149,9 +149,14 @@ mod tests {
 
     #[test]
     fn test_sdp_request_validate_valid() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("sub.srt");
+        let vid = dir.path().join("video.mp4");
+        std::fs::write(&sub, "").unwrap();
+        std::fs::write(&vid, "").unwrap();
         let req = SdpRequest {
-            subtitle_path: PathBuf::from("sub.srt"),
-            video_path: PathBuf::from("video.mp4"),
+            subtitle_path: sub,
+            video_path: vid,
             ..Default::default()
         };
         assert!(req.validate().is_ok());
