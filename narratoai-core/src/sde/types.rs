@@ -88,6 +88,12 @@ impl SdeRequest {
         if self.threads == 0 {
             return Err("threads 必须大于 0".to_string());
         }
+        if self.subtitle_font_size == 0 || self.subtitle_font_size > 200 {
+            return Err(format!(
+                "subtitle_font_size 超出有效范围 [1, 200]: {}",
+                self.subtitle_font_size
+            ));
+        }
         // 校验 subtitle_color 为 #RRGGBB 格式
         let hex = self.subtitle_color.trim_start_matches('#');
         if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
