@@ -62,6 +62,11 @@ impl SdpRequest {
         if !self.video_path.exists() {
             return Err(format!("视频文件不存在: {}", self.video_path.display()));
         }
+        if let Some(ref sp) = self.script_path {
+            if !sp.exists() {
+                return Err(format!("脚本文件不存在: {}", sp.display()));
+            }
+        }
         if !(0.0..=10.0).contains(&self.original_volume) {
             return Err(format!(
                 "original_volume 超出有效范围 [0, 10]: {}",
