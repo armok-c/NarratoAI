@@ -56,6 +56,12 @@ impl SdpRequest {
         if self.video_path.as_os_str().is_empty() {
             return Err("video_path 不能为空".to_string());
         }
+        if !self.subtitle_path.exists() {
+            return Err(format!("字幕文件不存在: {}", self.subtitle_path.display()));
+        }
+        if !self.video_path.exists() {
+            return Err(format!("视频文件不存在: {}", self.video_path.display()));
+        }
         if !(0.0..=10.0).contains(&self.original_volume) {
             return Err(format!(
                 "original_volume 超出有效范围 [0, 10]: {}",
