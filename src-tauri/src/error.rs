@@ -21,30 +21,26 @@ impl fmt::Display for CommandError {
 impl std::error::Error for CommandError {}
 
 /// 校验路径不包含遍历序列，防止 IPC 边界的路径遍历攻击
+///
+/// 使用 `std::path::Component` 进行平台感知的路径解析：
+/// - 在 Windows 上正确处理盘符路径（如 `C:\Users\...`）和 UNC 路径
+/// - 仅拒绝实际包含 `..` 组件（ParentDir）的路径
+/// - 拒绝包含空字节的路径
 pub fn validate_path(path: &std::path::PathBuf) -> Result<(), CommandError> {
     let path_str = path.to_string_lossy();
-    // 检查遍历序列（混合分隔符归一化后检查）
-    let normalized = path_str.replace('\\', "/");
-    if normalized.contains("..") {
+    if path_str.contains('\0') {
         return Err(CommandError {
             code: "INVALID_PATH".into(),
-            message: "路径不允许包含 '..' 遍历序列".into(),
+            message: "路径不允许包含空字节".into(),
         });
     }
-    // 检查反斜杠（统一使用正斜杠）
-    if path_str.contains('\\') {
-        return Err(CommandError {
-            code: "INVALID_PATH".into(),
-            message: "路径不允许包含反斜杠".into(),
-        });
-    }
-    // 检查 Windows 绝对路径（盘符 C: 或 UNC \\）
-    let bytes = path_str.as_bytes();
-    if bytes.len() >= 2 && bytes[1] == b':' {
-        return Err(CommandError {
-            code: "INVALID_PATH".into(),
-            message: "不允许使用绝对路径".into(),
-        });
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err(CommandError {
+                code: "INVALID_PATH".into(),
+                message: "路径不允许包含 '..' 遍历序列".into(),
+            });
+        }
     }
     Ok(())
 }
