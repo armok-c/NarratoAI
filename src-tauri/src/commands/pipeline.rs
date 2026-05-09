@@ -8,7 +8,7 @@ use narratoai_core::sdp::types::SdpRequest;
 use narratoai_core::documentary::script_gen::ScriptGenRequest;
 use narratoai_core::script::types::Script;
 
-use crate::error::CommandError;
+use crate::error::{validate_path, CommandError};
 use crate::models::progress::{CommandResponse, ProgressPayload};
 
 // =============================================================
@@ -254,6 +254,7 @@ pub async fn generate_sdp_script(
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
     prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
 ) -> Result<Script, CommandError> {
+    validate_path(&subtitle_path)?;
     // 校验字幕文件存在且扩展名合法
     if !subtitle_path.exists() {
         return Err(CommandError {
