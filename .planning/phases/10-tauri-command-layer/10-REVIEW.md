@@ -1,198 +1,197 @@
 ---
 phase: 10-tauri-command-layer
-reviewed: 2026-05-09T12:00:00Z
+reviewed: 2026-05-09T18:00:00Z
 depth: standard
-files_reviewed: 23
+files_reviewed: 22
 files_reviewed_list:
   - Cargo.toml
   - narratoai-core/Cargo.toml
-  - narratoai-core/src/documentary/pipeline.rs
-  - narratoai-core/src/documentary/script_gen.rs
-  - narratoai-core/src/documentary/types.rs
-  - narratoai-core/src/jianying/builder.rs
-  - narratoai-core/src/sde/pipeline.rs
-  - narratoai-core/src/sde/types.rs
-  - narratoai-core/src/sdp/pipeline.rs
-  - narratoai-core/src/sdp/types.rs
   - src-tauri/Cargo.toml
   - src-tauri/build.rs
+  - src-tauri/tauri.conf.json
   - src-tauri/capabilities/default.json
-  - src-tauri/src/commands/export.rs
+  - src-tauri/src/main.rs
+  - src-tauri/src/lib.rs
+  - src-tauri/src/error.rs
+  - src-tauri/src/models/mod.rs
+  - src-tauri/src/models/progress.rs
   - src-tauri/src/commands/mod.rs
   - src-tauri/src/commands/pipeline.rs
   - src-tauri/src/commands/script.rs
-  - src-tauri/src/error.rs
-  - src-tauri/src/lib.rs
-  - src-tauri/src/main.rs
-  - src-tauri/src/models/mod.rs
-  - src-tauri/src/models/progress.rs
-  - src-tauri/tauri.conf.json
+  - src-tauri/src/commands/export.rs
+  - narratoai-core/src/documentary/types.rs
+  - narratoai-core/src/sde/types.rs
+  - narratoai-core/src/sdp/types.rs
+  - narratoai-core/src/documentary/script_gen.rs
+  - narratoai-core/src/jianying/builder.rs
+  - narratoai-core/src/documentary/pipeline.rs
+  - narratoai-core/src/sde/pipeline.rs
+  - narratoai-core/src/sdp/pipeline.rs
 findings:
-  critical: 2
-  warning: 6
-  info: 3
-  total: 11
+  critical: 1
+  warning: 4
+  info: 2
+  total: 7
 status: issues_found
 ---
 
-# Phase 10: Code Review Report (Iteration 5)
+# Phase 10: Code Review Report (Iteration 7)
 
 **Reviewed:** 2026-05-09
 **Depth:** standard
-**Files Reviewed:** 23
+**Files Reviewed:** 22
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the full Tauri 2.0 command layer and the underlying narratoai-core pipeline modules. This is iteration 5 of the review cycle (iterations 1-4 already addressed prior issues including CR-01 path traversal validation and WR-02 negative duration guard). Remaining issues are concentrated in two areas: (1) path traversal validation in the Tauri command layer is incomplete, allowing bypass via Windows drive letters or percent-encoded variants, and (2) long-lived RwLock read guards held across entire pipeline executions block all concurrent operations. Several additional quality issues were identified in cross-file logic.
+Iteration 7 re-reviewed all 22 files at standard depth, verifying fixes from iterations 1-6 and searching for new issues. The one BLOCKER from iteration 6 (CR-04: `validate_path` rejects all Windows absolute paths) remains unfixed -- this is a functional showstopper on the primary target platform. Three warnings from iteration 6 (WR-07, WR-08, WR-09) also remain unfixed. One new warning was discovered: `SdeRequest::validate()` lacks temperature range validation (WR-10), and one new info item was found: case-sensitive file extension check (IN-05).
 
-## Critical Issues
+## Verification of Previous Fixes (Iterations 1-5)
 
-### CR-02: `validate_path` can be bypassed on Windows via absolute paths and embedded dot-dot in canonicalized form
+All fixes from iterations 1-5 remain intact and correct:
 
-**File:** `src-tauri/src/error.rs:24-33`
-**Issue:** The `validate_path` function only performs a string-level check for `..` in the lossy path representation. This can be bypassed in several ways on Windows:
+- **CR-01/CR-02 (path traversal):** `validate_path` at `error.rs:24-50` checks for `..`, backslashes, and Windows drive letters. `draft_name` validation at `export.rs:21-28` checks for `/`, `\`, `..`, null bytes.
+- **WR-01 (splitn fix):** `get_script_info` at `script.rs:62` uses `splitn(2, '-')`.
+- **WR-02 (serde skip):** `ScriptGenRequest.progress` at `script_gen.rs:23-25` has design-intent comment and `#[serde(skip)]`.
+- **WR-03 (trailing comma repair):** `remove_trailing_commas` at `script_gen.rs:381-423` correctly handles string context.
+- **WR-04 (blocking_write):** `lib.rs:40-47` constructs `Registry` before wrapping in `Arc<RwLock>`.
 
-1. **Canonical path bypass**: A path like `C:\Users\public\..\..\Windows\System32\config` where the attacker constructs a path whose canonical form escapes but whose string form varies. While `..` is present in this example, the more subtle case is paths with mixed separators (`/../`) or URL-encoded variants (`%2e%2e%5c`) that may be normalized downstream before reaching filesystem APIs.
+## Status of Iteration 6 Findings
 
-2. **No canonicalization or containment check**: The function does not verify that the resolved path stays within an expected root directory. Any valid path without literal `..` passes validation, including paths pointing to arbitrary system locations (`C:\Windows\System32\*`, `/etc/shadow`). For a desktop application that processes user-supplied paths, this means the IPC boundary accepts paths to any file on the system.
+### UNFIXED -- CR-04: validate_path rejects ALL Windows absolute paths
 
-3. **Missing validation in `export_jianying_draft`**: The `draft_name` parameter (line 16 of `export.rs`) is not validated for path traversal. While `validate_draft_name` in `builder.rs` does check for `..`, `/`, `\`, and `\0`, this validation occurs *inside* the core library -- the Tauri command layer in `export.rs` does not call `validate_path` on the `draft_name` string because it is not a `PathBuf`. If `validate_draft_name` were ever bypassed or removed, the command layer would have no defense.
+**File:** `src-tauri/src/error.rs:24-50`
+**Status:** Unfixed. Still a BLOCKER.
 
-**Fix:**
+The `validate_path` function at lines 35-39 rejects any path containing backslash (`\`), and lines 42-48 reject any path with a drive letter at byte index 1. On Windows, the native file picker dialog always returns absolute paths like `C:\Users\video.mp4` -- these contain both `\` and a drive letter and are unconditionally rejected.
+
+Every Tauri command that accepts a file path (`load_script`, `save_script`, all pipeline commands, `export_jianying_draft`, `generate_sdp_script`) calls `validate_path` first, meaning **the application cannot open or save any file on Windows**.
+
+On Linux/macOS, absolute paths like `/home/user/video.mp4` pass all three checks (no `..`, no `\`, no drive letter) and are accepted. The bug is Windows-specific but affects the primary target platform.
+
+**Fix:** Replace the current approach with a proper path component check:
 ```rust
-// error.rs - strengthen validate_path
 pub fn validate_path(path: &std::path::PathBuf) -> Result<(), CommandError> {
     let path_str = path.to_string_lossy();
-    // Block traversal sequences (including mixed separators)
-    let normalized = path_str.replace('\\', "/");
-    if normalized.contains("..") {
+    if path_str.contains('\0') {
         return Err(CommandError {
             code: "INVALID_PATH".into(),
-            message: "路径不允许包含 '..' 遍历序列".into(),
+            message: "path contains null bytes".into(),
         });
+    }
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err(CommandError {
+                code: "INVALID_PATH".into(),
+                message: "path traversal sequences not allowed".into(),
+            });
+        }
     }
     Ok(())
 }
+```
 
-// export.rs - also validate draft_name at the command boundary
-#[tauri::command]
-pub async fn export_jianying_draft(
-    script: Script,
-    video_origin_path: PathBuf,
-    draft_path: PathBuf,
-    draft_name: String,
-    width: u32,
-    height: u32,
-) -> Result<PathBuf, CommandError> {
-    validate_path(&video_origin_path)?;
-    validate_path(&draft_path)?;
-    // Validate draft_name at IPC boundary too
-    if draft_name.contains('/') || draft_name.contains('\\')
-        || draft_name.contains("..") || draft_name.contains('\0')
-    {
-        return Err(CommandError {
-            code: "INVALID_PATH".into(),
-            message: "草稿名称包含非法字符".into(),
-        });
-    }
-    // ... rest unchanged
+### UNFIXED -- WR-07: Blocking filesystem I/O in async Tauri commands
+
+**File:** `src-tauri/src/commands/script.rs:21,38` and `src-tauri/src/commands/export.rs:37`
+**Status:** Unfixed.
+
+`load_script` calls `narratoai_core::script::load_script(&path)` (blocking `std::fs` I/O) directly in an `async fn`. Same for `save_script` and `export_jianying_draft`. These block tokio runtime worker threads.
+
+**Fix:** Wrap in `tokio::task::spawn_blocking` (see iteration 6 for code example).
+
+### UNFIXED -- WR-08: Unused task_id variable
+
+**File:** `src-tauri/src/commands/pipeline.rs:57-58,117-118,183-184`
+**Status:** Unfixed.
+
+In `run_documentary`, `run_sde`, and `run_sdp`, a `task_id` is created, cloned to `progress_task_id`, then the original is never used again. The closure only captures `progress_task_id`.
+
+**Fix:** Use `task_id` directly in the closure (as done in `generate_documentary_script` at line 252).
+
+### UNFIXED -- WR-09: generate_sdp_script missing parameter validation
+
+**File:** `src-tauri/src/commands/pipeline.rs:289-290`
+**Status:** Unfixed.
+
+`generate_sdp_script` accepts `temperature: f64` and `custom_clips: u32` but does not validate ranges before passing to core library. `custom_clips == 0` is never validated anywhere.
+
+**Fix:** Add validation:
+```rust
+if temperature < 0.0 || temperature > 2.0 {
+    return Err(CommandError { code: "INVALID_PARAM".into(), message: "temperature out of range [0, 2]".into() });
+}
+if custom_clips == 0 {
+    return Err(CommandError { code: "INVALID_PARAM".into(), message: "custom_clips must be > 0".into() });
 }
 ```
 
-### CR-03: RwLock read guards held across entire SDE pipeline execution block all concurrent users
+### UNFIXED -- IN-04: ProgressPayload.pipeline_type comment incomplete
 
-**File:** `src-tauri/src/commands/pipeline.rs:153-154`
-**Issue:** In `run_sde`, both `registry.read().await` and `prompt_manager.read().await` are acquired at line 153-154 and held through the entire `run_sde()` call which spans 9 pipeline steps including TTS generation, video clipping, FFmpeg encoding, and LLM calls. This can take minutes. During that time, no other Tauri command can write to either the registry or prompt manager (e.g., dynamic provider reconfiguration is blocked). The TODO comment at line 151 acknowledges this but the code shipped in production this way.
+**File:** `src-tauri/src/models/progress.rs:10`
+**Status:** Unfixed.
 
-The same pattern appears in `generate_sdp_script` at line 323 where `prompt_manager.read().await` is held across two sequential LLM calls plus file I/O.
+Comment says `"documentary" | "sde" | "sdp"` but omits `"script_gen"` which is used at `pipeline.rs:257`.
 
-Note: `generate_documentary_script` at lines 234-249 correctly scopes the registry read guard in a block, extracting `provider` before the `.await` -- this is the correct pattern and should be replicated.
+**Fix:** Update comment to: `// "documentary" | "sde" | "sdp" | "script_gen"`
 
-**Fix:**
-```rust
-// Extract providers from registry in a scoped block before the pipeline
-let text_provider = {
-    let guard = registry.read().await;
-    guard.get(&config.app.text_llm_provider).map_err(|e| CommandError {
-        code: "PROVIDER_NOT_FOUND".into(),
-        message: format!("获取 LLM provider 失败: {}", e),
-    })?
-};
-// guard dropped here -- registry unlocked
+## Previously Skipped Issues (Unchanged)
 
-// For prompt_manager, pre-render both prompts before the pipeline
-// This requires core API changes to accept pre-rendered prompt strings
-// instead of &PromptManager. Short-term: at minimum, document the lock
-// duration in comments and add a timeout.
-```
+These require large-scale refactoring outside the scope of Phase 10:
+
+- **CR-03** (RwLock read guards held across SDE pipeline): Still present at `pipeline.rs:153-154`.
+- **WR-05** (Duplicated FFmpeg command execution): Still present across documentary, SDE, SDP pipelines.
+- **WR-06** (Inconsistent task_dir cleanup): SDE pipeline does not clean up `task_dir`.
+
+## Critical Issues
+
+### CR-04 (carried from iteration 6): validate_path rejects ALL Windows absolute paths
+
+*(Full description and fix in "Status of Iteration 6 Findings" section above. This is the only critical issue.)*
 
 ## Warnings
 
-### WR-01: `get_script_info` uses fragile timestamp parsing that splits on all `-` characters
+### WR-07 (carried): Blocking filesystem I/O in async Tauri commands without spawn_blocking
 
-**File:** `src-tauri/src/commands/script.rs:62`
-**Issue:** The `get_script_info` function splits timestamps on `-` with `ts.split('-').collect()`. A timestamp like `00:00:05,000-00:00:10,000` works, but a negative-value timestamp or malformed input with multiple `-` signs would produce more than 2 parts and be silently counted as `unparseable_clips`. This is the same class of bug that was identified and fixed in the core library using `splitn(2, '-')`. The command layer should use the same robust approach.
+*(See iteration 6 findings section.)*
 
-**Fix:**
+### WR-08 (carried): Unused task_id variable in run_documentary, run_sde, run_sdp
+
+*(See iteration 6 findings section.)*
+
+### WR-09 (carried): generate_sdp_script does not validate temperature or custom_clips range
+
+*(See iteration 6 findings section.)*
+
+### WR-10: SdeRequest.validate() does not validate temperature range
+
+**File:** `narratoai-core/src/sde/types.rs:58-102`
+**Issue:** `SdeRequest::validate()` validates `voice_rate`, `voice_pitch`, `tts_volume`, `original_volume`, `bgm_volume`, `threads`, `subtitle_font_size`, and `subtitle_color` -- but does not validate the `temperature` field. A negative temperature or an extremely large value would be forwarded directly to the LLM API call, causing either a confusing downstream error or unexpected behavior. In contrast, `SdpRequest::validate()` at `sdp/types.rs:90-95` correctly validates temperature range `[0, 2]`.
+**Fix:** Add temperature validation to `SdeRequest::validate()`:
 ```rust
-let parts: Vec<&str> = ts.splitn(2, '-').collect();
+if self.temperature < 0.0 || self.temperature > 2.0 {
+    return Err(format!("temperature out of range [0, 2]: {}", self.temperature));
+}
 ```
-
-### WR-02: `script_gen.rs` `ScriptGenRequest` has `#[serde(skip)]` on `progress` but is received from IPC
-
-**File:** `narratoai-core/src/documentary/script_gen.rs:22-23`
-**Issue:** `ScriptGenRequest` derives `Serialize, Deserialize` but marks the `progress` field with `#[serde(skip)]`. This is correct for the deserialization path (the frontend will not send a progress callback). However, in `src-tauri/src/commands/pipeline.rs:270-271`, the code does `request.progress = Some(progress_callback)` after deserialization, which means the field is set post-deserialize. This works correctly today. However, if the `ScriptGenRequest` is ever serialized back (e.g., for debugging or logging), the progress callback will be silently dropped. This is a latent design concern rather than an active bug.
-
-**Fix:** Document the intent with a comment on the field, or consider using a separate IPC-facing struct without the progress field.
-
-### WR-03: `strip_and_repair_json` trailing comma replacement is overly aggressive
-
-**File:** `narratoai-core/src/documentary/script_gen.rs:354`
-**Issue:** The trailing comma repair `text.replace(",}", "}").replace(",]", "]")` replaces ALL occurrences of `,}` and `,]` in the entire text, including those inside string literals. For example, a JSON string value containing `",}"` would be corrupted. This is a low-probability issue because LLM output rarely contains these exact sequences in string values, but it is a correctness defect.
-
-**Fix:** Use a proper JSON repair approach that only operates outside of string contexts, or apply the replacement only to the outermost structural positions.
-
-### WR-04: `blocking_write` called during Tauri `setup` could deadlock if setup is called from async context
-
-**File:** `src-tauri/src/lib.rs:40`
-**Issue:** `registry.blocking_write()` is called inside the Tauri `setup` closure. In Tauri 2.0, the `setup` closure runs synchronously during app initialization, so this is technically safe. However, if the tokio runtime is already active (which it is -- Tauri creates one), calling `blocking_write()` on a `tokio::sync::RwLock` from within an async runtime context can cause issues if the runtime's thread pool is exhausted. This is a known footgun with `tokio::sync::RwLock::blocking_write()`.
-
-**Fix:** Prefer `std::sync::RwLock` for initialization-time-only data that is accessed synchronously during setup, or restructure to use `block_on` with `write().await`.
-
-### WR-05: Duplicated FFmpeg command execution code across 5 pipeline modules
-
-**Files:** `narratoai-core/src/documentary/pipeline.rs`, `narratoai-core/src/sde/pipeline.rs`, `narratoai-core/src/sdp/pipeline.rs`
-**Issue:** The FFmpeg concat and composite logic (spawn child, iterate events, check errors, check exit status) is copy-pasted across at least 5 separate functions. Each copy has the same pattern but slight variations (error type wrapping). This duplication makes it easy for bug fixes to be applied to one copy but not others.
-
-**Fix:** Extract a shared helper function for the "spawn FFmpeg child, collect errors, check status" pattern.
-
-### WR-06: `generate_sdp_script` Tauri command cleans up task_dir but `run_sde` and `run_documentary` do not
-
-**File:** `src-tauri/src/commands/pipeline.rs:341`
-**Issue:** The `generate_sdp_script` command at line 341 explicitly cleans up its temporary directory after completion (`let _ = tokio::fs::remove_dir_all(&task_dir).await;`). However, `run_documentary`, `run_sde`, and `run_sdp` all create task directories in the temp folder (via the core library) but never clean them up. Over time, repeated pipeline runs will accumulate orphaned files in the system temp directory.
-
-**Fix:** Add cleanup logic to all pipeline commands, or implement a shared cleanup mechanism (e.g., on app shutdown or with a periodic sweep).
 
 ## Info
 
-### IN-01: Test-only `unwrap()` calls in non-test code reviewed -- no production impact
+### IN-04 (carried): ProgressPayload.pipeline_type comment missing "script_gen"
 
-**Files:** `narratoai-core/src/jianying/builder.rs:750-784`, `narratoai-core/src/documentary/script_gen.rs:508-525`
-**Issue:** Multiple `unwrap()` calls exist in `#[cfg(test)]` blocks. These are acceptable for test code. All production code paths use proper error propagation with `?` or explicit error handling.
+*(See iteration 6 findings section.)*
 
-### IN-02: `capabilities/default.json` lacks explicit filesystem permissions
+### IN-05: Case-sensitive file extension check in load_script and save_script
 
-**File:** `src-tauri/capabilities/default.json`
-**Issue:** The capabilities file only grants `core:default`, `core:event:default`, `core:event:allow-emit`, `core:event:allow-listen`, and `dialog:default`. There are no explicit `fs:*` permissions. Since this application reads and writes files extensively via Tauri commands (not the fs plugin), this is actually fine -- Tauri commands run with native process permissions. However, this should be documented so future developers do not assume the frontend JavaScript has filesystem access.
-
-### IN-03: `notify` dependency uses release candidate version
-
-**File:** `narratoai-core/Cargo.toml:23`
-**Issue:** `notify = "9.0.0-rc.3"` is an RC (release candidate) version. The comment in the file already acknowledges this risk. The SemVer range `9.0.0-rc.3` will not match the eventual `9.0.0` stable release, meaning a manual update will be required when it ships.
+**File:** `src-tauri/src/commands/script.rs:15,32`
+**Issue:** The extension check `ext != "json"` performs a case-sensitive comparison using `OsStr` equality. On case-sensitive filesystems (Linux, macOS with case-sensitive volumes), a file named `script.JSON` would be rejected. While this is unlikely to cause real-world problems (most scripts will have `.json` extension), it is an inconsistency with how operating systems typically handle file extensions.
+**Fix:** Use case-insensitive comparison:
+```rust
+if path.extension().map_or(true, |ext| ext.to_ascii_lowercase() != "json") {
+```
 
 ---
 
 _Reviewed: 2026-05-09_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Iteration: 7_
