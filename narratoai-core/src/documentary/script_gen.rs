@@ -19,6 +19,8 @@ pub struct ScriptGenRequest {
     pub vision_model: Option<String>,
     pub text_model: Option<String>,
     pub max_concurrency: Option<usize>,
+    // progress 回调不参与 IPC 序列化；Tauri 命令层在反序列化后手动注入。
+    // 若序列化回 JSON，此字段会被静默丢弃——这是有意为之的设计。
     #[serde(skip)]
     pub progress: Option<Box<dyn Fn(f32, &str) + Send + Sync>>,
 }
@@ -351,7 +353,7 @@ fn strip_and_repair_json(input: &str) -> String {
     }
 
     // Try trailing comma removal
-    let repaired = text.replace(",}", "}").replace(",]", "]");
+    let repaired = remove_trailing_commas(text);
     if serde_json::from_str::<serde_json::Value>(&repaired).is_ok() {
         return repaired;
     }
@@ -373,6 +375,51 @@ fn strip_and_repair_json(input: &str) -> String {
     }
 
     text.to_string()
+}
+
+/// 移除 JSON 结构位置的尾随逗号，不影响字符串值内的 `,}` 和 `,]`
+fn remove_trailing_commas(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut result = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut i = 0;
+
+    while i < chars.len() {
+        let c = chars[i];
+        if escape_next {
+            escape_next = false;
+            result.push(c);
+            i += 1;
+            continue;
+        }
+        if c == '\\' && in_string {
+            escape_next = true;
+            result.push(c);
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            in_string = !in_string;
+            result.push(c);
+            i += 1;
+            continue;
+        }
+        if !in_string && c == ',' {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
+                // 尾随逗号——跳过逗号，保留后续空白字符
+                i += 1;
+                continue;
+            }
+        }
+        result.push(c);
+        i += 1;
+    }
+    result
 }
 
 /// 从文本中提取第一个完整的 JSON 对象
@@ -484,6 +531,16 @@ mod tests {
         let input = "{\"items\": [1, 2, 3,]}";
         let result = strip_and_repair_json(input);
         assert!(serde_json::from_str::<serde_json::Value>(&result).is_ok());
+    }
+
+    #[test]
+    fn test_json_repair_trailing_comma_in_string() {
+        // 字符串内的 ",}" 不应被修改
+        let input = r#"{"text": "a,}b", "items": [1, 2, 3,]}"#;
+        let result = strip_and_repair_json(input);
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["text"], "a,}b");
+        assert_eq!(parsed["items"].as_array().unwrap().len(), 3);
     }
 
     #[test]
