@@ -59,7 +59,7 @@ pub async fn get_script_info(
 
     for clip in &script {
         let ts = &clip.timestamp;
-        let parts: Vec<&str> = ts.split('-').collect();
+        let parts: Vec<&str> = ts.splitn(2, '-').collect();
         if parts.len() != 2 {
             unparseable_clips += 1;
             continue;
