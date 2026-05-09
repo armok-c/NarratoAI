@@ -35,16 +35,16 @@ pub fn run() {
             // ---- 3. 初始化 LLM Registry ----
             // tokio::sync::RwLock 用于 Tauri State——其 ReadGuard 实现 Send，
             // 允许在 async 命令的 .await 点间持有。
-            let registry = Arc::new(tokio::sync::RwLock::new(Registry::new()));
-            {
-                let mut reg = registry.blocking_write();
-                narratoai_core::llm::register::register_all_providers(
-                    &config_manager.get(),
-                    &mut reg,
-                ).map_err(|errors| {
-                    format!("LLM provider 注册失败: {:?}", errors)
-                })?;
-            }
+            // 先构造并填充 Registry，再包装进 Arc<RwLock>，
+            // 避免 tokio runtime 活跃时调用 blocking_write
+            let mut registry_inner = Registry::new();
+            narratoai_core::llm::register::register_all_providers(
+                &config_manager.get(),
+                &mut registry_inner,
+            ).map_err(|errors| {
+                format!("LLM provider 注册失败: {:?}", errors)
+            })?;
+            let registry = Arc::new(tokio::sync::RwLock::new(registry_inner));
             app.manage::<Arc<tokio::sync::RwLock<Registry>>>(registry);
 
             // ---- 4. 初始化 Prompt Registry + PromptManager ----
