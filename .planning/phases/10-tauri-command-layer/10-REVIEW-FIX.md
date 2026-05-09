@@ -1,79 +1,64 @@
 ---
 phase: 10-tauri-command-layer
-fixed_at: 2026-05-09T13:30:00Z
+fixed_at: 2026-05-09T19:00:00Z
 review_path: .planning/phases/10-tauri-command-layer/10-REVIEW.md
 fix_scope: critical_warning
-iteration: 5
-findings_in_scope: 8
+iteration: 6
+findings_in_scope: 5
 fixed: 5
-skipped: 3
-status: partial
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 10: Code Review Fix Report (Iteration 5)
+# Phase 10: Code Review Fix Report
 
-**Fixed at:** 2026-05-09
+**Fixed at:** 2026-05-09T19:00:00Z
 **Source review:** .planning/phases/10-tauri-command-layer/10-REVIEW.md
-**Iteration:** 5
+**Iteration:** 6
 
 **Summary:**
-- Findings in scope: 8 (2 Critical, 6 Warning)
+- Findings in scope: 5
 - Fixed: 5
-- Skipped: 3
+- Skipped: 0
 
 ## Fixed Issues
 
-### CR-02: validate_path bypassed on Windows via absolute paths and embedded dot-dot in canonicalized form
+### CR-04: validate_path rejects ALL Windows absolute paths
 
-**Files modified:** `src-tauri/src/error.rs`, `src-tauri/src/commands/export.rs`
-**Commit:** e980f27
-**Applied fix:**
-- `error.rs`: Enhanced `validate_path` with three additional checks: (1) normalize backslashes to forward slashes before `..` check to prevent `\..\` bypass, (2) reject paths containing backslashes entirely, (3) reject Windows absolute paths (drive letter pattern `X:`).
-- `export.rs`: Added `draft_name` validation at the IPC boundary, rejecting names containing `/`, `\`, `..`, or null bytes. Previously, validation only existed inside the core library's `validate_draft_name`.
+**Files modified:** `src-tauri/src/error.rs`
+**Commit:** 8c2de4b
+**Applied fix:** Replaced string-based checks (which rejected backslashes and drive letters, blocking all Windows absolute paths) with `std::path::Component` traversal. Only `ParentDir` components are rejected, correctly allowing `C:\Users\...` on Windows while still blocking `..` path traversal. Added null byte check.
 
-### WR-01: get_script_info uses fragile timestamp parsing that splits on all `-` characters
+### WR-07: Blocking filesystem I/O in async Tauri commands without spawn_blocking
 
-**Files modified:** `src-tauri/src/commands/script.rs`
-**Commit:** 12f3c31
-**Applied fix:** Changed `ts.split('-')` to `ts.splitn(2, '-')` at line 62, limiting the split to exactly 2 parts. This matches the pattern already used in the core library's `detect_and_abort_overlaps` function and prevents malformed timestamps with extra `-` characters from being silently counted as unparseable.
+**Files modified:** `src-tauri/src/commands/script.rs`, `src-tauri/src/commands/export.rs`
+**Commit:** 2a9a33d
+**Applied fix:** Wrapped `load_script`, `save_script`, and `export_jianying_draft` blocking std::fs I/O calls in `tokio::task::spawn_blocking` to avoid blocking tokio runtime worker threads. Added proper error mapping for `JoinError`.
 
-### WR-02: ScriptGenRequest has #[serde(skip)] on progress but is received from IPC
+### WR-08: Unused task_id variable in run_documentary, run_sde, run_sdp
 
-**Files modified:** `narratoai-core/src/documentary/script_gen.rs`
-**Commit:** c3911a9
-**Applied fix:** Added design intent comment above the `#[serde(skip)]` attribute explaining that the progress callback is intentionally excluded from IPC serialization and that the Tauri command layer manually injects it post-deserialization. This documents the latent design concern so future developers understand the trade-off.
+**Files modified:** `src-tauri/src/commands/pipeline.rs`
+**Commit:** 43b82b4
+**Applied fix:** Removed redundant `progress_task_id = task_id.clone()` in `run_documentary`, `run_sde`, and `run_sdp`. Each closure now captures `task_id` directly, matching the pattern already used in `generate_documentary_script`.
 
-### WR-03: strip_and_repair_json trailing comma replacement is overly aggressive
+### WR-09: generate_sdp_script does not validate temperature or custom_clips range
 
-**Files modified:** `narratoai-core/src/documentary/script_gen.rs`
-**Commit:** c3911a9
-**Applied fix:** Replaced the naive `text.replace(",}", "}").replace(",]", "]")` with a new `remove_trailing_commas()` function that performs character-level scanning with string boundary and escape sequence tracking. This ensures trailing commas are only removed at structural positions (outside of JSON string values), preventing corruption of string content containing `,}` or `,]` sequences. Added a regression test `test_json_repair_trailing_comma_in_string` that verifies a string value `"a,}b"` is preserved while a structural trailing comma in `[1, 2, 3,]` is correctly removed.
+**Files modified:** `src-tauri/src/commands/pipeline.rs`
+**Commit:** 58b8968
+**Applied fix:** Added `temperature` range validation `[0, 2]` and `custom_clips > 0` validation in `generate_sdp_script`, placed after subtitle file extension check and before provider extraction.
 
-### WR-04: blocking_write called during Tauri setup could deadlock if setup is called from async context
+### WR-10: SdeRequest.validate() does not validate temperature range
 
-**Files modified:** `src-tauri/src/lib.rs`
-**Commit:** e2de6a0
-**Applied fix:** Restructured the Registry initialization to construct and populate `Registry::new()` on a plain mutable variable first, then wrap it in `Arc<tokio::sync::RwLock>` only after registration is complete. This eliminates the `blocking_write()` call on the tokio RwLock, removing the risk of panic or deadlock when the tokio runtime thread pool is exhausted during initialization.
+**Files modified:** `narratoai-core/src/sde/types.rs`
+**Commit:** 58b8968
+**Applied fix:** Added `temperature` range validation `[0, 2]` to `SdeRequest::validate()`, placed after `threads` validation and before `subtitle_font_size` check. Now consistent with `SdpRequest::validate()`.
 
 ## Skipped Issues
 
-### CR-03: RwLock read guards held across entire SDE pipeline execution block all concurrent users
-
-**File:** `src-tauri/src/commands/pipeline.rs:153-154`
-**Reason:** Requires core API refactoring to accept pre-extracted providers and pre-rendered prompts instead of `&Registry`/`&PromptManager` references. The `generate_documentary` command already correctly scopes its read guard; replicating this for SDE/SDP requires breaking changes to the core pipeline API. Existing TODO comments acknowledge this issue. Continued from iteration 4 skip.
-
-### WR-05: Duplicated FFmpeg command execution code across 5 pipeline modules
-
-**Files:** `narratoai-core/src/documentary/pipeline.rs`, `narratoai-core/src/sde/pipeline.rs`, `narratoai-core/src/sdp/pipeline.rs`
-**Reason:** Large-scale refactoring that extracts a shared FFmpeg helper across 3+ modules. Risk of introducing regressions in error handling paths. Each copy has slight variations in error type wrapping. Should be addressed as a dedicated refactoring task, not as part of a code review fix cycle.
-
-### WR-06: generate_sdp_script cleans up task_dir but run_sde and run_documentary do not
-
-**File:** `src-tauri/src/commands/pipeline.rs:341`
-**Reason:** Design issue — for `run_documentary` and `run_sde`, the output video file is written inside the task_dir (`combined.mp4`, `combined_sde.mp4`). Cleaning up the task_dir immediately would delete the output file before the caller can use it. Proper fix requires either: (1) moving/copying output to a final destination before cleanup, or (2) restructuring to separate temp intermediates from output location. This is a design change beyond the scope of a code review fix.
+None -- all in-scope findings were fixed.
 
 ---
 
-_Fixed: 2026-05-09_
+_Fixed: 2026-05-09T19:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 5_
+_Iteration: 6_
