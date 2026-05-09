@@ -53,36 +53,42 @@ pub async fn validate_script(
 pub async fn get_script_info(
     script: Script,
 ) -> Result<ScriptInfo, CommandError> {
-    // 计算总时长（累加每个片段的实际持续时间）
-    let total_duration_secs: f64 = script.iter()
-        .filter_map(|clip| {
-            let ts = &clip.timestamp;
-            let parts: Vec<&str> = ts.split('-').collect();
-            if parts.len() != 2 { return None; }
-            let start_ts = parts.get(0)?;
-            let end_ts = parts.get(1)?;
-            let parse_time = |time_str: &str| -> Option<f64> {
-                let time_parts: Vec<&str> = time_str.split(':').collect();
-                if time_parts.len() != 3 { return None; }
-                let h: f64 = time_parts[0].parse().ok()?;
-                let m: f64 = time_parts[1].parse().ok()?;
-                let s: f64 = {
-                    let sec_parts: Vec<&str> = time_parts[2].split(',').collect();
-                    let sec: f64 = sec_parts[0].parse().ok()?;
-                    let ms: f64 = sec_parts.get(1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
-                    sec + ms / 1000.0
-                };
-                Some(h * 3600.0 + m * 60.0 + s)
+    // 计算总时长（累加每个片段的实际持续时间），统计无法解析的片段数
+    let mut total_duration_secs = 0.0;
+    let mut unparseable_clips = 0;
+
+    for clip in &script {
+        let ts = &clip.timestamp;
+        let parts: Vec<&str> = ts.split('-').collect();
+        if parts.len() != 2 {
+            unparseable_clips += 1;
+            continue;
+        }
+        let Some(start_ts) = parts.get(0) else { unparseable_clips += 1; continue; };
+        let Some(end_ts) = parts.get(1) else { unparseable_clips += 1; continue; };
+        let parse_time = |time_str: &str| -> Option<f64> {
+            let time_parts: Vec<&str> = time_str.split(':').collect();
+            if time_parts.len() != 3 { return None; }
+            let h: f64 = time_parts[0].parse().ok()?;
+            let m: f64 = time_parts[1].parse().ok()?;
+            let s: f64 = {
+                let sec_parts: Vec<&str> = time_parts[2].split(',').collect();
+                let sec: f64 = sec_parts[0].parse().ok()?;
+                let ms: f64 = sec_parts.get(1).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                sec + ms / 1000.0
             };
-            let start = parse_time(start_ts)?;
-            let end = parse_time(end_ts)?;
-            Some(end - start)
-        })
-        .sum();
+            Some(h * 3600.0 + m * 60.0 + s)
+        };
+        match (parse_time(start_ts), parse_time(end_ts)) {
+            (Some(start), Some(end)) => total_duration_secs += end - start,
+            _ => unparseable_clips += 1,
+        }
+    }
 
     Ok(ScriptInfo {
         clip_count: script.len(),
         total_duration_secs,
+        unparseable_clips,
     })
 }
 

@@ -34,4 +34,5 @@ pub struct CommandResponse {
 pub struct ScriptInfo {
     pub clip_count: usize,
     pub total_duration_secs: f64,
+    pub unparseable_clips: usize,
 }
