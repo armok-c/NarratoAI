@@ -18,7 +18,13 @@ pub async fn load_script(
             message: "仅支持 .json 文件".into(),
         });
     }
-    let script = narratoai_core::script::load_script(&path)?;
+    let path_clone = path.clone();
+    let script = tokio::task::spawn_blocking(move || {
+        narratoai_core::script::load_script(&path_clone)
+    }).await.map_err(|e| CommandError {
+        code: "INTERNAL_ERROR".into(),
+        message: format!("任务执行失败: {}", e),
+    })??;
     Ok(script)
 }
 
@@ -35,7 +41,13 @@ pub async fn save_script(
             message: "仅支持 .json 文件".into(),
         });
     }
-    narratoai_core::script::save_script(&script, &path)?;
+    let path_clone = path.clone();
+    tokio::task::spawn_blocking(move || {
+        narratoai_core::script::save_script(&script, &path_clone)
+    }).await.map_err(|e| CommandError {
+        code: "INTERNAL_ERROR".into(),
+        message: format!("任务执行失败: {}", e),
+    })??;
     Ok(())
 }
 
