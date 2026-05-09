@@ -34,6 +34,11 @@ pub async fn export_jianying_draft(
         width,
         height,
     };
-    let result = export_draft(&request)?;
+    let result = tokio::task::spawn_blocking(move || {
+        export_draft(&request)
+    }).await.map_err(|e| CommandError {
+        code: "INTERNAL_ERROR".into(),
+        message: format!("任务执行失败: {}", e),
+    })??;
     Ok(result)
 }
