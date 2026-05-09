@@ -114,6 +114,8 @@ pub async fn run_sde(
             let _ = app_handle.emit("pipeline-progress", payload);
         });
 
+    // TODO(WR-01): Lock guards held across long async pipelines; requires core API refactoring
+    // to accept pre-extracted providers instead of &Registry/&PromptManager.
     let registry = registry.read().await;
     let pm = prompt_manager.read().await;
 
@@ -279,6 +281,9 @@ pub async fn generate_sdp_script(
             message: format!("获取 LLM provider 失败: {}", e),
         })?
     };
+    // TODO(WR-02): prompt_manager read guard held across two sequential LLM calls;
+    // second prompt depends on first LLM output, so pre-rendering both upfront is not possible
+    // without splitting the core API. Write operations to prompt registry are blocked during this time.
     let pm = prompt_manager.read().await;
 
     let task_dir = std::env::temp_dir().join("narratoai").join(Uuid::new_v4().to_string());
