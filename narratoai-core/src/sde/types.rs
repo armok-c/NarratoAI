@@ -88,6 +88,9 @@ impl SdeRequest {
         if self.threads == 0 {
             return Err("threads 必须大于 0".to_string());
         }
+        if self.temperature < 0.0 || self.temperature > 2.0 {
+            return Err(format!("temperature 超出有效范围 [0, 2]: {}", self.temperature));
+        }
         if self.subtitle_font_size == 0 || self.subtitle_font_size > 200 {
             return Err(format!(
                 "subtitle_font_size 超出有效范围 [1, 200]: {}",

@@ -305,6 +305,18 @@ pub async fn generate_sdp_script(
             message: "不支持的字幕文件格式".into(),
         });
     }
+    if temperature < 0.0 || temperature > 2.0 {
+        return Err(CommandError {
+            code: "INVALID_PARAM".into(),
+            message: format!("temperature 超出有效范围 [0, 2]: {}", temperature),
+        });
+    }
+    if custom_clips == 0 {
+        return Err(CommandError {
+            code: "INVALID_PARAM".into(),
+            message: "custom_clips 必须大于 0".to_string(),
+        });
+    }
 
     // 从配置中获取 text LLM provider（作用域化，确保 registry guard 在 .await 前释放）
     let provider = {
