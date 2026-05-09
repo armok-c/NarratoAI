@@ -80,7 +80,14 @@ pub async fn get_script_info(
             Some(h * 3600.0 + m * 60.0 + s)
         };
         match (parse_time(start_ts), parse_time(end_ts)) {
-            (Some(start), Some(end)) => total_duration_secs += end - start,
+            (Some(start), Some(end)) => {
+                let dur = end - start;
+                if dur < 0.0 {
+                    unparseable_clips += 1;
+                } else {
+                    total_duration_secs += dur;
+                }
+            }
             _ => unparseable_clips += 1,
         }
     }
