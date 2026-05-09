@@ -17,6 +17,15 @@ pub async fn export_jianying_draft(
 ) -> Result<PathBuf, CommandError> {
     validate_path(&video_origin_path)?;
     validate_path(&draft_path)?;
+    // IPC 边界校验 draft_name，防止路径遍历
+    if draft_name.contains('/') || draft_name.contains('\\')
+        || draft_name.contains("..") || draft_name.contains('\0')
+    {
+        return Err(CommandError {
+            code: "INVALID_PATH".into(),
+            message: "草稿名称包含非法字符".into(),
+        });
+    }
     let request = ExportRequest {
         script,
         video_origin_path,
