@@ -92,3 +92,7 @@ None -- plan executed exactly as specified. All code was already present in the 
 | T-7-01 | SdeRequest.validate() | Mitigated: validates subtitle_path/video_path non-empty, voice_rate (0,5], voice_pitch [-10,10], volume [0,10], threads > 0, temperature [0,2], subtitle_color #RRGGBB |
 | T-7-02 | SdeError Display | Mitigated: all messages in Chinese, no sensitive data exposed |
 | T-7-03 | parse_srt_timestamp | Mitigated: strict format validation, Result-based error handling |
+
+## Self-Check: PASSED
+
+All 9 expected files verified present on disk. Commit 29ca790 exists in git log.
