@@ -55,7 +55,6 @@ pub async fn run_documentary(
 ) -> Result<CommandResponse, CommandError> {
     validate_documentary_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
-    let progress_task_id = task_id.clone();
 
     // D-11: 构建 Tauri 感知的进度回调闭包
     let app_handle = app.clone();
@@ -73,7 +72,7 @@ pub async fn run_documentary(
             };
             let payload = ProgressPayload {
                 pipeline_type: "documentary".to_string(),
-                task_id: progress_task_id.clone(),
+                task_id: task_id.clone(),
                 step_name: step_name.to_string(),
                 percent: pct,
                 message: msg.to_string(),
@@ -115,7 +114,6 @@ pub async fn run_sde(
 ) -> Result<CommandResponse, CommandError> {
     validate_sde_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
-    let progress_task_id = task_id.clone();
 
     let app_handle = app.clone();
     let total_steps: u32 = 9;
@@ -135,7 +133,7 @@ pub async fn run_sde(
             };
             let payload = ProgressPayload {
                 pipeline_type: "sde".to_string(),
-                task_id: progress_task_id.clone(),
+                task_id: task_id.clone(),
                 step_name: step_name.to_string(),
                 percent: pct,
                 message: msg.to_string(),
@@ -181,7 +179,6 @@ pub async fn run_sdp(
 ) -> Result<CommandResponse, CommandError> {
     validate_sdp_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
-    let progress_task_id = task_id.clone();
 
     let app_handle = app.clone();
     let total_steps: u32 = 3;
@@ -195,7 +192,7 @@ pub async fn run_sdp(
             };
             let payload = ProgressPayload {
                 pipeline_type: "sdp".to_string(),
-                task_id: progress_task_id.clone(),
+                task_id: task_id.clone(),
                 step_name: step_name.to_string(),
                 percent: pct,
                 message: msg.to_string(),
