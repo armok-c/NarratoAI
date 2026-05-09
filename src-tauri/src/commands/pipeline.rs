@@ -11,6 +11,38 @@ use narratoai_core::script::types::Script;
 use crate::error::{validate_path, CommandError};
 use crate::models::progress::{CommandResponse, ProgressPayload};
 
+// ---- Path-traversal validation helpers for request structs ----
+
+fn validate_documentary_paths(req: &DocumentaryRequest) -> Result<(), CommandError> {
+    validate_path(&req.video_path)?;
+    validate_path(&req.script_path)?;
+    if let Some(ref p) = req.bgm_path { validate_path(p)?; }
+    if let Some(ref p) = req.output_dir { validate_path(p)?; }
+    Ok(())
+}
+
+fn validate_sde_paths(req: &SdeRequest) -> Result<(), CommandError> {
+    validate_path(&req.subtitle_path)?;
+    validate_path(&req.video_path)?;
+    if let Some(ref p) = req.bgm_path { validate_path(p)?; }
+    if let Some(ref p) = req.output_dir { validate_path(p)?; }
+    Ok(())
+}
+
+fn validate_sdp_paths(req: &SdpRequest) -> Result<(), CommandError> {
+    validate_path(&req.subtitle_path)?;
+    validate_path(&req.video_path)?;
+    if let Some(ref p) = req.script_path { validate_path(p)?; }
+    if let Some(ref p) = req.bgm_path { validate_path(p)?; }
+    if let Some(ref p) = req.output_dir { validate_path(p)?; }
+    Ok(())
+}
+
+fn validate_script_gen_paths(req: &ScriptGenRequest) -> Result<(), CommandError> {
+    validate_path(&req.video_path)?;
+    Ok(())
+}
+
 // =============================================================
 //  命令 1: run_documentary（D-04）
 //  执行完整 6 步纪录片流水线，实时推送进度事件
@@ -21,6 +53,7 @@ pub async fn run_documentary(
     request: DocumentaryRequest,
     config: tauri::State<'_, AppConfig>,
 ) -> Result<CommandResponse, CommandError> {
+    validate_documentary_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
     let progress_task_id = task_id.clone();
 
@@ -80,6 +113,7 @@ pub async fn run_sde(
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
     prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
 ) -> Result<CommandResponse, CommandError> {
+    validate_sde_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
     let progress_task_id = task_id.clone();
 
@@ -145,6 +179,7 @@ pub async fn run_sdp(
     request: SdpRequest,
     _config: tauri::State<'_, AppConfig>,
 ) -> Result<CommandResponse, CommandError> {
+    validate_sdp_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
     let progress_task_id = task_id.clone();
 
@@ -194,6 +229,7 @@ pub async fn generate_documentary_script(
     config: tauri::State<'_, AppConfig>,
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
 ) -> Result<Script, CommandError> {
+    validate_script_gen_paths(&request)?;
     // 从配置中获取 vision 和 text LLM provider（作用域化，确保 guard 在 .await 前释放）
     let (vision_provider, text_provider) = {
         let guard = registry.read().await;
