@@ -20,6 +20,18 @@ impl fmt::Display for CommandError {
 
 impl std::error::Error for CommandError {}
 
+/// 校验路径不包含遍历序列，防止 IPC 边界的路径遍历攻击
+pub fn validate_path(path: &std::path::PathBuf) -> Result<(), CommandError> {
+    let path_str = path.to_string_lossy();
+    if path_str.contains("..") {
+        return Err(CommandError {
+            code: "INVALID_PATH".into(),
+            message: "路径不允许包含 '..' 遍历序列".into(),
+        });
+    }
+    Ok(())
+}
+
 // ---- From<T> implementations for each domain error type ----
 // 每个实现使用 err.to_string() 保留中文 Display 信息（D-18）
 

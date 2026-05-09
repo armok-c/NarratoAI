@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use narratoai_core::jianying::builder::{export_draft, ExportRequest};
 use narratoai_core::script::types::Script;
 
-use crate::error::CommandError;
+use crate::error::{validate_path, CommandError};
 
 /// 导出项目时间线为剪映草稿 JSON 格式
 #[tauri::command]
@@ -15,6 +15,8 @@ pub async fn export_jianying_draft(
     width: u32,
     height: u32,
 ) -> Result<PathBuf, CommandError> {
+    validate_path(&video_origin_path)?;
+    validate_path(&draft_path)?;
     let request = ExportRequest {
         script,
         video_origin_path,

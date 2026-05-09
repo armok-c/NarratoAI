@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use narratoai_core::script::types::{OstType, Script};
 use narratoai_core::script::edit;
 
-use crate::error::CommandError;
+use crate::error::{validate_path, CommandError};
 use crate::models::progress::ScriptInfo;
 
 /// 从 JSON 文件加载脚本，自动校验
@@ -11,6 +11,7 @@ use crate::models::progress::ScriptInfo;
 pub async fn load_script(
     path: PathBuf,
 ) -> Result<Script, CommandError> {
+    validate_path(&path)?;
     if path.extension().map_or(true, |ext| ext != "json") {
         return Err(CommandError {
             code: "INVALID_PATH".into(),
@@ -27,6 +28,7 @@ pub async fn save_script(
     script: Script,
     path: PathBuf,
 ) -> Result<(), CommandError> {
+    validate_path(&path)?;
     if path.extension().map_or(true, |ext| ext != "json") {
         return Err(CommandError {
             code: "INVALID_PATH".into(),
