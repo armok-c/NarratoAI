@@ -254,6 +254,22 @@ pub async fn generate_sdp_script(
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
     prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
 ) -> Result<Script, CommandError> {
+    // 校验字幕文件存在且扩展名合法
+    if !subtitle_path.exists() {
+        return Err(CommandError {
+            code: "FILE_NOT_FOUND".into(),
+            message: format!("字幕文件不存在: {}", subtitle_path.display()),
+        });
+    }
+    if !subtitle_path.extension().map_or(false, |ext| {
+        matches!(ext.to_str(), Some("srt") | Some("ass") | Some("ssa") | Some("vtt") | Some("txt"))
+    }) {
+        return Err(CommandError {
+            code: "INVALID_PATH".into(),
+            message: "不支持的字幕文件格式".into(),
+        });
+    }
+
     // 从配置中获取 text LLM provider（作用域化，确保 registry guard 在 .await 前释放）
     let provider = {
         let guard = registry.read().await;
