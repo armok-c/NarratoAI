@@ -142,8 +142,8 @@ Plans:
 
 Plans:
 - **Wave 1** *(no blockers — parallel: plan 01 + plan 02)*
-  - [ ] 07-01-PLAN.md — SDE 基础设施：错误类型、数据结构、时间戳工具、模块声明、encoding_rs 依赖
-  - [ ] 07-02-PLAN.md — SDE Prompt 模板：plot_analysis v1.0 + script_generation v2.0 + 注册
+  - [x] 07-01-PLAN.md — SDE 基础设施：错误类型、数据结构、时间戳工具、模块声明、encoding_rs 依赖
+  - [x] 07-02-PLAN.md — SDE Prompt 模板：plot_analysis v1.0 + script_generation v2.0 + 注册
 - **Wave 2** *(blocked on Wave 1)*
   - [x] 07-03-PLAN.md — SDE 核心逻辑：字幕编码检测/解析 + 两步 LLM 脚本生成 + JSON 修复
 - **Wave 3** *(blocked on Wave 2)*
