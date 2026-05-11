@@ -43,6 +43,7 @@ pub fn should_use_azure_services(voice_name: &str) -> bool {
 ///
 /// 对齐 Python 版 get_all_azure_voices() — voice.py:80-96
 /// 使用静态数组避免运行时构建
+#[allow(dead_code)]
 pub fn get_azure_voices() -> &'static [&'static str] {
     &[
         "af-ZA-AdriNeural", "af-ZA-WillemNeural",

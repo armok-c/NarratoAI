@@ -129,9 +129,10 @@ pub fn escape_xml_text(s: &str) -> String {
 /// 匹配则返回去除前缀后的子串；不匹配则返回原始的 `voice_name`。
 ///
 /// 示例:
-/// ```
-/// parse_engine_prefix("soulvoice:speech:model:voice:id", &["soulvoice:"]) → "speech:model:voice:id"
-/// parse_engine_prefix("zh-CN-XiaoyiNeural", &["soulvoice:", "tencent:"]) → "zh-CN-XiaoyiNeural"
+///
+/// ```text
+/// parse_engine_prefix("soulvoice:speech:model:voice:id", &["soulvoice:"]) -> "speech:model:voice:id"
+/// parse_engine_prefix("zh-CN-XiaoyiNeural", &["soulvoice:", "tencent:"]) -> "zh-CN-XiaoyiNeural"
 /// ```
 pub fn parse_engine_prefix<'a>(voice_name: &'a str, prefixes: &[&str]) -> &'a str {
     for prefix in prefixes {

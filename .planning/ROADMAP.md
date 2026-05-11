@@ -21,6 +21,7 @@
 - [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
 - [x] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量 (completed 2026-04-30)
 - [x] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎 (completed 2026-04-30)
+- [ ] **Phase 13: Gap Closure — Documentary Prompt + Phase 11 Integration** - 补齐纪录片 Prompt 模板、Phase 11 扩展功能与主流水线集成
 
 ## Phase Details
 
@@ -245,10 +246,21 @@ Plans:
 - [x] 12-02-PLAN.md — Qwen + IndexTTS2 引擎（Wave 2）
 - [x] 12-03-PLAN.md — Azure Speech + Tencent TTS 引擎（Wave 3，含 TC3 签名）
 
+### Phase 13: Gap Closure — Documentary Prompt + Phase 11 Integration
+**Goal**: 补齐纪录片模式的 Prompt 模板注册，确保 Phase 11 扩展功能（音频标准化、智能音量）与三大流水线正确集成
+**Depends on**: Phase 6, Phase 11
+**Requirements**: PRMP-03 (纪录片 Prompt 补全), EXTD-01/EXTD-04 (音频标准化+智能音量集成)
+**Success Criteria** (what must be TRUE):
+  1. 纪录片 Prompt 模板（帧分析、文案生成）已注册到 PromptManager，可被 Documentary Pipeline 正确调用
+  2. 音频标准化（LUFS 响度归一化）集成到流水线的音频合并步骤
+  3. 智能音量控制（按 OST 类型设置音量参数）集成到流水线的混音步骤
+  4. 端到端验证：纪录片流水线完整运行，输出音频响度符合目标值
+**Plans**: 0 plans (not yet planned)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13
 (Phases 2 & 3 can overlap; Phases 9, 11, 12 are independent of each other)
 
 | Phase | Plans Complete | Status | Completed |
@@ -265,3 +277,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. Tauri Command Layer | 2/2 | Complete    | 2026-05-07 |
 | 11. Extended Features | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |
+| 13. Gap Closure | 0/? | Not planned | - |

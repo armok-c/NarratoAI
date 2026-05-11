@@ -56,3 +56,7 @@ tests/*.py
 !tests/test_generate_narration_script_documentary_unittest.py
 !tests/test_generate_script_docu_unittest.py
 .gitnexus/
+
+# Test artifacts and temp files
+test_output/
+*.zip

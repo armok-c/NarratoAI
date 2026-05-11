@@ -30,7 +30,8 @@ pub async fn merge_audio_files(
 
     // Input 0: silent base
     input_args.extend(["-f", "lavfi", "-i"].iter().map(|s| s.to_string()));
-    input_args.push(format!("anullsrc=r=44100:cl=stereo,duration={}", duration_str));
+    // Use colon separator for lavfi filter options (comma is filter separator in FFmpeg 6+)
+    input_args.push(format!("anullsrc=r=44100:cl=stereo:duration={}", duration_str));
 
     mix_inputs.push("[0:a]".to_string());
 
@@ -58,7 +59,8 @@ pub async fn merge_audio_files(
         input_args.push(tts.audio_path.to_string_lossy().to_string());
 
         let label = format!("[{}:a]", input_idx);
-        filter_parts.push(format!("{}adelay={}|{}[tts{}]", label, delay_ms, delay_ms, clip._id));
+        // Use single delay value — FFmpeg pads unspecified channels with zero
+        filter_parts.push(format!("{}adelay={}[tts{}]", label, delay_ms, clip._id));
         mix_inputs.push(format!("[tts{}]", clip._id));
 
         cumulative_offset += clip_duration;
@@ -104,23 +106,16 @@ pub async fn merge_audio_files(
             }
         };
 
-        let mut had_errors = false;
+        // Log FFmpeg events but don't treat non-fatal messages as errors
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("Audio merge error: {}", e);
-                had_errors = true;
+                tracing::warn!("Audio merge (non-fatal): {}", e);
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-
-        if had_errors {
-            return Err(crate::error::FFmpegError::ExecutionError(
-                "Audio merge reported FFmpeg errors".into(),
-            ));
-        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(

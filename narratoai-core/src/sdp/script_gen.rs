@@ -14,6 +14,7 @@ use crate::subtitle::parser::parse_subtitle_file;
 
 /// 第一步 LLM 输出：字幕分析结果
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct SubtitleAnalysis {
     summary: String,
     narrative_structure: Option<serde_json::Value>,
@@ -24,6 +25,7 @@ struct SubtitleAnalysis {
 
 /// 第二步 LLM 输出顶层包装
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct PlotPointsData {
     plot_points: Vec<PlotPoint>,
     editing_notes: Option<serde_json::Value>,
@@ -31,6 +33,7 @@ struct PlotPointsData {
 
 /// 单个情节点——对应一个 ScriptClip
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct PlotPoint {
     sequence: i64,
     timestamp: String,

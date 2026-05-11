@@ -123,7 +123,77 @@ pub async fn clip_all_videos(
     Ok(video_clips)
 }
 
-/// 执行 FFmpeg 裁剪命令
+/// 用指定编码器执行 FFmpeg 裁剪命令的内部函数（不含 spawn_blocking 包装）
+///
+/// 使用进程退出码判断成功/失败，忽略 `FfmpegEvent::Error`（ffmpeg-sidecar 可能
+/// 将非致命日志（如 "No streams found"）报告为错误，但进程仍正常退出并产生输出）。
+fn run_clip_ffmpeg_inner(
+    input_str: &str,
+    output_str: &str,
+    start_str: &str,
+    duration_str: &str,
+    no_audio: bool,
+    encoder: &str,
+) -> Result<(), crate::error::FFmpegError> {
+    let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+    cmd.seek(start_str)
+        .input(input_str)
+        .duration(duration_str)
+        .overwrite();
+
+    if no_audio {
+        cmd.arg("-an");
+    } else {
+        cmd.codec_audio("aac");
+    }
+
+    cmd.codec_video(encoder)
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .output(output_str);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+
+    let iter = match child.iter() {
+        Ok(iter) => iter,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(crate::error::FFmpegError::SpawnFailed(e.to_string()));
+        }
+    };
+
+    for event in iter {
+        match event {
+            ffmpeg_sidecar::event::FfmpegEvent::Error(e) => {
+                tracing::warn!("FFmpeg clip (non-fatal): {}", e);
+            }
+            ffmpeg_sidecar::event::FfmpegEvent::Progress(p) => {
+                tracing::trace!("FFmpeg clip progress: {:?}", p);
+            }
+            _ => {}
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+
+    if !status.success() {
+        return Err(crate::error::FFmpegError::ExecutionError(format!(
+            "FFmpeg clip exited with code {:?}",
+            status.code()
+        )));
+    }
+
+    Ok(())
+}
+
+/// 执行 FFmpeg 裁剪命令，含硬件编码器回退逻辑
+///
+/// 先用推荐编码器尝试，失败时自动回退到 libx264 软件编码（D-11.1）。
 async fn run_clip_ffmpeg(
     input: &Path,
     output: &Path,
@@ -133,80 +203,41 @@ async fn run_clip_ffmpeg(
     profile: HwAccelProfile,
 ) -> Result<(), PipelineError> {
     let profile_info = crate::ffmpeg::hwaccel::get_profile(profile);
-    let encoder = profile_info.map(|p| p.encoder).unwrap_or("libx264");
+    let recommended_encoder = profile_info.map(|p| p.encoder).unwrap_or("libx264");
+    let is_hw_encoder = recommended_encoder != "libx264";
 
     let input_str = input.to_string_lossy().to_string();
     let output_str = output.to_string_lossy().to_string();
     let start_str = format!("{:.3}", start);
     let duration_str = format!("{:.3}", duration);
-    let encoder_str = encoder.to_string();
 
-    crate::ffmpeg::command::run_ffmpeg(move || {
-        let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
-        cmd.seek(&start_str)
-            .input(&input_str)
-            .duration(&duration_str)
-            .overwrite();
-
-        if no_audio {
-            cmd.arg("-an");
-        } else {
-            cmd.codec_audio("aac");
-        }
-
-        cmd.codec_video(encoder_str.as_str())
-            .arg("-pix_fmt")
-            .arg("yuv420p")
-            .output(&output_str);
-
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
-
-        let iter = match child.iter() {
-            Ok(iter) => iter,
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(crate::error::FFmpegError::SpawnFailed(e.to_string()));
-            }
-        };
-
-        let mut had_errors = false;
-        for event in iter {
-            match event {
-                ffmpeg_sidecar::event::FfmpegEvent::Error(e) => {
-                    tracing::error!("FFmpeg clip error: {}", e);
-                    had_errors = true;
-                }
-                ffmpeg_sidecar::event::FfmpegEvent::Progress(p) => {
-                    tracing::trace!("FFmpeg clip progress: {:?}", p);
-                }
-                _ => {}
-            }
-        }
-
-        if had_errors {
-            return Err(crate::error::FFmpegError::ExecutionError(
-                "FFmpeg clip reported errors".into(),
-            ));
-        }
-
-        let status = child
-            .wait()
-            .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-
-        if !status.success() {
-            return Err(crate::error::FFmpegError::ExecutionError(format!(
-                "FFmpeg clip exited with code {:?}",
-                status.code()
-            )));
-        }
-
-        Ok(())
+    // 尝试推荐编码器（含硬件加速）
+    let result = crate::ffmpeg::command::run_ffmpeg({
+        let input_str = input_str.clone();
+        let output_str = output_str.clone();
+        let start_str = start_str.clone();
+        let duration_str = duration_str.clone();
+        let enc = recommended_encoder.to_string();
+        move || run_clip_ffmpeg_inner(&input_str, &output_str, &start_str, &duration_str, no_audio, &enc)
     })
-    .await
-    .map_err(PipelineError::from)
+    .await;
+
+    if result.is_ok() || !is_hw_encoder {
+        return result.map_err(PipelineError::from);
+    }
+
+    // 硬件编码器失败，回退到 libx264 软件编码
+    tracing::warn!(
+        "硬件编码器 {} 失败，回退到 libx264 软件编码",
+        recommended_encoder
+    );
+
+    let fallback_result = crate::ffmpeg::command::run_ffmpeg(move || {
+        run_clip_ffmpeg_inner(&input_str, &output_str, &start_str, &duration_str, no_audio, "libx264")
+    })
+    .await;
+
+    fallback_result.map_err(PipelineError::from)
 }
 
 #[cfg(test)]

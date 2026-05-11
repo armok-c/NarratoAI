@@ -237,23 +237,16 @@ pub(crate) async fn step_concat(state: &mut PipelineState) -> Result<(), Pipelin
             }
         };
 
-        let mut had_errors = false;
+        // Log FFmpeg events but don't treat non-fatal messages as errors
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("Concat error: {}", e);
-                had_errors = true;
+                tracing::warn!("Concat (non-fatal): {}", e);
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-
-        if had_errors {
-            return Err(crate::error::FFmpegError::ExecutionError(
-                "Concat reported FFmpeg errors".into(),
-            ));
-        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(
@@ -396,8 +389,9 @@ pub(crate) async fn step_composite(
                     .replace(';', "\\;")
                     .replace('\n', "")
                     .replace('\r', "");
+                // Wrap subtitle path in single quotes to protect colons (Windows drive letter)
                 filter_complex_parts.push(format!(
-                    "[0:v]subtitles={}:force_style='{}'[vout]",
+                    "[0:v]subtitles='{}':force_style='{}'[vout]",
                     escaped_srt, subtitle_force_style
                 ));
                 has_video_filter = true;
@@ -440,23 +434,16 @@ pub(crate) async fn step_composite(
             }
         };
 
-        let mut had_errors = false;
+        // Log FFmpeg events but don't treat non-fatal messages as errors
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("Composite error: {}", e);
-                had_errors = true;
+                tracing::warn!("Composite (non-fatal): {}", e);
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-
-        if had_errors {
-            return Err(crate::error::FFmpegError::ExecutionError(
-                "Composite reported FFmpeg errors".into(),
-            ));
-        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(

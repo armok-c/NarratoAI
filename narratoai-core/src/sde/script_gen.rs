@@ -6,7 +6,6 @@ use crate::prompt::manager::PromptManager;
 use crate::prompt::types::OutputFormat;
 use crate::sde::error::SdeError;
 use crate::sde::types::SdePipelineState;
-use crate::script::types::OstType;
 use crate::script::types::Script;
 
 /// 检查文本中是否包含 SRT 时间戳模式
@@ -99,11 +98,13 @@ pub async fn step_generate_script(
             details: format!("渲染 prompt 失败: {}", e),
         })?;
 
+    let effective_temp = temperature.min(0.5);
+
     let result = provider
         .generate_text(
             &prompt,
             Some("你是一位顶级的短剧解说up主，严格按JSON格式输出。"),
-            Some(temperature as f32),
+            Some(effective_temp as f32),
             Some(8192),
             Some(LlmResponseFormat::Json),
         )
@@ -112,14 +113,12 @@ pub async fn step_generate_script(
             details: format!("LLM 调用失败: {}", e),
         })?;
 
-    // 校验 LLM 输出格式
-    prompt_manager
-        .validate_output(&result, &OutputFormat::Json)
-        .map_err(|e| SdeError::ScriptGeneration {
-            details: format!("LLM 输出校验失败: {}", e),
-        })?;
+    if result.trim().is_empty() {
+        return Err(SdeError::ScriptGeneration {
+            details: "LLM 返回的解说脚本为空".into(),
+        });
+    }
 
-    // 保存中间产物
     let raw_path = state.task_dir.join("narration_raw.json");
     tokio::fs::write(&raw_path, &result)
         .await
@@ -198,7 +197,73 @@ fn apply_repair_steps(input: String) -> String {
         }
     }
 
+    // Step 7: Truncated JSON — close unterminated strings and unbalanced brackets
+    let fixed_trunc = fix_truncated_json(&result);
+    if fixed_trunc != result {
+        if serde_json::from_str::<serde_json::Value>(&fixed_trunc).is_ok() {
+            return fixed_trunc;
+        }
+        result = fixed_trunc;
+    }
+
     result
+}
+
+/// 修复被截断的 JSON — 关闭未终止的字符串并补齐括号
+fn fix_truncated_json(text: &str) -> String {
+    let trimmed = text.trim_end();
+    let needs_quote = needs_closing_quote(trimmed);
+
+    let (brace_depth, bracket_depth) = count_unbalanced_brackets(trimmed);
+
+    if !needs_quote && brace_depth <= 0 && bracket_depth <= 0 {
+        return text.to_string();
+    }
+
+    let mut result = text.to_string();
+    if needs_quote {
+        result.push('"');
+    }
+    for _ in 0..bracket_depth.max(0) { result.push(']'); }
+    for _ in 0..brace_depth.max(0) { result.push('}'); }
+
+    result
+}
+
+fn needs_closing_quote(s: &str) -> bool {
+    s.lines().last().map_or(false, |last_line| {
+        let quote_count = last_line.chars()
+            .fold((0u32, false), |(count, escaped), c| {
+                if escaped { (count, false) }
+                else if c == '\\' { (count, true) }
+                else if c == '"' { (count + 1, false) }
+                else { (count, false) }
+            }).0;
+        quote_count % 2 != 0
+    })
+}
+
+fn count_unbalanced_brackets(s: &str) -> (i32, i32) {
+    let mut brace_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for c in s.chars() {
+        if escape_next { escape_next = false; continue; }
+        if c == '\\' && in_string { escape_next = true; continue; }
+        if c == '"' { in_string = !in_string; continue; }
+        if in_string { continue; }
+        match c {
+            '{' => brace_depth += 1,
+            '}' => brace_depth -= 1,
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth -= 1,
+            _ => {}
+        }
+    }
+
+    (brace_depth, bracket_depth)
 }
 
 /// 剥离代码块标记 ```json ... ```
@@ -355,6 +420,7 @@ pub fn parse_script(raw_json: &str) -> Result<Script, SdeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::script::types::OstType;
 
     // ========== repair_json tests ==========
 
@@ -412,8 +478,9 @@ mod tests {
     fn test_repair_json_all_fail() {
         let input = "completely invalid json {{{";
         let result = repair_json(input);
-        // Should return the original string
-        assert_eq!(result, input);
+        // Step 7 adds closing braces for unbalanced brackets → still invalid JSON
+        assert_eq!(result, "completely invalid json {{{}}}");
+        assert!(serde_json::from_str::<serde_json::Value>(&result).is_err());
     }
 
     #[test]

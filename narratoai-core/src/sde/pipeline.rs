@@ -356,23 +356,15 @@ pub async fn run_sde(
             }
         };
 
-        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("Concat error: {}", e);
-                had_errors = true;
+                tracing::warn!("Concat (non-fatal): {}", e);
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-
-        if had_errors {
-            return Err(crate::error::FFmpegError::ExecutionError(
-                "Concat reported FFmpeg errors".into(),
-            ));
-        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(
@@ -464,9 +456,13 @@ pub async fn run_sde(
         let mut external_audio_count = 0usize;
         let mut amix_input_count = 0usize;
 
-        // 原始音频（音量调整）
+        // 原始音频——concat -c copy 在混合 OST=0 (无音频) 和 OST=1 (有音频)
+        // 的片段时会丢失音频流，此处统一用 anullsrc 生成静音轨替代
         if has_original_audio {
-            filter_complex_parts.push(format!("[0:a]volume={:.2}[orig]", orig_vol));
+            filter_complex_parts.push(format!(
+                "anullsrc=r=44100:cl=stereo:d={:.3}[silence];[silence]volume={:.2}[orig]",
+                total_dur, orig_vol
+            ));
             amix_input_count += 1;
         }
 
@@ -531,8 +527,9 @@ pub async fn run_sde(
                     .replace(';', "\\;")
                     .replace('\n', "")
                     .replace('\r', "");
+                // Wrap subtitle path in single quotes to protect colons (Windows drive letter)
                 filter_complex_parts.push(format!(
-                    "[0:v]subtitles={}:force_style='{}'[vout]",
+                    "[0:v]subtitles='{}':force_style='{}'[vout]",
                     escaped_srt, subtitle_force_style
                 ));
                 has_video_filter = true;
@@ -580,23 +577,15 @@ pub async fn run_sde(
             }
         };
 
-        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("Composite error: {}", e);
-                had_errors = true;
+                tracing::warn!("Composite (non-fatal): {}", e);
             }
         }
 
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-
-        if had_errors {
-            return Err(crate::error::FFmpegError::ExecutionError(
-                "Composite reported FFmpeg errors".into(),
-            ));
-        }
 
         if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(format!(

@@ -354,6 +354,7 @@ fn parse_ass_dialogues(text: &str) -> Vec<SubtitleSegment> {
 }
 
 /// 从 SRT 文本中提取纯对话内容（移除时间戳和序号行）
+#[allow(dead_code)]
 fn extract_text_from_srt(text: &str) -> String {
     let mut dialogue_lines = Vec::new();
     let blocks: Vec<&str> = text.split("\n\n").collect();
@@ -382,6 +383,7 @@ fn extract_text_from_srt(text: &str) -> String {
 }
 
 /// 从 ASS 文本中提取纯对话内容（移除格式信息）
+#[allow(dead_code)]
 fn extract_text_from_ass(text: &str) -> String {
     let mut dialogue_lines = Vec::new();
     let mut in_events = false;

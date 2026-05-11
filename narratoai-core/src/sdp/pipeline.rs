@@ -176,17 +176,15 @@ async fn sdp_step_concat(state: &mut SdpPipelineState) -> Result<(), SdpError> {
                 return Err(crate::error::FFmpegError::SpawnFailed(e.to_string()));
             }
         };
-        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("SDP Concat error: {}", e);
-                had_errors = true;
+                tracing::warn!("SDP Concat (non-fatal): {}", e);
             }
         }
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-        if had_errors || !status.success() {
+        if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(
                 "SDP Concat failed".into(),
             ));
@@ -295,17 +293,15 @@ async fn sdp_step_composite(
                 return Err(crate::error::FFmpegError::SpawnFailed(e.to_string()));
             }
         };
-        let mut had_errors = false;
         for event in iter {
             if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
-                tracing::error!("SDP Composite error: {}", e);
-                had_errors = true;
+                tracing::warn!("SDP Composite (non-fatal): {}", e);
             }
         }
         let status = child
             .wait()
             .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
-        if had_errors || !status.success() {
+        if !status.success() {
             return Err(crate::error::FFmpegError::ExecutionError(
                 "SDP Composite failed".into(),
             ));
