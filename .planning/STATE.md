@@ -78,7 +78,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- [Fix RMS fallback bug CR-01 in normalizer](todos/pending/2026-05-12-fix-rms-fallback-bug-cr01.md) — audio | BLOCKER
 
 ### Roadmap Evolution
 
