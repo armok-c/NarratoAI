@@ -21,7 +21,7 @@
 - [x] **Phase 9: JianYing Export** - 剪映草稿 JSON 生成和项目时间线导出 *(completed 2026-04-29)*
 - [x] **Phase 11: Extended Features** - 音频标准化、YouTube 下载、Pexels 素材、智能音量 (completed 2026-04-30)
 - [x] **Phase 12: Additional TTS Engines** - Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao 六个引擎 (completed 2026-04-30)
-- [ ] **Phase 13: Gap Closure — Documentary Prompt + Phase 11 Integration** - 补齐纪录片 Prompt 模板、Phase 11 扩展功能与主流水线集成
+- [x] **Phase 13: Gap Closure — Documentary Prompt + Phase 11 Integration** - 补齐纪录片 Prompt 模板、Phase 11 扩展功能与主流水线集成 *(completed 2026-05-12)*
 
 ## Phase Details
 
@@ -218,11 +218,11 @@ Plans:
   4. 根据内容类型（解说/原声/BGM）应用预设音量参数
 **Plans**: 5 plans
 Plans:
-- [ ] 13-01-PLAN.md — 配置系统更新（AudioSection volume_profile、默认 target_lufs、config.example.toml）
-- [ ] 13-02-PLAN.md — PipelineError 变体 + audio/pipeline.rs 共享辅助函数
-- [ ] 13-03-PLAN.md — 纪录片 Prompt 调用链修复（PromptManager 集成）
-- [ ] 13-04-PLAN.md — ProcessingConfig 更新 + 纪录片流水线音频集成
-- [ ] 13-05-PLAN.md — SDE/SDP 流水线音频标准化+智能音量集成
+- [x] 13-01-PLAN.md — 配置系统更新（AudioSection volume_profile、默认 target_lufs、config.example.toml）
+- [x] 13-02-PLAN.md — PipelineError 变体 + audio/pipeline.rs 共享辅助函数
+- [x] 13-03-PLAN.md — 纪录片 Prompt 调用链修复（PromptManager 集成）
+- [x] 13-04-PLAN.md — ProcessingConfig 更新 + 纪录片流水线音频集成
+- [x] 13-05-PLAN.md — SDE/SDP 流水线音频标准化+智能音量集成
 
 Plans:
 - **Wave 1** *(no blockers — can execute immediately)*
@@ -263,11 +263,11 @@ Plans:
   4. 端到端验证：纪录片流水线完整运行，输出音频响度符合目标值
 **Plans**: 5 plans
 Plans:
-- [ ] 13-01-PLAN.md — 配置系统更新（AudioSection volume_profile、默认 target_lufs、config.example.toml）
-- [ ] 13-02-PLAN.md — PipelineError 变体 + audio/pipeline.rs 共享辅助函数
-- [ ] 13-03-PLAN.md — 纪录片 Prompt 调用链修复（PromptManager 集成）
-- [ ] 13-04-PLAN.md — ProcessingConfig 更新 + 纪录片流水线音频集成
-- [ ] 13-05-PLAN.md — SDE/SDP 流水线音频标准化+智能音量集成
+- [x] 13-01-PLAN.md — 配置系统更新（AudioSection volume_profile、默认 target_lufs、config.example.toml）
+- [x] 13-02-PLAN.md — PipelineError 变体 + audio/pipeline.rs 共享辅助函数
+- [x] 13-03-PLAN.md — 纪录片 Prompt 调用链修复（PromptManager 集成）
+- [x] 13-04-PLAN.md — ProcessingConfig 更新 + 纪录片流水线音频集成
+- [x] 13-05-PLAN.md — SDE/SDP 流水线音频标准化+智能音量集成
 
 ## Progress
 
@@ -289,4 +289,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. Tauri Command Layer | 2/2 | Complete    | 2026-05-07 |
 | 11. Extended Features | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | 3/3 | Complete | 2026-04-30 |
-| 13. Gap Closure | 0/5 | Planning complete | - |
+| 13. Gap Closure | 5/5 | Complete | 2026-05-12 |

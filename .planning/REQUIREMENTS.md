@@ -52,7 +52,7 @@ Requirements for Rust rewrite milestone. Each maps to roadmap phases. Code-level
 
 - [ ] **PRMP-01**: Prompt 注册表——按 category/name/version 三级索引存储 prompt 模板
 - [ ] **PRMP-02**: 模板渲染——变量替换（Jinja 风格占位符）
-- [ ] **PRMP-03**: Prompt 分类——documentary/short_drama_editing/short_drama_narration
+- [x] **PRMP-03**: Prompt 分类——documentary/short_drama_editing/short_drama_narration
 - [ ] **PRMP-04**: Prompt 校验——加载时检查模板完整性
 
 ### Visual Analyzer
@@ -97,10 +97,10 @@ Requirements for Rust rewrite milestone. Each maps to roadmap phases. Code-level
 
 ### Extended Features
 
-- [ ] **EXTD-01**: 音频响度标准化（LUFS-based loudness normalization）
+- [x] **EXTD-01**: 音频响度标准化（LUFS-based loudness normalization）
 - [ ] **EXTD-02**: YouTube 视频下载（调用 yt-dlp 子进程）
 - [ ] **EXTD-03**: Pexels 素材搜索和下载
-- [ ] **EXTD-04**: 智能音量控制——根据内容类型（解说/原声/BGM）提供预设音量
+- [x] **EXTD-04**: 智能音量控制——根据内容类型（解说/原声/BGM）提供预设音量
 
 ## v2 Requirements
 
@@ -155,7 +155,7 @@ Which phases cover which requirements.
 | TTS-03 | Phase 3: TTS Core + Edge-TTS | Pending |
 | PRMP-01 | Phase 4: Prompt System + Visual Analyzer | Pending |
 | PRMP-02 | Phase 4: Prompt System + Visual Analyzer | Pending |
-| PRMP-03 | Phase 4: Prompt System + Visual Analyzer | Pending |
+| PRMP-03 | Phase 13: Gap Closure | Complete |
 | PRMP-04 | Phase 4: Prompt System + Visual Analyzer | Pending |
 | VISL-01 | Phase 4: Prompt System + Visual Analyzer | Pending |
 | VISL-02 | Phase 4: Prompt System + Visual Analyzer | Pending |
@@ -183,10 +183,10 @@ Which phases cover which requirements.
 | TAURI-01 | Phase 10: Tauri Command Layer | Complete |
 | TAURI-02 | Phase 10: Tauri Command Layer | Complete |
 | TAURI-03 | Phase 10: Tauri Command Layer | Complete |
-| EXTD-01 | Phase 11: Extended Features | Pending |
+| EXTD-01 | Phase 13: Gap Closure | Complete |
 | EXTD-02 | Phase 11: Extended Features | Pending |
 | EXTD-03 | Phase 11: Extended Features | Pending |
-| EXTD-04 | Phase 11: Extended Features | Pending |
+| EXTD-04 | Phase 13: Gap Closure | Complete |
 | TTS-04 | Phase 12: Additional TTS Engines | Complete |
 | TTS-05 | Phase 12: Additional TTS Engines | Complete |
 | TTS-06 | Phase 12: Additional TTS Engines | Complete |
