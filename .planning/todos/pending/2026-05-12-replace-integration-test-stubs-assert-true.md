@@ -2,6 +2,7 @@
 created: 2026-05-12T06:16:41.502Z
 title: Replace integration test stubs using assert!(true)
 area: testing
+resolves_phase: 14
 files:
   - tests/
 ---

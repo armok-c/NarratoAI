@@ -2,6 +2,7 @@
 created: 2026-05-12T06:15:25.665Z
 title: Fix Tauri State read locks held across long pipelines
 area: tauri
+resolves_phase: 18
 files:
   - src-tauri/src/commands/
 ---
