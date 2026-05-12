@@ -52,6 +52,9 @@ pub enum PipelineError {
         source: FFmpegError,
     },
 
+    #[error("音频标准化失败: {details}")]
+    AudioNormalization { details: String },
+
     #[error("LLM 调用失败: {source}")]
     Llm {
         #[source]
@@ -86,6 +89,14 @@ impl From<FFmpegError> for PipelineError {
 impl From<LLMError> for PipelineError {
     fn from(source: LLMError) -> Self {
         PipelineError::Llm { source }
+    }
+}
+
+impl From<crate::audio::normalizer::AudioError> for PipelineError {
+    fn from(source: crate::audio::normalizer::AudioError) -> Self {
+        PipelineError::AudioNormalization {
+            details: source.to_string(),
+        }
     }
 }
 
@@ -200,5 +211,14 @@ mod tests {
         let err = PipelineError::from(llm_err);
         let msg = err.to_string();
         assert!(msg.contains("LLM 调用失败"), "消息应包含中文: {}", msg);
+    }
+
+    #[test]
+    fn test_pipeline_error_audio_normalization_chinese() {
+        let err = PipelineError::AudioNormalization {
+            details: "loudnorm 分析失败".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("音频标准化失败"), "消息应包含中文: {}", msg);
     }
 }
