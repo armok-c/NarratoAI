@@ -77,46 +77,46 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FNDT-01 | — | Pending |
-| FNDT-02 | — | Pending |
-| FNDT-03 | — | Pending |
-| FNDT-04 | — | Pending |
-| FNDT-05 | — | Pending |
-| FNDT-06 | — | Pending |
-| LOUT-01 | — | Pending |
-| LOUT-02 | — | Pending |
-| LOUT-03 | — | Pending |
-| LOUT-04 | — | Pending |
-| LOUT-05 | — | Pending |
-| LOUT-06 | — | Pending |
-| MODE-01 | — | Pending |
-| MODE-02 | — | Pending |
-| MODE-03 | — | Pending |
-| CONF-01 | — | Pending |
-| CONF-02 | — | Pending |
-| CONF-03 | — | Pending |
-| CONF-04 | — | Pending |
-| CONF-05 | — | Pending |
-| CONF-06 | — | Pending |
-| PIPE-01 | — | Pending |
-| PIPE-02 | — | Pending |
-| PIPE-03 | — | Pending |
-| PIPE-04 | — | Pending |
-| PIPE-05 | — | Pending |
-| PIPE-06 | — | Pending |
-| TDET-01 | — | Pending |
-| TDET-02 | — | Pending |
-| TDET-03 | — | Pending |
-| TDET-04 | — | Pending |
-| TDET-05 | — | Pending |
-| TDET-06 | — | Pending |
-| TDET-07 | — | Pending |
+| FNDT-01 | Phase 14 | Pending |
+| FNDT-02 | Phase 14 | Pending |
+| FNDT-03 | Phase 14 | Pending |
+| FNDT-04 | Phase 14 | Pending |
+| FNDT-05 | Phase 14 | Pending |
+| FNDT-06 | Phase 14 | Pending |
+| LOUT-01 | Phase 15 | Pending |
+| LOUT-02 | Phase 15 | Pending |
+| LOUT-03 | Phase 15 | Pending |
+| LOUT-04 | Phase 15 | Pending |
+| LOUT-05 | Phase 15 | Pending |
+| LOUT-06 | Phase 15 | Pending |
+| MODE-01 | Phase 15 | Pending |
+| MODE-02 | Phase 15 | Pending |
+| MODE-03 | Phase 15 | Pending |
+| CONF-01 | Phase 16 | Pending |
+| CONF-02 | Phase 16 | Pending |
+| CONF-03 | Phase 16 | Pending |
+| CONF-04 | Phase 16 | Pending |
+| CONF-05 | Phase 16 | Pending |
+| CONF-06 | Phase 16 | Pending |
+| PIPE-01 | Phase 17 | Pending |
+| PIPE-02 | Phase 17 | Pending |
+| PIPE-03 | Phase 17 | Pending |
+| PIPE-04 | Phase 17 | Pending |
+| PIPE-05 | Phase 17 | Pending |
+| PIPE-06 | Phase 17 | Pending |
+| TDET-01 | Phase 16 | Pending |
+| TDET-02 | Phase 18 | Pending |
+| TDET-03 | Phase 14 | Pending |
+| TDET-04 | Phase 18 | Pending |
+| TDET-05 | Phase 18 | Pending |
+| TDET-06 | Phase 16 | Pending |
+| TDET-07 | Phase 16 | Pending |
 
 **Coverage:**
-- v2.0 requirements: 35 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 35 ⚠️
+- v2.0 requirements: 34 total
+- Mapped to phases: 34 (roadmap created)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after v2.0 requirements definition*
+*Last updated: 2026-05-12 — traceability updated with Phase 14-18 mappings*
