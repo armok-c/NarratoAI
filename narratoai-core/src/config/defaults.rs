@@ -117,7 +117,7 @@ impl Default for FramesSection {
 impl Default for AudioSection {
     fn default() -> Self {
         Self {
-            target_lufs: -23.0,
+            target_lufs: -14.0,
             max_peak: -1.0,
             enable_audio_normalization: false,
             enable_smart_volume: false,
@@ -129,6 +129,7 @@ impl Default for AudioSection {
             bitrate: 192_000,
             crossfade_duration: 0.1,
             bgm_fade_out: 3.0,
+            volume_profile: "balanced".into(),
         }
     }
 }
