@@ -575,22 +575,25 @@ pub struct DocumentaryRequest {
 | A4 | SmartEdit's manualChunks function form is forward-compatible with Vite 8 | Code Examples | Vite 8 may have changed rollup plugin APIs |
 | A5 | `@tauri-apps/api` 2.11.0 is compatible with Tauri 2.0 in tauri.conf.json | Code Examples | Major version mismatch could break IPC |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which versions to use?**
    - What we know: npm shows Vite 8.0.12, TS 6.0.3, Vuetify 4.0.7, Pinia 3.0.4. CONTEXT says Vite 6 / TS 5.7 / Vuetify 3.5 / Pinia 2.1+.
    - What's unclear: Does the team want latest stable (Vite 8) or the earlier versions from CONTEXT?
    - Recommendation: Cross-reference with REQUIREMENTS.md (FNDT-01 says "Vite 8 + Vue 3.5 + TypeScript 6.0"). The requirements document already uses the correct versions. Recommend adopting latest stable.
+   - **RESOLVED:** The team confirmed latest stable versions via discuss-phase. Plan uses Vite 8.0.12, TS 6.0.3, Vuetify 4.0.7, Pinia 3.0.4, vue-router 5.0.6.
 
 2. **ts-rs export path strategy?**
    - What we know: Default export goes to crate-root relative `bindings/` or `gen/types/`. CONTEXT mentions both `src-tauri/gen/types/` and `src/types/generated/`.
-   - What's unclear: Should ts-rs export directly to `../../src/types/generated/` via `#[ts(export_to)]`, or should a build script copy from `src-tauri/gen/types/`?
+   - What's unclear: Should ts-rs export directly to `../../src/types/generated/` via `#[ts(export_to)]`, or should a build script copy from `src-tauri/gen/types/` to `src/types/generated/`?
    - Recommendation: Use `#[ts(export_to = "../../src/types/generated/")]` on each exported struct for direct targeting. This is simpler and provides immediate TypeScript resolution.
+   - **RESOLVED:** Team chose direct `#[ts(export_to)]` approach per research recommendation. Avoids extra build script.
 
 3. **Tauri 2.0 `frontendDist` path?**
    - What we know: Current tauri.conf.json has `"frontendDist": "../dist"`. The frontend will be at project root level.
    - What's unclear: Whether the relative path resolves correctly from `src-tauri/` to root `dist/`.
    - Recommendation: Keep `"../dist"` — Tauri 2.0 resolution starts from the directory containing tauri.conf.json (i.e., `src-tauri/`).
+   - **RESOLVED:** Confirmed `"../dist"` works correctly. No change needed.
 
 ## Environment Availability
 
