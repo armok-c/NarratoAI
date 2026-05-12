@@ -181,17 +181,20 @@
 ##########################################
 
 [audio]
-    # LUFS 响度标准化目标值（-23.0 符合 EBU R128 广播标准，-14.0 符合 YouTube 标准）
-    target_lufs = -23.0
+    # LUFS 响度标准化目标值（-14.0 符合 YouTube/流媒体标准，-23.0 符合 EBU R128 广播标准）
+    target_lufs = -14.0
 
     # 最大峰值（dBFS）
     max_peak = -1.0
 
-    # 是否启用音频标准化
+    # 是否启用音频标准化（默认关闭，需手动开启）
     enable_audio_normalization = false
 
-    # 是否启用智能音量调整
+    # 是否启用智能音量调整（默认关闭，需手动开启）
     enable_smart_volume = false
+
+    # 音量 profile（balanced / voice_focused / original_focused / quiet_background，配合智能音量使用）
+    volume_profile = "balanced"
 
     # TTS 解说音量（0.0-2.0）
     tts_volume = 0.8
@@ -211,8 +214,8 @@
     # 比特率
     bitrate = 192000
 
-    # 交叉淡化时长（秒，Phase 6 使用）
+    # 交叉淡化时长（秒）
     crossfade_duration = 0.1
 
-    # BGM 淡出时长（秒，Phase 6 使用）
+    # BGM 淡出时长（秒）
     bgm_fade_out = 3.0
