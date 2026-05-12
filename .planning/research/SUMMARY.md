@@ -1,104 +1,85 @@
-# Research Summary: NarratoAI Rust Rewrite
+# Research Summary: NarratoAI v2.0 Tauri + Vue 3 Frontend
 
-**Domain:** AI video narration + automated editing (desktop application)
-**Researched:** 2026-04-27
+**Domain:** AI video narration + automated editing desktop application — frontend (Vue 3 + Vuetify 3 + Tauri 2.0) + tech debt cleanup
+**Researched:** 2026-05-12
 **Overall confidence:** HIGH
 
 ## Executive Summary
 
-NarratoAI is a mature Python (v0.7.8) application for AI-powered video narration with three business modes: Documentary (vision-based frame analysis + narration), SDE (subtitle analysis + script editing), and SDP (subtitle analysis + multi-clip mixing). The Rust rewrite targets a library crate architecture with a Tauri 2.0 command layer, producing a native desktop application. The rewrite replaces Python's Streamlit UI, moviepy/pydub dependencies, and dual LLM interface with a clean, performant Rust stack.
+NarratoAI v2.0 adds a Vue 3 + Vuetify 3 frontend to the existing Rust/Tauri 2.0 desktop backend, replacing the old Streamlit web UI and cleaning six known tech debt items from v1.0. The backend is already shipping (23,532 LOC Rust core + 1,077 LOC Tauri command layer, 573 passing tests). The milestone delivers a native desktop UI that closely mimics the SmartEdit reference project's layout, and resolves architectural debt that limits production readiness.
 
-The core pipeline follows a 6-step flow: load script, TTS generation, video clipping, audio/subtitle merge, clip concatenation, and final composition. Each step branches on OST type (narration-only, original-audio-only, or mixed), which drives fundamentally different processing strategies. This OST branching is the architectural spine of the system and the single most important concept to get right in the rewrite.
+### Key Finding: 3-Mode UX is the Central Design Challenge
 
-The technology stack is well-established in the Rust ecosystem: tokio for async runtime, reqwest for HTTP (LLM + TTS APIs), ffmpeg-sidecar for video processing (CLI wrapper matching Python's subprocess pattern), tokio-tungstenite for Edge-TTS WebSocket, serde + toml for configuration, and tracing for diagnostics. No exotic or immature dependencies are required.
+The single most important architectural decision for v2.0 is how the three pipeline modes (Documentary/SDE/SDP) share a single UI. SmartEdit handles only one mode (short drama narration). NarratoAI must extend to three, with:
 
-The primary technical risk is Edge-TTS implementation. It is the default TTS engine (free, used by 80% of users) but requires implementing Microsoft's proprietary WebSocket protocol. The smartEdit project (a previous failed Rust rewrite attempt in the same domain) has a working Edge-TTS implementation that can be referenced directly, significantly reducing this risk.
+- **Different settings per mode** — Vision LLM config only in Documentary; TTS tab hidden entirely in SDP; mode-specific params (frame interval, drama name, custom clip count)
+- **Different pipeline commands** — Three separate Rust commands with different parameter types and different step counts (6/9/3)
+- **Different progress visualization** — Step names differ per mode; script preview rendering differs per mode
+- **Shared infrastructure** — VideoTable, LogPanel, AppHeader, BGM/Export panels are mode-independent
+
+The research recommends: a `modeStore` Pinia store as the single source of truth, `v-if` on settings tabs based on computed visible panels, mode-keyed config storage in stores, and a `startPipeline()` dispatch function that routes to the correct Tauri command.
+
+### Key Finding: Tech Debt Has Variable Frontend Impact
+
+Of the six tech debt items, only two directly block frontend features: FFmpeg sidecar bundling (needed for all pipeline output) and Edge-TTS proxy tunnel (needed for TTS behind corporate proxies). Three items have zero frontend impact: Tauri State lock, VisualAnalyzer facade, and integration test stubs. Two items are optional frontend features: YouTube/Pexels command exposure and ConfigManager hot-reload notification.
 
 ## Key Findings
 
-**Stack:** tokio + reqwest + ffmpeg-sidecar + serde/toml + tracing + tokio-tungstenite + tauri 2.0. All libraries are mature, well-documented, and verified via docs.rs. No build-complexity dependencies (no C FFI, no native SDKs).
+**Stack:** Vue 3.5 + Vuetify 3.12 + Pinia 3.0 + vue-router 5.0 + TypeScript 6.0 + Vite 8.0 (Rolldown). All libraries verified via npm registries. SmartEdit reference confirms patterns. Key risk: Vite 8 Rolldown breaking changes — `build.rolldownOptions` replaces `build.rollupOptions`, `advancedChunks` replaces `manualChunks`.
 
-**Architecture:** Layered library crate with trait-based abstractions for TTS engines and LLM providers. Pipeline steps as separate structs with typed input/output. Tauri command layer is a thin facade, no business logic. The OST type enum is the central branching mechanism.
+**Architecture:** 3-layer: Vue SPA → 13 Tauri IPC commands → Rust library. Single-page app with hash routing (`createWebHashHistory()`). Mode-aware dynamic panel switching. 9 Pinia stores (app, mode, video, pipeline, script, llm, tts, bgm). ts-rs auto-generated TypeScript types for IPC boundary. No HTTP calls from frontend.
 
-**Critical pitfall:** Edge-TTS WebSocket protocol requires precise implementation of authentication tokens, clock skew correction, and Chromium version strings. Without it, the default (free) TTS engine is non-functional and the MVP is blocked.
+**Features:** 17 P1 features for MVP. Core differentiator is 3-mode switch with dynamic settings panels. Mode selection lives inside the LLM/Mode settings tab, not in AppHeader. TTS tab hidden in SDP mode (no narration). Vision LLM config hidden in SDE/SDP modes. FFmpeg sidecar bundled (no management panel).
+
+**Critical pitfall:** Tauri 2.0 capability-based permission system differs from v1 allowlist — forgetting to add `shell:allow-execute` + sidecar scope in `capabilities/default.json` causes silent FFmpeg failures. Second: Tauri State read lock held across async pipelines blocks all writes to PromptManager/Registry for minutes.
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on research, suggested phase structure for v2.0:
 
-1. **Foundation (Config + FFmpeg + Error Handling)** - Everything depends on configuration loading and FFmpeg operations. These must be first.
-   - Addresses: TOML config system, FFmpeg pipeline core operations, error type architecture
-   - Avoids: Pitfall 1 (FFmpeg binding mistake), Pitfall 6 (error serialization), Pitfall 10 (config field misalignment)
+**Phase 1: Foundation (Frontend Scaffold + Tech Debt: Test Stubs)**
+- Vite 8 + Vue 3 project init, Vuetify plugin, vue-router (hash), Pinia stores (all 9), API layer (tauriInvoke wrapper), ts-rs type generation, directory structure
+- Replace integration test stubs with real tests, wire `_max_retries` parameter
 
-2. **LLM Service + Prompt System** - Script generation depends on LLM API calls. Prompt versioning enables mode-specific templates.
-   - Addresses: OpenAI-compatible LLM client, vision + text model support, prompt registry
-   - Avoids: Pitfall 5 (LLM response parsing fragility), Pitfall 7 (no streaming extensibility)
+**Phase 2: Layout Shell + 3-Mode UX Switching**
+- AppHeader, DefaultLayout, HomeView flex layout, ModeStore, ModeSelector, SettingsDrawer with dynamic tabs, dark/light theme toggle, SystemMonitorBar
 
-3. **TTS Layer (Edge-TTS First)** - Voice generation is required before any pipeline can produce output. Edge-TTS is the highest priority engine.
-   - Addresses: Edge-TTS WebSocket implementation, TtsProvider trait, engine routing
-   - Avoids: Pitfall 4 (Edge-TTS protocol misalignment), Pitfall 5 (TTS trait design)
+**Phase 3: Configuration Panels + FFmpeg Sidecar + Core Tech Debt**
+- LLM/Mode tab (vision+text dual model), TTS panel (7 engines), BGM panel, Export panel, mode-specific panels, FFmpeg sidecar bundling, Edge-TTS proxy tunnel, VisualAnalyzer facade completion
 
-4. **Documentary Pipeline (Flagship)** - The complete documentary mode validates the entire architecture end-to-end. It exercises every subsystem: vision analysis, LLM, TTS, FFmpeg, and state management.
-   - Addresses: Frame extraction, batch vision analysis, narration script generation, 6-step pipeline with OST branching
-   - Avoids: Pitfall 3 (OST branch logic incomplete), Pitfall 2 (blocking async runtime)
+**Phase 4: Pipeline Controls + Progress + Script Preview**
+- VideoTable with status/actions, Upload/Start/Stop/Clear buttons, mode-aware pipeline dispatch, pipeline progress events, ScriptPreviewDialog (mode-aware rendering), LogPanel
 
-5. **Script Management + SDE/SDP Modes** - With the pipeline infrastructure proven, the remaining two business modes are incremental extensions.
-   - Addresses: JSON script editing, subtitle parsing, SDE pipeline, SDP pipeline
-   - Avoids: Pitfall 7 (Chinese encoding in subtitles)
-
-6. **Tauri Command Layer + Integration** - Expose all Rust functionality through Tauri commands for the Vue 3 frontend (next milestone).
-   - Addresses: Tauri command definitions, State management, progress streaming via Channel API
-   - Avoids: Pitfall 6 (error context loss at FFI boundary)
-
-7. **Extended Features** - Additional TTS engines, JianYing export, YouTube download, Pexels integration, audio normalization.
-   - Addresses: Feature parity with Python version
-   - Standard patterns, low risk
-
-**Phase ordering rationale:**
-- Config and FFmpeg are dependencies for everything else -- must be Phase 1.
-- LLM service is needed by all three business modes -- Phase 2.
-- TTS is needed before any pipeline can produce output -- Phase 3.
-- Documentary mode validates the architecture end-to-end -- Phase 4.
-- SDE and SDP build on proven infrastructure -- Phase 5.
-- Tauri commands are a thin layer over working library code -- Phase 6.
-- Extended features are low-risk incremental work -- Phase 7.
-
-**Research flags for phases:**
-- Phase 3 (Edge-TTS): HIGH research need -- WebSocket protocol details, clock skew correction, Chromium version management. Reference smartEdit's existing implementation.
-- Phase 6 (Tauri): MEDIUM research need -- Channel API for progress streaming, State management patterns. Tauri 2.0 API may have minor changes.
-- Phase 7 (JianYing): MEDIUM research need -- Draft format reverse engineering from pyJianYingDraft Python library.
-- All other phases: Standard patterns, unlikely to need significant additional research.
+**Phase 5: Remaining Tech Debt + Polish**
+- Tauri State read lock optimization, YouTube/Pexels command exposure, ConfigManager hot-reload activation, end-to-end integration testing, edge case handling
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All libraries verified via docs.rs. Standard Rust ecosystem choices. No exotic dependencies. |
-| Features | HIGH | Feature landscape mapped directly from Python codebase. Every feature has a clear Rust implementation path. |
-| Architecture | HIGH | Architecture derived from Python's proven patterns with Rust-specific improvements (trait-based providers, typed OST, state machine). |
-| Pitfalls | HIGH | Pitfalls identified from: (1) Python codebase's documented concerns, (2) smartEdit's failed Rust rewrite experience, (3) Rust-specific async/FFI risks. |
+| Stack | HIGH | All libraries verified via npm registries. Version compatibility matrix cross-checked. SmartEdit confirms patterns. |
+| Features | HIGH | Feature landscape mapped from SmartEdit reference + Rust backend types + PROJECT.md spec. |
+| Architecture | HIGH | Three-layer architecture derived from SmartEdit's working implementation. |
+| Pitfalls | MEDIUM | Code-level analysis is HIGH; Tauri 2.0-specific items rely on web research. |
 
-## Gaps to Address
+## Open Questions
 
-- **Edge-TTS protocol version stability:** Microsoft may change the Edge-TTS WebSocket protocol at any time. The Chromium version constant needs a maintenance strategy. smartEdit hardcodes it -- consider a mechanism to detect and update it.
-- **Azure Speech REST API endpoint verification:** The plan is to use Azure's REST API instead of the native SDK. The exact endpoint URL and authentication flow need verification against Azure's current documentation.
-- **JianYing draft format stability:** The JSON format is not publicly documented. Reverse engineering from pyJianYingDraft is viable but the format may change with JianYing updates.
-- **SQLite vs file storage decision:** PROJECT.md specifies file storage (JSON/TOML), but the existing pitfall research from smartEdit suggests SQLite is more appropriate for desktop apps. This is a product decision that should be revisited before Phase 1.
-- **FFmpeg hardware acceleration:** Python has `ffmpeg_config.py` for detecting GPU encoding support. The Rust equivalent needs platform-specific detection (NVENC on Windows, VA-API on Linux, VideoToolbox on macOS). This can be deferred but should not be forgotten.
+- FFmpeg static binary acquisition channel per target triple (decision needed in Phase 1)
+- ts-rs type regeneration pipeline integration (pre-commit vs CI step)
+- Vite 8 Rolldown `advancedChunks` API surface verification
+- SystemMonitorBar Tauri event source (new `sysinfo`-based command vs existing plugin)
+- Pinia 3 TypeScript inference patterns (verify during Phase 1 scaffold)
+- Edge-TTS Windows proxy auto-detection extent (manual URL vs PAC auto-detect)
 
 ## Research Files
 
 | File | Purpose |
 |------|---------|
-| `.planning/research/STACK.md` | Complete technology recommendations with rationale and confidence |
-| `.planning/research/FEATURES.md` | Feature landscape: table stakes, differentiators, anti-features, priority matrix |
-| `.planning/research/ARCHITECTURE.md` | Recommended architecture, patterns, anti-patterns, module organization |
-| `.planning/research/PITFALLS.md` | 15 domain pitfalls with prevention strategies and phase-specific warnings |
+| `.planning/research/STACK.md` | Technology recommendations with versions, rationale, anti-features, sidecar config |
+| `.planning/research/FEATURES.md` | Feature landscape: 13 table stakes, 8 differentiators, 6 anti-features, 3-mode UX mapping |
+| `.planning/research/ARCHITECTURE.md` | 3-layer architecture, project structure, 5 patterns, 7 anti-patterns, data flows |
+| `.planning/research/PITFALLS.md` | 20 critical pitfalls, 15-item checklist, recovery strategies, phase mapping |
 
-## Sources
-
-- docs.rs: tokio, reqwest, ffmpeg-sidecar, tokio-tungstenite, tracing, serde, toml, tauri, image, anyhow, thiserror
-- `.planning/codebase/` -- Full Python codebase analysis (ARCHITECTURE, CONCERNS, STACK, STRUCTURE, INTEGRATIONS)
-- `.planning/PROJECT.md` -- Project scope and constraints
-- Python source code analysis -- `voice.py`, `task.py`, `config.example.toml`, LLM module, prompt system
-- smartEdit project (`E:\GitLib\smartEdit\`) -- Previous Rust rewrite attempt with validated implementations
+---
+*Research summary for: NarratoAI v2.0 Tauri + Vue 3 Frontend*
+*Researched: 2026-05-12*
