@@ -58,7 +58,7 @@ r3_fixes:
   total: 3
   skipped:
     - W1 (volume=1.0 是必要的标签重命名，非真正问题)
-status: fix_applied
+status: clean
 ---
 
 # Phase 13: Code Review Report
@@ -66,7 +66,7 @@ status: fix_applied
 **Reviewed:** 2026-05-12T10:00:00Z
 **Depth:** standard
 **Files Reviewed:** 16
-**Status:** fix_applied
+**Status:** clean
 
 ## Summary
 
@@ -491,3 +491,31 @@ Applied `--fix --all` to remaining Round 3 Info findings (I-R3-01 ~ I-R3-05).
 | WR-02 | RwLock refactoring requires core API signature change, deferred to separate phase |
 | WR-R2-01 | SDE anullsrc params need ffprobe detection, low priority (44100/stereo works for most cases) |
 | W-R3-01 | volume=1.0 is necessary label rename for `[orig]→[aout]`, not a real issue |
+
+---
+
+## Round 5: Fresh Review (2026-05-12)
+
+Re-reviewed all 16 source files at standard depth. All previous fixes (Rounds 1-4) correctly landed. Found 1 new warning-level issue (defensive consistency), 0 critical.
+
+### Warnings
+
+| ID | File | Summary | Status |
+|----|------|---------|--------|
+| WR-R5-01 | `sde/pipeline.rs:590-600` | SDE composite 缺少 `-an` 防御（amix_input_count==0 时与 documentary 不一致） | **Fixed** |
+
+### Verification (Round 5)
+- `cargo check` (workspace): 0 errors, 2 pre-existing warnings (parentheses)
+- `cargo test -p narratoai-core --lib`: **572 passed, 0 failed, 1 ignored**
+
+### Remaining Deferred Items
+
+| ID | Reason |
+|----|--------|
+| WR-02 | RwLock refactoring requires core API signature change, deferred to separate phase |
+| WR-R2-01 | SDE anullsrc params need ffprobe detection, low priority (44100/stereo works for most cases) |
+| W-R3-01 | volume=1.0 is necessary label rename for `[orig]→[aout]`, not a real issue |
+
+### Conclusion
+
+All 16 files are clean at standard depth. No critical or actionable issues remain beyond the 3 known deferred items.

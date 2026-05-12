@@ -597,6 +597,9 @@ pub async fn run_sde(
             cmd.arg("-map").arg("[aout]");
         } else if has_video_filter {
             cmd.arg("-map").arg("[vout]");
+            cmd.arg("-an");
+        } else {
+            cmd.arg("-an");
         }
 
         cmd.codec_video("libx264")
