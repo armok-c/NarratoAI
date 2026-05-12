@@ -15,7 +15,7 @@ use crate::config::types::AudioSection;
 /// 类型安全的音量配置
 ///
 /// 包含 TTS、原声、BGM 三路音量值，编译时字段检查。
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct VolumeConfig {
     pub tts_volume: f64,
     pub original_volume: f64,

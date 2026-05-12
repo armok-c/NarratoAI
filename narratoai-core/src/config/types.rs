@@ -240,6 +240,8 @@ pub struct AudioSection {
     pub crossfade_duration: f64,
     #[serde(default)]
     pub bgm_fade_out: f64,
+    #[serde(default)]
+    pub volume_profile: String,
 }
 
 #[cfg(test)]
@@ -329,7 +331,7 @@ vision_batch_size = 10
 vision_max_concurrency = 2
 
 [audio]
-target_lufs = -23.0
+target_lufs = -14.0
 max_peak = -1.0
 enable_audio_normalization = true
 enable_smart_volume = true
@@ -363,8 +365,9 @@ bgm_fade_out = 3.0
         assert_eq!(config.doubaotts.sk, "test-sk");
         assert!(config.proxy.enabled);
         assert_eq!(config.frames.frame_interval_input, 3);
-        assert_eq!(config.audio.target_lufs, -23.0);
+        assert_eq!(config.audio.target_lufs, -14.0);
         assert_eq!(config.audio.enable_audio_normalization, true);
+        assert_eq!(config.audio.volume_profile, "");
         assert_eq!(config.audio.tts_volume, 0.8);
         assert_eq!(config.audio.sample_rate, 44100);
         assert!(config.app.pexels_api_keys.is_empty());
@@ -416,6 +419,9 @@ project_version = "0.7.8"
         assert_eq!(config.frames.frame_interval_input, 3);
         assert_eq!(config.frames.vision_batch_size, 10);
         assert_eq!(config.frames.vision_max_concurrency, 2);
+
+        // AudioSection defaults
+        assert_eq!(config.audio.volume_profile, "balanced");
     }
 
     /// validate 方法在当前阶段不应拒绝空 API key
