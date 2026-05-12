@@ -289,6 +289,14 @@ pub async fn run_sde(
     .await?;
     state.merged_audio_path = Some(merged_audio);
 
+    // 音频标准化：合并完成后立即标准化（D-01~D-06）
+    if let Some(ref merged_path) = state.merged_audio_path {
+        let _ = crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
+            .map_err(|e| SdeError::VideoProcess(PipelineError::AudioNormalization {
+                details: e.to_string(),
+            }))?;
+    }
+
     let merged_sub = merge_subtitle_files(
         &state.script,
         &state.tts_results,
@@ -389,6 +397,16 @@ pub async fn run_sde(
     // ============================================================
     state.emit_progress("composite", 95.0, "正在最终合成...");
 
+    // 智能音量覆盖（D-08~D-13, D-15）
+    let request_volumes = crate::audio::volume::VolumeConfig {
+        tts_volume: request.tts_volume,
+        original_volume: request.original_volume,
+        bgm_volume: request.bgm_volume,
+    };
+    let resolved = crate::audio::pipeline::resolve_volumes(
+        &request_volumes, "sde", &config.audio,
+    );
+
     let merged_video = state
         .combined_video_path
         .as_ref()
@@ -409,10 +427,10 @@ pub async fn run_sde(
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
     let bgm_path_opt = request.bgm_path.as_ref().map(|p| p.to_string_lossy().to_string());
-    let tts_vol = request.tts_volume;
-    let bgm_vol = request.bgm_volume;
+    let tts_vol = resolved.tts_volume;
+    let bgm_vol = resolved.bgm_volume;
     let total_dur = state.total_duration;
-    let orig_vol = request.original_volume;
+    let orig_vol = resolved.original_volume;
     let has_original_audio = state
         .script
         .iter()
