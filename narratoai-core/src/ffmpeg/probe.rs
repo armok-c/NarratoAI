@@ -157,6 +157,35 @@ pub fn probe_audio(path: &Path) -> Result<f64, FFmpegError> {
     Ok(duration)
 }
 
+/// 检查文件是否包含音频流（同步）
+///
+/// 用于 composite 步骤在引用 [0:a] 前做运行时验证，
+/// 避免 has_original_audio 逻辑判断与实际文件不一致导致 FFmpeg 失败。
+pub fn has_audio_stream(path: &Path) -> bool {
+    let ffprobe_bin = ffmpeg_sidecar::ffprobe::ffprobe_path();
+
+    let output = match Command::new(&ffprobe_bin)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(path.as_os_str())
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return false,
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.trim().lines().any(|line| line.trim() == "audio")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

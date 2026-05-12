@@ -53,8 +53,8 @@ pub struct ProcessingConfig {
 impl Default for ProcessingConfig {
     fn default() -> Self {
         Self {
-            enable_smart_volume: true,
-            enable_audio_normalization: true,
+            enable_smart_volume: false,
+            enable_audio_normalization: false,
             target_lufs: -14.0,
             max_peak: -1.0,
         }
@@ -329,8 +329,8 @@ mod tests {
     #[test]
     fn test_processing_config_default() {
         let cfg = ProcessingConfig::default();
-        assert!(cfg.enable_smart_volume);
-        assert!(cfg.enable_audio_normalization);
+        assert!(!cfg.enable_smart_volume);
+        assert!(!cfg.enable_audio_normalization);
         assert!((cfg.target_lufs - (-14.0)).abs() < 0.01);
     }
 

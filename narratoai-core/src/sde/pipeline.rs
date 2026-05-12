@@ -291,7 +291,7 @@ pub async fn run_sde(
 
     // 音频标准化：合并完成后立即标准化（D-01~D-06）
     if let Some(ref merged_path) = state.merged_audio_path {
-        let _ = crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
+        crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
             .map_err(|e| SdeError::VideoProcess(PipelineError::AudioNormalization {
                 details: e.to_string(),
             }))?;
@@ -391,6 +391,32 @@ pub async fn run_sde(
     state.combined_video_path = Some(combined_path);
     state.emit_progress("concat", 95.0, "视频拼接完成");
 
+    // CR-01: 判断是否存在需要原始音频的片段（OST != NarrationOnly）
+    let has_original_audio = state
+        .script
+        .iter()
+        .any(|c| c.ost != OstType::NarrationOnly);
+
+    // ============================================================
+    //  CR-01: 提取原始音轨（替代 composite 中的 anullsrc 静音）
+    //  OST=1/2 片段从源视频提取音频，OST=0 片段用静音填充
+    // ============================================================
+    let orig_audio_path_opt = if has_original_audio {
+        let source_path = request.video_path.clone();
+        let script_clone = state.script.clone();
+        let task_dir_clone = state.task_dir.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            extract_original_audio_track(&source_path, &script_clone, &task_dir_clone)
+        })
+        .await
+        .map_err(|e| SdeError::Io {
+            source: std::io::Error::new(std::io::ErrorKind::Other, e),
+        })?;
+        Some(result?)
+    } else {
+        None
+    };
+
     // ============================================================
     //  步骤 8: 最终合成 (Composite)  —  95% → 100%
     //  参照 src/documentary/pipeline.rs step_composite 实现
@@ -431,10 +457,7 @@ pub async fn run_sde(
     let bgm_vol = resolved.bgm_volume;
     let total_dur = state.total_duration;
     let orig_vol = resolved.original_volume;
-    let has_original_audio = state
-        .script
-        .iter()
-        .any(|c| c.ost != OstType::NarrationOnly);
+    let orig_audio_str_opt = orig_audio_path_opt.as_ref().map(|p| p.to_string_lossy().to_string());
     let font_size = request.subtitle_font_size;
     let subtitle_enabled = request.subtitle_enabled;
     let subtitle_force_style = {
@@ -474,20 +497,20 @@ pub async fn run_sde(
         let mut external_audio_count = 0usize;
         let mut amix_input_count = 0usize;
 
-        // 原始音频——concat -c copy 在混合 OST=0 (无音频) 和 OST=1 (有音频)
-        // 的片段时会丢失音频流，此处统一用 anullsrc 生成静音轨替代
-        if has_original_audio {
-            filter_complex_parts.push(format!(
-                "anullsrc=r=44100:cl=stereo:d={:.3}[silence];[silence]volume={:.2}[orig]",
-                total_dur, orig_vol
-            ));
+        // CR-01: 原始音轨——从预先提取的完整原始音轨文件输入（替代 anullsrc 静音）
+        if let Some(ref orig_str) = orig_audio_str_opt {
+            cmd.arg("-i").arg(orig_str);
+            let orig_idx = 1 + external_audio_count;
+            filter_complex_parts.push(format!("[{}:a]volume={:.2}[orig]", orig_idx, orig_vol));
+            external_audio_count += 1;
             amix_input_count += 1;
         }
 
         // TTS 音频输入
         if let Some(ref audio_str) = audio_str_opt {
             cmd.arg("-i").arg(audio_str);
-            filter_complex_parts.push(format!("[{}:a]volume={:.2}[tts]", 1, tts_vol));
+            let tts_idx = 1 + external_audio_count;
+            filter_complex_parts.push(format!("[{}:a]volume={:.2}[tts]", tts_idx, tts_vol));
             external_audio_count += 1;
             amix_input_count += 1;
         }
@@ -511,7 +534,7 @@ pub async fn run_sde(
         // 构建音频混音
         if amix_input_count > 0 {
             let mut mix_labels = Vec::new();
-            if has_original_audio {
+            if orig_audio_str_opt.is_some() {
                 mix_labels.push("[orig]".to_string());
             }
             if audio_str_opt.is_some() {
@@ -520,16 +543,17 @@ pub async fn run_sde(
             if bgm_path_opt.is_some() {
                 mix_labels.push("[bgm]".to_string());
             }
-            let mix_inputs = mix_labels.join("");
-            let compensation = if amix_input_count > 1 {
-                format!(",volume={}", amix_input_count)
+            if amix_input_count == 1 {
+                // CR-02: amix=inputs=1 causes FFmpeg failure; map single source directly
+                filter_complex_parts.push(format!("{}[aout]", mix_labels.join("")));
             } else {
-                String::new()
-            };
-            filter_complex_parts.push(format!(
-                "{}amix=inputs={}:duration=longest{}[aout]",
-                mix_inputs, amix_input_count, compensation
-            ));
+                let mix_inputs = mix_labels.join("");
+                let compensation = format!(",volume={}", amix_input_count);
+                filter_complex_parts.push(format!(
+                    "{}amix=inputs={}:duration=longest{}[aout]",
+                    mix_inputs, amix_input_count, compensation
+                ));
+            }
         }
 
         // 视频滤镜——字幕烧录
@@ -631,6 +655,153 @@ pub async fn run_sde(
 // ============================================================
 //  私有辅助函数
 // ============================================================
+
+/// CR-01: 为 SDE pipeline 构建原始音轨
+///
+/// OST=1/2 片段从源视频提取对应时间段的音频，
+/// OST=0 片段用 anullsrc 生成等长静音填充。
+/// 所有段 concat 合并为一条完整音轨文件。
+fn extract_original_audio_track(
+    source_video: &Path,
+    script: &[ScriptClip],
+    task_dir: &Path,
+) -> Result<PathBuf, PipelineError> {
+    let segments_dir = task_dir.join("orig_audio_segments");
+    std::fs::create_dir_all(&segments_dir).map_err(|e| PipelineError::Io { source: e })?;
+
+    let mut segment_paths: Vec<PathBuf> = Vec::new();
+    let source_str = source_video.to_string_lossy().to_string();
+
+    for clip in script {
+        let clip_duration = clip.duration.ok_or_else(|| PipelineError::Timestamp(
+            format!("片段 {} 缺少 duration，无法提取原始音轨", clip._id),
+        ))?;
+
+        // 解析源时间范围
+        let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
+        if ts_parts.len() != 2 {
+            return Err(PipelineError::Timestamp(
+                format!("片段 {} 时间戳格式无效: {}", clip._id, clip.timestamp),
+            ));
+        }
+        let start_secs = parse_time_to_secs(ts_parts[0]).map_err(|e| PipelineError::Timestamp(e.to_string()))?;
+        let end_secs = parse_time_to_secs(ts_parts[1]).map_err(|e| PipelineError::Timestamp(e.to_string()))?;
+
+        let segment_path = segments_dir.join(format!("orig_seg_{}.aac", clip._id));
+        let segment_path_str = segment_path.to_string_lossy().to_string();
+
+        match clip.ost {
+            OstType::NarrationOnly => {
+                // OST=0: 用 anullsrc 生成静音段
+                let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+                cmd.arg("-f").arg("lavfi")
+                    .arg("-i").arg(format!("anullsrc=r=44100:cl=stereo"))
+                    .arg("-t").arg(format!("{:.3}", clip_duration))
+                    .arg("-c:a").arg("aac")
+                    .arg("-y")
+                    .output(&segment_path_str);
+
+                let mut child = cmd.spawn()
+                    .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+                let iter = child.iter()
+                    .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+                for event in iter {
+                    if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
+                        tracing::warn!("orig_audio silence segment (non-fatal): {}", e);
+                    }
+                }
+                let status = child.wait()
+                    .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+                if !status.success() {
+                    return Err(PipelineError::FFmpeg {
+                        source: crate::error::FFmpegError::ExecutionError(
+                            format!("静音段生成失败，片段 {}", clip._id),
+                        ),
+                    });
+                }
+            }
+            OstType::OriginalSound | OstType::Mixed => {
+                // OST=1/2: 从源视频提取音频
+                let start_str = secs_to_ffmpeg_time(start_secs);
+                let source_dur = end_secs - start_secs;
+
+                let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+                cmd.arg("-ss").arg(&start_str)
+                    .arg("-i").arg(&source_str)
+                    .arg("-t").arg(format!("{:.3}", source_dur))
+                    .arg("-vn")
+                    .arg("-acodec").arg("aac")
+                    .arg("-y")
+                    .output(&segment_path_str);
+
+                let mut child = cmd.spawn()
+                    .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+                let iter = child.iter()
+                    .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+                for event in iter {
+                    if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
+                        tracing::warn!("orig_audio extract segment (non-fatal): {}", e);
+                    }
+                }
+                let status = child.wait()
+                    .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+                if !status.success() {
+                    return Err(PipelineError::FFmpeg {
+                        source: crate::error::FFmpegError::ExecutionError(
+                            format!("原始音频提取失败，片段 {}", clip._id),
+                        ),
+                    });
+                }
+            }
+        }
+
+        segment_paths.push(segment_path);
+    }
+
+    // 构建 concat list 并合并所有段
+    let concat_list_path = task_dir.join("orig_audio_concat.txt");
+    let mut concat_content = String::new();
+    for seg_path in &segment_paths {
+        let path_str = seg_path.to_string_lossy().replace('\\', "/");
+        let escaped = path_str.replace("'", "'\\''");
+        concat_content.push_str(&format!("file '{}'\n", escaped));
+    }
+    std::fs::write(&concat_list_path, &concat_content)
+        .map_err(|e| PipelineError::Io { source: e })?;
+
+    let output_path = task_dir.join("orig_audio_track.aac");
+    let output_path_str = output_path.to_string_lossy().to_string();
+    let concat_path_str = concat_list_path.to_string_lossy().to_string();
+
+    let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+    cmd.arg("-f").arg("concat")
+        .arg("-safe").arg("0")
+        .arg("-i").arg(&concat_path_str)
+        .arg("-c").arg("copy")
+        .arg("-y")
+        .output(&output_path_str);
+
+    let mut child = cmd.spawn()
+        .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+    let iter = child.iter()
+        .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+    for event in iter {
+        if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
+            tracing::warn!("orig_audio concat (non-fatal): {}", e);
+        }
+    }
+    let status = child.wait()
+        .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+    if !status.success() {
+        return Err(PipelineError::FFmpeg {
+            source: crate::error::FFmpegError::ExecutionError(
+                "原始音轨 concat 合并失败".to_string(),
+            ),
+        });
+    }
+
+    Ok(output_path)
+}
 
 /// G2 Guard: 时间戳非重叠校验
 ///

@@ -240,8 +240,12 @@ pub struct AudioSection {
     pub crossfade_duration: f64,
     #[serde(default)]
     pub bgm_fade_out: f64,
-    #[serde(default)]
+    #[serde(default = "default_volume_profile")]
     pub volume_profile: String,
+}
+
+fn default_volume_profile() -> String {
+    "balanced".to_string()
 }
 
 #[cfg(test)]
@@ -367,7 +371,7 @@ bgm_fade_out = 3.0
         assert_eq!(config.frames.frame_interval_input, 3);
         assert_eq!(config.audio.target_lufs, -14.0);
         assert_eq!(config.audio.enable_audio_normalization, true);
-        assert_eq!(config.audio.volume_profile, "");
+        assert_eq!(config.audio.volume_profile, "balanced");
         assert_eq!(config.audio.tts_volume, 0.8);
         assert_eq!(config.audio.sample_rate, 44100);
         assert!(config.app.pexels_api_keys.is_empty());

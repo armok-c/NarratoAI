@@ -67,13 +67,15 @@ fn create_sdp_test_script(output_dir: &Path) -> std::path::PathBuf {
 // 测试用例
 // ---------------------------------------------------------------------------
 
-/// SDP 短剧混剪流水线全链路测试
+/// 本地集成测试 — 需要真实媒体文件。
+/// 运行方式: cargo test -p narratoai-core --ignored test_sdp_pipeline
 ///
 /// 1. 创建测试脚本（2 个 OriginalSound 片段）
 /// 2. 构建 SdpRequest
 /// 3. 运行 run_sdp()
 /// 4. 验证输出视频存在且大于最小尺寸
 #[tokio::test]
+#[ignore]
 async fn test_sdp_pipeline() {
     init_tracing();
 

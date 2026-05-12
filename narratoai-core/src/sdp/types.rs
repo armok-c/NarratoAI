@@ -72,15 +72,15 @@ impl SdpRequest {
                 return Err(format!("BGM 文件不存在: {}", bp.display()));
             }
         }
-        if !(0.0..=10.0).contains(&self.original_volume) {
+        if !(0.0..=2.0).contains(&self.original_volume) {
             return Err(format!(
-                "original_volume 超出有效范围 [0, 10]: {}",
+                "original_volume 超出有效范围 [0, 2]: {}",
                 self.original_volume
             ));
         }
-        if !(0.0..=10.0).contains(&self.bgm_volume) {
+        if !(0.0..=2.0).contains(&self.bgm_volume) {
             return Err(format!(
-                "bgm_volume 超出有效范围 [0, 10]: {}",
+                "bgm_volume 超出有效范围 [0, 2]: {}",
                 self.bgm_volume
             ));
         }

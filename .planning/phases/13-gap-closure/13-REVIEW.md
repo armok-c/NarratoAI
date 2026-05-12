@@ -1,6 +1,7 @@
 ---
 phase: 13-gap-closure
 reviewed: 2026-05-12T10:00:00Z
+fixed: 2026-05-12
 depth: standard
 files_reviewed: 16
 files_reviewed_list:
@@ -25,7 +26,15 @@ findings:
   warning: 6
   info: 4
   total: 12
-status: issues_found
+fixes_applied:
+  critical: 2
+  warning: 5
+  info: 4
+  total: 11
+  deferred: 1
+  deferred_ids:
+    - WR-02
+status: fix_applied
 ---
 
 # Phase 13: Code Review Report
@@ -244,3 +253,26 @@ The doc comment says "4 步顺序编排" but lists only 3 steps: Clip, Concat, C
 _Reviewed: 2026-05-12T10:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+---
+
+## Fix Log (2026-05-12)
+
+| ID | Status | Fix Summary |
+|----|--------|-------------|
+| CR-01 | **Fixed** | SDE pipeline: replaced `anullsrc` silence with `extract_original_audio_track()` — extracts real audio from source video for OST=1/2 clips, generates silence for OST=0 clips, concatenates into composite orig track |
+| CR-02 | **Fixed** | All 3 pipelines (SDP, Documentary, SDE): conditional amix — skip `amix=inputs=1` when single audio source, map directly to `[aout]` |
+| WR-01 | **Fixed** | `volume_profile` serde: `#[serde(default)]` → `#[serde(default = "default_volume_profile")]` returning `"balanced"` |
+| WR-02 | **Partial** | Added detailed TODOs with proposed API refactoring for `run_sde` and `generate_documentary_script`; full fix deferred to separate phase (requires core API signature change) |
+| WR-03 | **Fixed** | SDP validation: volume range tightened from [0,10] to [0,2] aligning with `VolumeConfig` |
+| WR-04 | **Fixed** | Documentary pipeline: added `has_audio_stream()` ffprobe check before referencing `[0:a]`, falls back to `anullsrc` if concat output lacks audio |
+| WR-05 | **Fixed** | `sdp_real_test`: added `#[ignore]` attribute with doc comment |
+| WR-06 | **Fixed** | `ProcessingConfig::default()`: `enable_smart_volume` and `enable_audio_normalization` changed to `false` matching `AudioSection::default()` |
+| IN-01 | **Fixed** | Removed redundant `let _ =` before `expr.map_err(...)?` in documentary and SDE pipelines |
+| IN-02 | **Fixed** | SDP pipeline doc: "4 步" → "3 步" |
+| IN-03 | **Fixed** | `audio/pipeline.rs`: `parent().unwrap_or(".")` → `parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".")` |
+| IN-04 | **Fixed** | Added cleanup comment on `remove_dir_all` in `generate_sdp_script` |
+
+### Verification
+- `cargo check` (workspace): 0 errors, 2 pre-existing warnings (parentheses)
+- `cargo test -p narratoai-core --lib`: **572 passed, 0 failed, 1 ignored**

@@ -146,8 +146,11 @@ pub async fn run_sde(
             let _ = app_handle.emit("pipeline-progress", payload);
         });
 
-    // TODO(WR-01): Lock guards held across long async pipelines; requires core API refactoring
-    // to accept pre-extracted providers instead of &Registry/&PromptManager.
+    // TODO(WR-02): Lock guards held across long async pipelines (LLM + FFmpeg).
+    // Proposed fix: refactor run_sde() core API to accept pre-extracted
+    // Arc<dyn LlmProvider> + pre-rendered prompts instead of &Registry/&PromptManager.
+    // This would allow scoping both guards to blocks before .await, matching the
+    // pattern used in generate_documentary_script (registry) above.
     let registry = registry.read().await;
     let pm = prompt_manager.read().await;
 
@@ -269,6 +272,9 @@ pub async fn generate_documentary_script(
     let mut request = request;
     request.progress = Some(progress_callback);
 
+    // TODO(WR-02): prompt_manager read guard held across async LLM calls.
+    // core API requires &PromptManager for render_prompt(); would need pre-rendering
+    // or Arc<PromptManager> cloning to drop the guard early.
     let pm = prompt_manager.read().await;
 
     let clips = narratoai_core::documentary::script_gen::generate_documentary_script(
@@ -351,6 +357,7 @@ pub async fn generate_sdp_script(
         custom_clips,
     ).await;
 
+    // 脚本已返回，清理临时文件
     // WR-03: 清理临时目录（无论成功或失败）
     let _ = tokio::fs::remove_dir_all(&task_dir).await;
 

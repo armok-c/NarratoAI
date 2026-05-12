@@ -7,7 +7,7 @@ use crate::sdp::error::SdpError;
 use crate::sdp::types::{SdpPipelineState, SdpProgressCallback, SdpRequest};
 use crate::script::types::OstType;
 
-/// SDP 流水线主入口——4 步顺序编排
+/// SDP 流水线主入口——3 步顺序编排
 ///
 /// 步骤：Clip(0%→30%) → Concat(30%→60%) → Composite(60%→90%→100%)
 ///
@@ -332,12 +332,16 @@ async fn sdp_step_composite(
             amix_count += 1;
         }
 
-        // 构建 amix
-        let mix_inputs = if has_bgm { "[orig][bgm]" } else { "[orig]" };
-        filter_complex_parts.push(format!(
-            "{}amix=inputs={}:duration=longest[aout]",
-            mix_inputs, amix_count
-        ));
+        // 构建 amix（amix 要求至少 2 个输入，单源时直接映射）
+        if has_bgm {
+            filter_complex_parts.push(format!(
+                "[orig][bgm]amix=inputs={}:duration=longest[aout]",
+                amix_count
+            ));
+        } else {
+            // 单一音频源，已在上方应用 volume 并标记为 [orig]，直接映射到 [aout]
+            filter_complex_parts.push("[orig]acopy[aout]".to_string());
+        }
 
         if !filter_complex_parts.is_empty() {
             cmd.arg("-filter_complex")

@@ -23,7 +23,7 @@ pub fn normalize_merged_audio(
         return Ok(input.to_path_buf());
     }
 
-    let output_dir = input.parent().unwrap_or(Path::new("."));
+    let output_dir = input.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let temp = normalize_audio_for_mixing(
         input,
         output_dir,

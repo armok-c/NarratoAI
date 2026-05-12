@@ -169,7 +169,7 @@ pub(crate) async fn step_merge_audio_subtitle(
 
     // D-01: 合并后立即标准化（原地覆盖）
     if let Some(ref merged_path) = state.merged_audio_path {
-        let _ = crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
+        crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
             .map_err(PipelineError::from)?;
     }
 
@@ -307,7 +307,20 @@ pub(crate) async fn step_composite(
     let bgm_vol = resolved.bgm_volume;
     let total_dur = state.total_duration;
     let orig_vol = resolved.original_volume;
-    let has_original_audio = state.script.iter().any(|c| c.ost != OstType::NarrationOnly);
+    let mut has_original_audio = state.script.iter().any(|c| c.ost != OstType::NarrationOnly);
+
+    // WR-04: Runtime verification — concat with -c copy may strip audio streams
+    // even when script clips include non-NarrationOnly OST types.
+    if has_original_audio {
+        let actually_has_audio = crate::ffmpeg::probe::has_audio_stream(merged_video);
+        if !actually_has_audio {
+            tracing::warn!(
+                "has_original_audio 为 true 但 concat 输出无音频流，跳过原声混音"
+            );
+            has_original_audio = false;
+        }
+    }
+
     let font_size = request.subtitle_font_size;
     let subtitle_enabled = request.subtitle_enabled;
     let subtitle_force_style = {
@@ -381,16 +394,18 @@ pub(crate) async fn step_composite(
             if bgm_path_opt.is_some() {
                 mix_labels.push("[bgm]".to_string());
             }
-            let mix_inputs = mix_labels.join("");
-            let compensation = if amix_input_count > 1 {
-                format!(",volume={}", amix_input_count)
+
+            if amix_input_count == 1 {
+                // CR-02: amix=inputs=1 causes FFmpeg failure; map single source directly
+                filter_complex_parts.push(format!("{}[aout]", mix_labels.join("")));
             } else {
-                String::new()
-            };
-            filter_complex_parts.push(format!(
-                "{}amix=inputs={}:duration=longest{}[aout]",
-                mix_inputs, amix_input_count, compensation
-            ));
+                let mix_inputs = mix_labels.join("");
+                let compensation = format!(",volume={}", amix_input_count);
+                filter_complex_parts.push(format!(
+                    "{}amix=inputs={}:duration=longest{}[aout]",
+                    mix_inputs, amix_input_count, compensation
+                ));
+            }
         }
 
         // Video filter for subtitles — always use filter_complex, never -vf
