@@ -175,7 +175,7 @@ pub async fn run_sde(
 pub async fn run_sdp(
     app: AppHandle,
     request: SdpRequest,
-    _config: tauri::State<'_, AppConfig>,
+    config: tauri::State<'_, AppConfig>,
 ) -> Result<CommandResponse, CommandError> {
     validate_sdp_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
@@ -207,6 +207,7 @@ pub async fn run_sdp(
 
     let output_path = narratoai_core::sdp::pipeline::run_sdp(
         request,
+        &config,
         Some(progress_callback),
     ).await?;
 

@@ -12,6 +12,7 @@
 use std::path::Path;
 use std::time::Instant;
 
+use narratoai_core::config::types::AppConfig;
 use narratoai_core::sdp::pipeline::run_sdp;
 use narratoai_core::sdp::types::SdpRequest;
 
@@ -105,7 +106,8 @@ async fn test_sdp_pipeline() {
     let start = Instant::now();
 
     // Step 4: 运行流水线
-    let result = run_sdp(request, None).await;
+    let config = AppConfig::default();
+    let result = run_sdp(request, &config, None).await;
 
     let elapsed = start.elapsed();
     tracing::info!("SDP 流水线完成, 耗时 {:.2}s", elapsed.as_secs_f64());

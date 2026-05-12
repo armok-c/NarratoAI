@@ -135,8 +135,10 @@ mod tests {
             bgm_volume: 0.1,
         };
         let result = resolve_volumes(&req, "documentary", &config);
-        // get_optimized_volumes("documentary") — D-09 新增的分支，确认返回的是优化值
-        assert!((result.tts_volume - 0.8).abs() < 0.01, "documentary 默认 tts 应为 0.8");
+        // get_optimized_volumes("documentary") D-09: tts=1.0, original=0.5, bgm=0.2
+        assert!((result.tts_volume - 1.0).abs() < 0.01, "documentary 默认 tts 应为 1.0");
+        assert!((result.original_volume - 0.5).abs() < 0.01, "documentary original 应为 0.5");
+        assert!((result.bgm_volume - 0.2).abs() < 0.01, "documentary bgm 应为 0.2");
     }
 
     #[test]
