@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::config::types::AppConfig;
 use crate::documentary::error::PipelineError;
 use crate::ffmpeg::command::run_ffmpeg;
 use crate::sdp::error::SdpError;
@@ -16,6 +17,7 @@ use crate::script::types::OstType;
 /// 返回最终输出视频的 PathBuf。
 pub async fn run_sdp(
     request: SdpRequest,
+    config: &AppConfig,
     progress: Option<SdpProgressCallback>,
 ) -> Result<PathBuf, SdpError> {
     // 0. 参数校验
@@ -106,11 +108,64 @@ pub async fn run_sdp(
     sdp_step_concat(&mut state).await?;
     state.emit_progress("concat", 60.0, "视频拼接完成");
 
+    // Raw 音频预标准化（D-07）：对拼接视频的原声音轨做 loudnorm 标准化
+    if config.audio.enable_audio_normalization {
+        if let Some(ref combined_path) = state.combined_video_path {
+            let raw_audio = state.task_dir.join("sdp_raw_audio.wav");
+            let combined_str = combined_path.to_string_lossy().to_string();
+            let raw_str = raw_audio.to_string_lossy().to_string();
+            let task_dir = state.task_dir.clone();
+            let audio_config = config.audio.clone();
+
+            // 从拼接视频中提取音频
+            run_ffmpeg({
+                let combined_str = combined_str.clone();
+                let raw_str = raw_str.clone();
+                move || {
+                    let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+                    cmd.arg("-i").arg(&combined_str)
+                        .arg("-vn")
+                        .arg("-acodec").arg("pcm_s16le")
+                        .arg("-y")
+                        .arg(&raw_str);
+                    let mut child = cmd.spawn()
+                        .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
+                    let status = child.wait()
+                        .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
+                    if !status.success() {
+                        return Err(crate::error::FFmpegError::ExecutionError("SDP 音频提取失败".into()));
+                    }
+                    Ok(())
+                }
+            }).await.map_err(|e: crate::error::FFmpegError| {
+                tracing::warn!("SDP raw 音频提取失败（非致命）: {}", e);
+                SdpError::VideoProcess(PipelineError::FFmpeg { source: e })
+            })?;
+
+            // 标准化提取的音频
+            match crate::audio::normalizer::normalize_audio_for_mixing(
+                &raw_audio,
+                &task_dir,
+                audio_config.target_lufs,
+                audio_config.sample_rate,
+                audio_config.channels,
+            ) {
+                Ok(normalized) => {
+                    state.normalized_audio_path = Some(normalized);
+                    tracing::info!("SDP raw 音频标准化完成 (target_lufs={})", audio_config.target_lufs);
+                }
+                Err(e) => {
+                    tracing::warn!("SDP raw 音频标准化失败（非致命，将使用原始音频）: {}", e);
+                }
+            }
+        }
+    }
+
     // ============================================================
     //  步骤 3: 最终合成 + BGM (Composite)  —  60% → 90% → 100%
     // ============================================================
     state.emit_progress("composite", 60.0, "正在最终合成...");
-    sdp_step_composite(&mut state, &request).await?;
+    sdp_step_composite(&mut state, &request, config).await?;
     state.emit_progress("composite", 90.0, "合成完成");
     state.emit_progress("composite", 100.0, "最终合成完成");
 
@@ -210,6 +265,7 @@ async fn sdp_step_concat(state: &mut SdpPipelineState) -> Result<(), SdpError> {
 async fn sdp_step_composite(
     state: &mut SdpPipelineState,
     request: &SdpRequest,
+    config: &AppConfig,
 ) -> Result<(), SdpError> {
     let merged_video = state
         .combined_video_path
@@ -222,15 +278,26 @@ async fn sdp_step_composite(
     let video_str = merged_video.to_string_lossy().to_string();
     let output_str = output_path.to_string_lossy().to_string();
 
+    // 智能音量覆盖（D-08~D-13）
+    let request_volumes = crate::audio::volume::VolumeConfig {
+        tts_volume: 0.0,  // SDP 无 TTS
+        original_volume: request.original_volume,
+        bgm_volume: request.bgm_volume,
+    };
+    let resolved = crate::audio::pipeline::resolve_volumes(
+        &request_volumes, "sdp", &config.audio,
+    );
+
     // 预先提取所有值，确保 move closure 不捕获&mut state或&request引用
-    let original_volume = request.original_volume;
-    let bgm_volume = request.bgm_volume;
+    let original_volume = resolved.original_volume;
+    let bgm_volume = resolved.bgm_volume;
     let bgm_path_opt = request
         .bgm_path
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
     let total_dur = state.total_duration.max(0.0);
     let has_bgm = bgm_path_opt.is_some();
+    let normalized_audio_path = state.normalized_audio_path.clone();
 
     run_ffmpeg(move || {
         let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
@@ -239,20 +306,28 @@ async fn sdp_step_composite(
         let mut filter_complex_parts: Vec<String> = Vec::new();
         let mut amix_count = 0usize;
 
-        // 原始音频（音量调整）
-        filter_complex_parts.push(format!("[0:a]volume={:.2}[orig]", original_volume));
+        // 标准化音频输入（如果存在）或原始音频
+        if let Some(ref norm_path) = normalized_audio_path {
+            cmd.arg("-i").arg(norm_path.to_string_lossy().to_string());
+            // 使用标准化音频替代原始音频轨道
+            filter_complex_parts.push(format!("[1:a]volume={:.2}[orig]", original_volume));
+        } else {
+            // 原始音频（音量调整）
+            filter_complex_parts.push(format!("[0:a]volume={:.2}[orig]", original_volume));
+        }
         amix_count += 1;
 
         if let Some(ref bgm_path) = bgm_path_opt {
             cmd.arg("-i").arg(bgm_path);
+            let bgm_idx = if normalized_audio_path.is_some() { 2 } else { 1 };
             let fade_start = if total_dur > 3.0 {
                 total_dur - 3.0
             } else {
                 0.0
             };
             filter_complex_parts.push(format!(
-                "[1:a]aloop=loop=-1:size=2e+09,atrim=0:{:.3},asetpts=PTS-STARTPTS,volume={:.2},afade=t=out:st={:.1}:d=3[bgm]",
-                total_dur, bgm_volume, fade_start
+                "[{}:a]aloop=loop=-1:size=2e+09,atrim=0:{:.3},asetpts=PTS-STARTPTS,volume={:.2},afade=t=out:st={:.1}:d=3[bgm]",
+                bgm_idx, total_dur, bgm_volume, fade_start
             ));
             amix_count += 1;
         }
