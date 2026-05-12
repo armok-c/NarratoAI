@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -5,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::documentary::error::PipelineError;
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
+use crate::prompt::manager::PromptManager;
 use crate::script::types::ScriptClip;
 use crate::visual::types::BatchAnalysisResult;
 
@@ -60,6 +62,7 @@ impl Drop for CleanupOnDrop {
 pub async fn analyze_video(
     request: &ScriptGenRequest,
     provider: &dyn LlmProvider,
+    prompt_manager: &PromptManager,
 ) -> Result<FrameAnalysisResult, PipelineError> {
     let interval = request.frame_interval.unwrap_or(3.0);
 
@@ -102,14 +105,20 @@ pub async fn analyze_video(
     let batch_size = request.vision_batch_size.unwrap_or(5);
     let max_concurrency = request.max_concurrency.unwrap_or(2);
 
-    let analysis_prompt = request.custom_prompt.as_deref().unwrap_or(
-        "分析这些视频关键帧，描述每帧的场景、物体、动作和文字内容。以 JSON 格式返回分析结果。"
-    );
+    let mut vars = HashMap::new();
+    let video_desc = request.custom_prompt.as_deref().unwrap_or("根据视频关键帧生成帧分析报告");
+    vars.insert("video_description", video_desc);
+    vars.insert("language", "zh-CN");
+    let analysis_prompt = prompt_manager
+        .render_prompt("documentary", "frame_analysis", Some("v1.0"), &vars)
+        .map_err(|e| PipelineError::Llm {
+            source: crate::error::LLMError::Validation(e.to_string()),
+        })?;
 
     let batch_results = provider
         .analyze_images(
             &keyframe_files,
-            analysis_prompt,
+            &analysis_prompt,
             None,
             Some(batch_size),
             Some(max_concurrency),
@@ -183,23 +192,20 @@ pub fn convert_analysis_to_markdown(analysis: &FrameAnalysisResult) -> String {
 pub async fn generate_narration(
     analysis_markdown: &str,
     provider: &dyn LlmProvider,
+    prompt_manager: &PromptManager,
     video_theme: Option<&str>,
 ) -> Result<Vec<ScriptClip>, PipelineError> {
-    let mut prompt = format!(
-        "根据以下视频帧分析结果，生成纪录片解说脚本。\n\n\
-         每个片段应包含以下字段：\n\
-         - picture: 画面描述\n\
-         - narration: 解说文案\n\
-         - timestamp: 时间范围，格式 HH:MM:SS-HH:MM:SS\n\
-         - OST: 2 (混合模式)\n\n\
-         请以 JSON 格式返回，包含一个 items 数组。\n\n\
-         视频帧分析：\n{}",
-        analysis_markdown
-    );
-
-    if let Some(theme) = video_theme {
-        prompt.push_str(&format!("\n\n视频主题：{}", theme));
-    }
+    let mut vars = HashMap::new();
+    let title = video_theme.unwrap_or("未命名视频");
+    vars.insert("video_title", title);
+    vars.insert("frame_analysis_json", analysis_markdown);
+    vars.insert("language", "zh-CN");
+    vars.insert("style", "正式");
+    let prompt = prompt_manager
+        .render_prompt("documentary", "narration_generation", Some("v2.0"), &vars)
+        .map_err(|e| PipelineError::Llm {
+            source: crate::error::LLMError::Validation(e.to_string()),
+        })?;
 
     let response = provider
         .generate_text(
@@ -224,9 +230,10 @@ pub async fn generate_documentary_script(
     request: ScriptGenRequest,
     vision_provider: &dyn LlmProvider,
     text_provider: &dyn LlmProvider,
+    prompt_manager: &PromptManager,
 ) -> Result<Vec<ScriptClip>, PipelineError> {
     // Step 1: Analyze video frames using vision LLM
-    let analysis = analyze_video(&request, vision_provider).await?;
+    let analysis = analyze_video(&request, vision_provider, prompt_manager).await?;
     emit_progress(&request, 80.0, "生成解说文案");
 
     // Step 2: Convert analysis to markdown
@@ -236,6 +243,7 @@ pub async fn generate_documentary_script(
     let clips = generate_narration(
         &markdown,
         text_provider,
+        prompt_manager,
         request.video_theme.as_deref(),
     )
     .await?;
