@@ -1,10 +1,11 @@
 ---
 phase: 02
 slug: llm-service-layer
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: audit_complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-28
+audited: 2026-05-12
 ---
 
 # Phase 02 — Validation Strategy
@@ -19,18 +20,18 @@ created: 2026-04-28
 |----------|-------|
 | **Framework** | `cargo test` (Rust built-in) |
 | **Config file** | `Cargo.toml` (test dependencies section) |
-| **Quick run command** | `cargo test -p narratoai --lib` |
-| **Full suite command** | `cargo test` |
-| **Estimated runtime** | ~30 seconds |
+| **Quick run command** | `cargo test -p narratoai-core --test llm_wiremock_test` |
+| **Full suite command** | `cargo test -p narratoai-core --lib -- llm && cargo test -p narratoai-core --test llm_wiremock_test` |
+| **Estimated runtime** | ~5 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p narratoai`
-- **After every plan wave:** Run `cargo test`
+- **After every task commit:** Run `cargo test -p narratoai-core --test llm_wiremock_test`
+- **After every plan wave:** Run `cargo test -p narratoai-core`
 - **Before `/gsd-verify-work`:** Full suite must be green
-- **Max feedback latency:** 30 seconds
+- **Max feedback latency:** 5 seconds
 
 ---
 
@@ -38,13 +39,19 @@ created: 2026-04-28
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | LLM-01 | — | Provider routing by name | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | LLM-02 | — | Non-streaming text completion | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | LLM-03 | — | SSE streaming token output | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | LLM-04 | — | Vision analysis with base64 images | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | LLM-05 | — | Structured error types | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | LLM-06 | — | Retry with max_retries config | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | LLM-07 | — | Proxy configuration passthrough | unit | `cargo test llm` | ❌ W0 | ⬜ pending |
+| 01-01 | 01 | 1 | LLM-07 | — | LLMError enum with 9 variants + From impl | unit | `cargo test -p narratoai-core --lib -- llm` | ✅ | ✅ green |
+| 01-02 | 01 | 1 | LLM-04 | — | LlmProvider trait with async methods | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-01 | 02 | 1 | LLM-01 | — | Registry register/get/list/ProviderNotFound | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-01 | 02 | 1 | LLM-04 | — | image_to_base64_data_url preprocessing | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-02 | 02 | 1 | LLM-02 | — | Non-streaming text completion | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-02 | 02 | 1 | LLM-03 | — | SSE streaming token output | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-02 | 02 | 1 | LLM-04 | — | Vision analysis with base64 images | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-02 | 02 | 1 | LLM-05 | — | JSON response_format fallback | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 02-02 | 02 | 1 | LLM-05 | — | OpenAI error code mapping (401/429/400) | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| 03-01 | 03 | 1 | LLM-01 | — | register_all_providers factory + edge cases | unit | `cargo test -p narratoai-core --lib -- llm` | ✅ | ✅ green |
+| 03-02 | 03 | 1 | LLM-01..07 | — | Wiremock integration test suite | integration | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| AUDIT | — | — | LLM-07 | — | Proxy config accepted with valid URL | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
+| AUDIT | — | — | LLM-07 | — | Proxy config rejected with empty URL | unit | `cargo test -p narratoai-core --test llm_wiremock_test` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -52,9 +59,10 @@ created: 2026-04-28
 
 ## Wave 0 Requirements
 
-- [ ] `tests/llm_test.rs` — stubs for LLM-01 through LLM-07
-- [ ] `tests/common/mod.rs` — shared fixtures (mock LLM server, test config builder)
-- [ ] `Cargo.toml` — add `async-openai` (with `chat-completion` feature), `image`, `base64` crates
+- [x] `narratoai-core/tests/llm_wiremock_test.rs` — 10 integration tests covering LLM-01 through LLM-07
+- [x] `narratoai-core/src/llm/test_utils.rs` — shared fixtures (test JPEG generation)
+- [x] `narratoai-core/src/error.rs` — 9 LLMError unit tests (Chinese messages)
+- [x] `narratoai-core/src/llm/register.rs` — 2 unit tests for register_all_providers
 
 ---
 
@@ -62,18 +70,33 @@ created: 2026-04-28
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Real API endpoint connectivity | LLM-01 | Requires valid API keys and network access | Configure `config.toml` with test credentials, run `cargo test -- --ignored` for integration tests |
+| Real API endpoint connectivity | LLM-01 | Requires valid API keys and network access | Configure `config.toml` with test credentials, run `cargo test -p narratoai-core --test llm_real_api_test` |
 | Streaming SSE behavior under network interruption | LLM-03 | Network conditions not reproducible in unit tests | Manual test with real provider, disconnect network mid-stream, verify error propagation |
+
+---
+
+## Validation Audit 2026-05-12
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 3 |
+| Resolved | 3 |
+| Escalated | 0 |
+
+**Gaps resolved:**
+1. `tests/llm_test.rs` unreachable (workspace root, not a package) → moved to `narratoai-core/tests/llm_wiremock_test.rs` + updated `analyze_images` signature
+2. LLM-07 proxy configuration passthrough — no test → added `test_proxy_configuration_accepted` + `test_proxy_empty_url_rejected`
+3. VALIDATION.md stale (draft, TBD task IDs, wrong test paths) → fully updated
 
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 5s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** ✅ compliant
