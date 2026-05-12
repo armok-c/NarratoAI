@@ -132,7 +132,7 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 11. Extended Features | v1.0 | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | v1.0 | 3/3 | Complete | 2026-04-30 |
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
-| 14. Foundation — Frontend Scaffold | v2.0 | 3/3 | Complete | 2026-05-12 |
+| 14. Foundation — Frontend Scaffold | v2.0 | 3/4 | Gap closure planned | - |
 | 15. Layout Shell + 3-Mode UX | v2.0 | 0/0 | Not started | - |
 | 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 0/0 | Not started | - |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
