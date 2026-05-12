@@ -80,6 +80,7 @@ Recent decisions affecting current work:
 
 - [Fix RMS fallback bug CR-01 in normalizer](todos/pending/2026-05-12-fix-rms-fallback-bug-cr01.md) — audio | BLOCKER
 - [Fix Tauri State read locks held across long pipelines](todos/pending/2026-05-12-fix-tauri-state-read-lock-duration.md) — tauri | WARNING
+- [Replace integration test stubs using assert!(true)](todos/pending/2026-05-12-replace-integration-test-stubs-assert-true.md) — testing | WARNING
 
 ### Roadmap Evolution
 
