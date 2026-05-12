@@ -152,7 +152,7 @@ pub(crate) async fn step_clip(
 /// per-request audio volume control during merge.
 pub(crate) async fn step_merge_audio_subtitle(
     state: &mut PipelineState,
-    _request: &DocumentaryRequest,
+    config: &crate::config::types::AppConfig,
 ) -> Result<(), PipelineError> {
     tracing::info!("## 4. 合并音频和字幕");
 
@@ -166,6 +166,12 @@ pub(crate) async fn step_merge_audio_subtitle(
     )
     .await?;
     state.merged_audio_path = Some(merged_audio);
+
+    // D-01: 合并后立即标准化（原地覆盖）
+    if let Some(ref merged_path) = state.merged_audio_path {
+        let _ = crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
+            .map_err(PipelineError::from)?;
+    }
 
     // Merge subtitles
     let merged_sub = merge_subtitle_files(
@@ -269,8 +275,19 @@ pub(crate) async fn step_concat(state: &mut PipelineState) -> Result<(), Pipelin
 pub(crate) async fn step_composite(
     state: &mut PipelineState,
     request: &DocumentaryRequest,
+    config: &crate::config::types::AppConfig,
 ) -> Result<(), PipelineError> {
     tracing::info!("## 6. 最终合成");
+
+    // 智能音量覆盖（D-08~D-13）
+    let resolved = crate::audio::pipeline::resolve_volumes(
+        &crate::audio::volume::VolumeConfig {
+            tts_volume: request.tts_volume,
+            original_volume: request.original_volume,
+            bgm_volume: request.bgm_volume,
+        },
+        "documentary", &config.audio,
+    );
 
     let merged_video = state
         .combined_video_path
@@ -286,10 +303,10 @@ pub(crate) async fn step_composite(
     let audio_str_opt = state.merged_audio_path.as_ref().map(|p| p.to_string_lossy().to_string());
     let srt_path_opt = state.merged_subtitle_path.as_ref().map(|p| p.to_string_lossy().to_string());
     let bgm_path_opt = request.bgm_path.as_ref().map(|p| p.to_string_lossy().to_string());
-    let tts_vol = request.tts_volume;
-    let bgm_vol = request.bgm_volume;
+    let tts_vol = resolved.tts_volume;
+    let bgm_vol = resolved.bgm_volume;
     let total_dur = state.total_duration;
-    let orig_vol = request.original_volume;
+    let orig_vol = resolved.original_volume;
     let has_original_audio = state.script.iter().any(|c| c.ost != OstType::NarrationOnly);
     let font_size = request.subtitle_font_size;
     let subtitle_enabled = request.subtitle_enabled;
@@ -503,13 +520,13 @@ pub async fn run_documentary(
     step_clip(&mut state, &request.video_path).await?;
 
     // Step 4: Merge audio and subtitles
-    step_merge_audio_subtitle(&mut state, &request).await?;
+    step_merge_audio_subtitle(&mut state, config).await?;
 
     // Step 5: Concatenate clips
     step_concat(&mut state).await?;
 
     // Step 6: Final composite
-    step_composite(&mut state, &request).await?;
+    step_composite(&mut state, &request, config).await?;
 
     state
         .output_video_path
