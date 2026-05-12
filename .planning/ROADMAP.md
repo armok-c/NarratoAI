@@ -49,12 +49,13 @@
   4. `tauriInvoke()` 封装层正确处理 BigInt 序列化、敏感字段过滤和调试日志 — 通过单元测试验证
   5. 集成测试中所有 `assert!(true)` 桩替换为真实断言
   6. TypeScript 编译通过无类型错误（`npm run typecheck` passes），ts-rs 生成类型与 Rust 后端一致
-**Plans**: 3 plans
+**Plans**: 4 plans
 **UI hint**: yes
 Plans:
 - [x] 14-01-PLAN.md — 项目脚手架 + Vuetify 插件 + 路由 + 布局/视图 + Tauri 集成（FNDT-01, FNDT-02, FNDT-03）
 - [x] 14-02-PLAN.md — tauriInvoke 封装 + 9 个 Pinia Store 骨架 + API 命令模块（FNDT-04, FNDT-05）
 - [x] 14-03-PLAN.md — ts-rs 类型导出 + TDET-03 集成测试桩验证（FNDT-06, TDET-03）
+- [ ] 14-04-PLAN.md — Gap closure: useTauri 单元测试 + ts-rs 类型文件生成（FNDT-05, FNDT-06）
 
 ### Phase 15: Layout Shell + 3-Mode UX
 **Goal**: 完整布局外壳和模式切换体验 — AppHeader 自定义标题栏、DefaultLayout 三区域布局、HomeView 上下分区、SettingsDrawer 抽屉、深色/浅色主题、系统监控、三模式动态面板切换
