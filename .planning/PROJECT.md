@@ -8,6 +8,29 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具。后端已用 Rust
 
 高性能 Rust 后端驱动完整的视频自动化生产流水线：LLM 文案生成 → TTS 配音 → FFmpeg 视频处理 → 音频标准化 → 合成输出。
 
+## Current Milestone: v2.0 Tauri + Vue 3 Frontend
+
+**Goal:** 高度模仿 SmartEdit 前端布局和操作逻辑，完整适配 NarratoAI Rust 后端，清理 v1.0 全部技术债务，FFmpeg 打包内置。
+
+**Target features (Frontend):**
+- Vue 3 + Vuetify 3 + Pinia + vue-router 单页应用，Tauri 2.0 Hash 路由
+- SmartEdit 布局复用：AppHeader + HomeView + SettingsDrawer（无 FFmpeg 管理面板）
+- 3 种工作模式通过设置卡片下拉切换，动态显示各自面板
+- VideoTable 视频列表、操作按钮行、LogPanel 滚动日志、ScriptPreviewDialog 脚本预览
+- LLM/TTS/BGM/导出 设置面板（适配三模式参数）
+- LLM 双模型配置（Vision + Text）
+- 深色/浅色主题切换 + CPU/RAM 系统监控栏
+- @mdi/font 图标（复用 SmartEdit）
+- FFmpeg Tauri sidecar 内置打包
+
+**Target features (Tech Debt):**
+- Edge-TTS 代理隧道实现
+- Tauri State 读锁优化
+- 集成测试桩替换为真实测试
+- YouTube/Pexels Tauri 命令暴露
+- ConfigManager 热加载激活
+- VisualAnalyzer 门面调用补齐
+
 ## Requirements
 
 ### Validated
@@ -28,17 +51,22 @@ NarratoAI 是一站式 AI 影视解说+自动化剪辑工具。后端已用 Rust
 
 ### Active
 
-- [ ] Vue 3 + Vuetify 3 桌面 UI
-- [ ] 纪录片模式工作面板
-- [ ] 短剧解说模式工作面板
-- [ ] 短剧混剪模式工作面板
-- [ ] 脚本编辑器（带时间轴预览）
-- [ ] 任务进度实时展示
-- [ ] 配置管理界面
-- [ ] 视频预览播放器
+- [ ] 前端项目脚手架（Vue 3 + Vuetify 3 + Pinia + vue-router + Tauri 2.0）
+- [ ] AppHeader + HomeView + SettingsDrawer 布局
+- [ ] 3 模式切换（纪录片/SDE/SDP）— 设置卡片下拉动态面板
+- [ ] VideoTable 视频列表 + 操作按钮行
+- [ ] LogPanel 滚动日志 + ScriptPreviewDialog 脚本预览
+- [ ] LLM 双模型配置面板（Vision + Text）
+- [ ] TTS 配置面板（适配 7 引擎）
+- [ ] BGM/导出配置面板
+- [ ] 深色/浅色主题切换 + 系统监控栏
+- [ ] FFmpeg Tauri sidecar 内置打包
+- [ ] Edge-TTS 代理隧道实现
+- [ ] Tauri State 读锁优化
+- [ ] 集成测试桩替换为真实测试
 - [ ] YouTube/Pexels Tauri 命令暴露
 - [ ] ConfigManager 热加载激活
-- [ ] CONF-02 业务级校验实现
+- [ ] VisualAnalyzer 门面调用补齐
 
 ### Out of Scope
 
@@ -88,4 +116,4 @@ Known tech debt (WARNING level):
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-05-12 after v1.0 milestone completion*
+*Last updated: 2026-05-12 — v2.0 milestone started*
