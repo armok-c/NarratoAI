@@ -2,94 +2,90 @@
 
 ## What This Is
 
-NarratoAI 是一站式 AI 影视解说+自动化剪辑工具（当前 Python 版 v0.7.8）。本项目将其后端完全用 Rust 重写，支持三大业务模式：纪录片解说（Documentary）、短剧解说（SDE）、短剧混剪（SDP）。后续里程碑将用 Tauri 2.0 + Vue 3 重构前端，打包为原生桌面应用。
+NarratoAI 是一站式 AI 影视解说+自动化剪辑工具。后端已用 Rust 完全重写（v1.0 交付），包含库 crate + Tauri 2.0 命令层，支持三大业务模式：纪录片解说（Documentary）、短剧解说（SDE）、短剧混剪（SDP）。前端将在 v2.0 里程碑用 Tauri + Vue 3 重构。
 
 ## Core Value
 
-用 Rust 重写核心视频剪辑流水线（LLM 文案生成 → TTS 配音 → FFmpeg 视频处理 → 合成输出），实现比 Python 版更高性能的视频自动化生产。
+高性能 Rust 后端驱动完整的视频自动化生产流水线：LLM 文案生成 → TTS 配音 → FFmpeg 视频处理 → 音频标准化 → 合成输出。
 
 ## Requirements
 
 ### Validated
 
-<!-- 从现有 Python 代码库推断已验证的能力 -->
-
-- ✓ 纪录片解说流水线（Documentary） — Python 版已实现
-- ✓ 短剧解说流水线（SDE） — Python 版已实现
-- ✓ 短剧混剪流水线（SDP） — Python 版已实现
-- ✓ LLM 服务层（OpenAI 兼容协议，多 provider） — Python 版已实现
-- ✓ 7 个 TTS 引擎（edge_tts、azure_speech、tencent_tts、soulvoice、tts_qwen、indextts2、doubaotts） — Python 版已实现
-- ✓ FFmpeg 视频裁剪/合并/混音 — Python 版已实现
-- ✓ 版本化 Prompt 管理系统 — Python 版已实现
-- ✓ 字幕生成与合并 — Python 版已实现
-- ✓ 剪映草稿导出 — Python 版已实现
-- ✓ SDP 短剧混剪流水线（Rust） — Validated in Phase 8: subtitle extraction, LLM prompts, clip/concat/composite pipeline
+- ✓ 配置系统（TOML 加载/热加载/硬件加速检测） — v1.0 Phase 1
+- ✓ LLM 服务层（OpenAI 兼容协议，Provider/Registry，Vision+Text+Stream） — v1.0 Phase 2
+- ✓ TTS 路由层（7 个引擎：Edge-TTS、Azure、Tencent、SoulVoice、Qwen、IndexTTS2、Doubao） — v1.0 Phase 3+12
+- ✓ Prompt 系统（版本化注册表、模板渲染、分类管理） — v1.0 Phase 4+13
+- ✓ 视觉分析器（帧提取 + 批量 LLM 视觉分析） — v1.0 Phase 4
+- ✓ 脚本管理（JSON 加载/保存/编辑/校验，不可变更新） — v1.0 Phase 5
+- ✓ 纪录片解说流水线（6 步完整编排） — v1.0 Phase 6
+- ✓ 短剧解说流水线（9 步编排，字幕解析+LLM 分析） — v1.0 Phase 7
+- ✓ 短剧混剪流水线（多片段裁剪+拼接） — v1.0 Phase 8
+- ✓ 剪映草稿导出 — v1.0 Phase 9
+- ✓ Tauri 2.0 命令层（15 个 IPC 命令+进度事件） — v1.0 Phase 10
+- ✓ 扩展功能（音频标准化、YouTube 下载、Pexels 素材、智能音量） — v1.0 Phase 11+13
+- ✓ FFmpeg 完整操作（裁剪/合并/混音/字幕/拼接/硬件加速编码） — v1.0 Phase 1+6
 
 ### Active
 
-<!-- Rust 重写目标：代码级对齐 -->
-
-- [ ] Rust 核心视频处理库（FFmpeg 绑定、裁剪、合并、混音）
-- [ ] Rust LLM 服务层（OpenAI 兼容协议、Provider/Registry 模式、Vision+Text 支持）
-- [x] Rust TTS 路由层（7 个引擎全部重写） — Validated in Phase 12
-- [ ] Rust Prompt 系统（版本化、分类注册表、模板渲染）
-- [ ] Rust 纪录片解说流水线（6 步编排）
-- [ ] Rust 短剧解说流水线
-- [x] Rust 短剧混剪流水线 — Validated in Phase 8
-- [ ] Rust 配置系统（TOML 加载）
-- [x] Rust 脚本管理（JSON 加载/保存/编辑/校验） — Validated in Phase 5
-- [ ] Rust 状态管理（文件存储，JSON/TOML）
-- [ ] Rust 视觉分析器（帧提取 + LLM 视觉分析）
-- [x] Tauri 命令层（暴露 Rust 函数给前端） — Validated in Phase 10
-- [ ] 剪映草稿导出（Rust 实现）
+- [ ] Vue 3 + Vuetify 3 桌面 UI
+- [ ] 纪录片模式工作面板
+- [ ] 短剧解说模式工作面板
+- [ ] 短剧混剪模式工作面板
+- [ ] 脚本编辑器（带时间轴预览）
+- [ ] 任务进度实时展示
+- [ ] 配置管理界面
+- [ ] 视频预览播放器
+- [ ] YouTube/Pexels Tauri 命令暴露
+- [ ] ConfigManager 热加载激活
+- [ ] CONF-02 业务级校验实现
 
 ### Out of Scope
 
-- Streamlit Web UI — 后续里程碑用 Tauri + Vue 3 替代
-- Redis 状态后端 — Rust 版用文件存储
-- Docker 部署 — 桌面应用不需要
-- smartEdit 代码复用 — 从零开始，仅参考技术栈选型
+- Streamlit Web UI — 已被 Tauri + Vue 3 替代
+- Redis 状态后端 — 桌面单用户不需要分布式状态
+- Docker 部署 — 桌面应用打包为原生安装包
+- Python 旧 LLM 接口 — Rust 版直接实现新架构
+- Gemini 原生 SDK — 统一用 OpenAI 兼容协议
+- HTTP API 服务 — Tauri 命令层直接调用
+- 多用户/并发任务管理 — 桌面单用户
+- PyO3 Python 桥接 — 完全重写
+- faster-whisper 本地 STT — Python 版已注释掉
 
 ## Context
 
-- 现有 Python 版本在 `E:\GitLib\NarratoAI`，是成熟的可运行系统，作为功能参考和代码级对齐的基准
-- smartEdit（`E:\GitLib\smartEdit`）是基于 Tauri 2.0 + Vue 3 + Rust 的桌面视频编辑应用，是失败的尝试（目标是做出自动化 NarratoAI），但其技术栈验证了 Tauri + Rust 的可行性
-- smartEdit 的技术选型可参考：Tauri 2.0、Vue 3 + Vuetify 3 + TypeScript + Vite、Rust + SQLite + sqlx
-- 用户要求完全从零开始，不复用 smartEdit 代码
+Shipped v1.0 with ~24,609 LOC Rust (23,532 core + 1,077 Tauri).
+Tech stack: Rust + ffmpeg-sidecar + reqwest + tokio + Tauri 2.0.
+Tests: 573 passing. Timeline: 15 days (2026-04-27 → 2026-05-12).
+
+Known tech debt (WARNING level):
+- Edge-TTS proxy tunnel unimplemented
+- Tauri State read lock held across long pipelines
+- Integration test stubs using assert!(true)
+- _max_retries parameter accepted but unwired
 
 ## Constraints
 
-- **Tech stack**: Rust（后端库）+ Tauri 2.0 命令层（后续前端里程碑用 Vue 3 + Vite）
-- **No code reuse**: 从零开始，不复用 smartEdit 的 Rust 代码，仅参考技术栈
-- **Feature parity**: 代码级对齐——每个 Python 模块都有对应 Rust 实现
-- **Storage**: 文件存储（JSON/TOML），不用数据库
-- **Architecture**: Rust 库 + Tauri 命令，不是 HTTP API 服务
+- **Tech stack**: Rust（后端库）+ Tauri 2.0 命令层 + Vue 3 + Vite（前端，v2.0）
+- **No code reuse**: 从零开始，不复用 smartEdit 代码
+- **Feature parity**: 代码级对齐 Python 版
+- **Storage**: 文件存储（JSON/TOML）
+- **Architecture**: Rust 库 + Tauri 命令
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 从零重写而非增量替换 | 完全发挥 Rust 性能优势，避免 Python/Rust 混合架构复杂性 | — Pending |
-| 库 + Tauri 命令架构 | 桌面应用，无需 HTTP 层，Tauri 直接调用 Rust 函数 | — Pending |
-| 文件存储替代 Redis | 桌面单用户场景，不需要分布式状态 | — Pending |
-| 参考但不复用 smartEdit | smartEdit 已验证技术栈但代码不可用，从零开始更干净 | — Pending |
+| 从零重写而非增量替换 | 完全发挥 Rust 性能优势 | ✓ Good — 15 天交付完整后端 |
+| 库 + Tauri 命令架构 | 桌面应用无需 HTTP 层 | ✓ Good — 15 个 IPC 命令 |
+| 文件存储替代 Redis | 桌面单用户场景 | ✓ Good — 简单可靠 |
+| 统一 OpenAI 兼容协议 | 所有 Provider 统一接口 | ✓ Good — 降低复杂度 |
+| Phase 13 gap closure 插入 | 补齐 Prompt+音频集成 | ✓ Good — 关闭关键缺口 |
+| OST 类型驱动流水线 | 三种模式清晰分离 | ✓ Good — 裁剪/音频/混音策略一致 |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `/gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
-
 ---
-*Last updated: 2026-05-07 after Phase 10 completion — Tauri command layer complete (2 plans, 13/13 must-haves verified)*
+*Last updated: 2026-05-12 after v1.0 milestone completion*

@@ -1,107 +1,52 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: phase_complete
-stopped_at: Phase 13 execution complete
-last_updated: "2026-05-12T14:40:00Z"
-last_activity: 2026-05-12 -- Phase 13 gap closure complete
+milestone: v2.0
+milestone_name: Tauri + Vue 3 Frontend
+status: milestone_complete
+stopped_at: v1.0 shipped
+last_updated: "2026-05-12T19:00:00Z"
+last_activity: 2026-05-12 -- v1.0 milestone archived
 progress:
-  total_phases: 13
-  completed_phases: 13
-  total_plans: 47
-  completed_plans: 47
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-29)
+See: .planning/PROJECT.md (updated 2026-05-12)
 
-**Core value:** 用 Rust 重写核心视频剪辑流水线（LLM 文案生成 -> TTS 配音 -> FFmpeg 视频处理 -> 合成输出），实现高性能 AI 视频自动化生产
-**Current focus:** Milestone v1.0 complete — all 13 phases done
+**Core value:** 高性能 Rust 后端驱动完整的视频自动化生产流水线
+**Current focus:** Planning next milestone (v2.0 — Tauri + Vue 3 Frontend)
 
 ## Current Position
 
-Phase: 13 (complete)
-Plan: All plans done
-Status: Phase 13 verified and complete
+Phase: v1.0 complete, v2.0 not started
+Status: Milestone v1.0 archived
 Last activity: 2026-05-12
-Resume file: .planning/phases/13-gap-closure/13-VERIFICATION.md
+Resume file: .planning/MILESTONES.md
 
-Progress: [████████████] 100%
-
-## Performance Metrics
-
-**Velocity:**
-
-- Total plans completed: 38
-- Average duration: -
-- Total execution time: 0 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 01 | 3 | - | - |
-| 02 | 3 | - | - |
-| 03 | 3 | - | - |
-| 05 | 2 | - | - |
-| 06 | 4 | - | - |
-| 09 | 4 | - | - |
-| 12 | 3 | - | - |
-| 08 | 5 | - | - |
-| 10 | 2 | - | - |
-| 07 | 4 | - | - |
-| 13 | 5 | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: -
-- Trend: N/A
-
-*Updated after each plan completion*
-
-## Accumulated Context
-
-### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Phase 06]: Step-by-Step 函数链，PipelineState 可变结构体，fail-fast 错误恢复
-- [Phase 06]: TTS 后即时生成 SRT 片段，字幕在最终合成步骤烧录
-- [Phase 06]: 帧分析预处理与 6 步流水线解耦，两步 LLM 调用（帧分析→文案生成）
-- [Phase 09]: Timerange 使用微秒整数（SEC=1_000_000），trange() 支持秒字符串
-- [Phase 09]: 视频来源智能回退——有 clip.video 用它，无则用原始路径+source_timerange
-
-### Pending Todos
-
-- [Fix RMS fallback bug CR-01 in normalizer](todos/pending/2026-05-12-fix-rms-fallback-bug-cr01.md) — audio | BLOCKER
-- [Fix Tauri State read locks held across long pipelines](todos/pending/2026-05-12-fix-tauri-state-read-lock-duration.md) — tauri | WARNING
-- [Replace integration test stubs using assert!(true)](todos/pending/2026-05-12-replace-integration-test-stubs-assert-true.md) — testing | WARNING
-
-### Roadmap Evolution
-
-- Phase 13 added: Gap Closure — Documentary Prompt + Phase 11 Integration
-
-### Blockers/Concerns
-
-- Edge-TTS WebSocket 协议需要精确实现（认证令牌、时钟偏移校正、Chromium 版本字符串），参考 smartEdit 的现有实现
-- SQLite vs 文件存储决策：PROJECT.md 已确定文件存储（JSON/TOML），但 smartEdit 经验表明 SQLite 更适合桌面应用
+Progress: [████████████] 100% (v1.0)
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and deferred at v1.0 milestone close on 2026-05-12:
 
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| *(none)* | | | |
+| Category | Item | Status |
+|----------|------|--------|
+| tech-debt | CONF-02 validate() no-op | PARTIAL (by design) |
+| tech-debt | Edge-TTS proxy tunnel | Deferred to v2 |
+| tech-debt | Tauri State read lock duration | WARNING |
+| tech-debt | Integration test stubs assert!(true) | WARNING |
+| feature | YouTube/Pexels Tauri commands | Deferred to v2 |
+| feature | ConfigManager hot-reload activation | Deferred to v2 |
+| feature | VisualAnalyzer facade callers | Deferred to v2 |
 
 ## Session Continuity
 
-Last session: 2026-05-06T16:06:15.312Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/06-documentary-pipeline/06-VERIFICATION.md
+Last session: 2026-05-12
+Stopped at: v1.0 milestone complete — ready for /gsd-new-milestone
