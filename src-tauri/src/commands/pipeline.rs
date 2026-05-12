@@ -225,6 +225,7 @@ pub async fn generate_documentary_script(
     request: ScriptGenRequest,
     config: tauri::State<'_, AppConfig>,
     registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
+    prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
 ) -> Result<Script, CommandError> {
     validate_script_gen_paths(&request)?;
     // 从配置中获取 vision 和 text LLM provider（作用域化，确保 guard 在 .await 前释放）
@@ -267,10 +268,13 @@ pub async fn generate_documentary_script(
     let mut request = request;
     request.progress = Some(progress_callback);
 
+    let pm = prompt_manager.read().await;
+
     let clips = narratoai_core::documentary::script_gen::generate_documentary_script(
         request,
         vision_provider.as_ref(),
         text_provider.as_ref(),
+        &pm,
     ).await?;
 
     Ok(clips)
