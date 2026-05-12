@@ -20,7 +20,7 @@ function serializeBigIntArg(value: bigint, path: string): number {
   return Number(value)
 }
 
-function normalizeTauriArgs(args: unknown, path = 'args'): unknown {
+export function normalizeTauriArgs(args: unknown, path = 'args'): unknown {
   if (typeof args === 'bigint') {
     return serializeBigIntArg(args, path)
   }
