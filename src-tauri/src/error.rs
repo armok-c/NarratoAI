@@ -1,12 +1,14 @@
 use serde::Serialize;
 use std::fmt;
+use ts_rs::TS;
 
 /// Tauri 命令统一错误——所有领域错误通过 From<T> 转换为此类型
 ///
 /// # 安全性
 /// message 保留中文错误信息（与 Phase 1 D-18 一致）。
 /// code 用于前端程序化区分错误类型。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 pub struct CommandError {
     pub code: String,
     pub message: String,

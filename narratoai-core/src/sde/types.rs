@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::documentary::types::TtsResult;
 
 /// SDE 流水线请求参数
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 pub struct SdeRequest {
     pub subtitle_path: PathBuf,
     pub video_path: PathBuf,

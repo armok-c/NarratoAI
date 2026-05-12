@@ -41,6 +41,7 @@ sha2 = "0.11"
 encoding_rs = "0.8"
 symphonia = { version = "0.5", features = ["mp3", "flac", "pcm", "wav", "vorbis"] }
 md-5 = "0.10"
+ts-rs = { version = "11", features = ["serde-compat", "format"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

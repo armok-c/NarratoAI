@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// 顶层配置，与 config.toml 结构一一对应
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
     #[serde(default)]
@@ -29,7 +31,8 @@ pub struct AppConfig {
 }
 
 /// [app] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct AppSection {
     #[serde(default)]
@@ -65,7 +68,8 @@ pub struct AppSection {
 }
 
 /// [ui] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct UiSection {
     #[serde(default)]
@@ -93,7 +97,8 @@ pub struct UiSection {
 }
 
 /// [azure] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct AzureSection {
     #[serde(default, skip_serializing)]
@@ -103,7 +108,8 @@ pub struct AzureSection {
 }
 
 /// [tencent] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct TencentSection {
     #[serde(default, skip_serializing)]
@@ -115,7 +121,8 @@ pub struct TencentSection {
 }
 
 /// [soulvoice] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct SoulVoiceSection {
     #[serde(default, skip_serializing)]
@@ -129,7 +136,8 @@ pub struct SoulVoiceSection {
 }
 
 /// [tts_qwen] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct TtsQwenSection {
     #[serde(default, skip_serializing)]
@@ -141,7 +149,8 @@ pub struct TtsQwenSection {
 }
 
 /// [indextts2] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct IndexTTS2Section {
     #[serde(default)]
@@ -165,7 +174,8 @@ pub struct IndexTTS2Section {
 }
 
 /// [doubaotts] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
     #[serde(default, skip_serializing)]
@@ -189,7 +199,8 @@ pub struct DoubaoTTSSection {
 }
 
 /// [proxy] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct ProxySection {
     #[serde(default)]
@@ -201,7 +212,8 @@ pub struct ProxySection {
 }
 
 /// [frames] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct FramesSection {
     #[serde(default)]
@@ -213,7 +225,8 @@ pub struct FramesSection {
 }
 
 /// [audio] 配置段
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 #[serde(deny_unknown_fields)]
 pub struct AudioSection {
     #[serde(default)]

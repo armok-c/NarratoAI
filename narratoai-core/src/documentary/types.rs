@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::tts::WordBoundary;
 
 /// 纪录片流水线请求参数
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 pub struct DocumentaryRequest {
     pub video_path: PathBuf,
     pub script_path: PathBuf,

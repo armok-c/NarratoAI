@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// SDP 流水线请求参数
 ///
 /// 精简设计：包含 run_sdp 和 generate_sdp_script 所需的所有参数。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 pub struct SdpRequest {
     /// 字幕文件路径（用于 generate_sdp_script）
     pub subtitle_path: PathBuf,
