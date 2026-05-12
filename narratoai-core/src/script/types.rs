@@ -1,14 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde::de;
 use serde_repr::{Deserialize_repr, Serialize_repr};
+use ts_rs::TS;
 
 /// OST 类型——决定视频裁剪时如何处理音频
 ///
 /// - `NarrationOnly` (0): 仅保留解说音频，根据 TTS 时长裁剪
 /// - `OriginalSound` (1): 保留原声，按脚本 timestamp 精确裁剪
 /// - `Mixed` (2): 保留解说+原声（混合），根据 TTS 时长裁剪
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr, TS)]
 #[repr(u8)]
+#[ts(export, export_to = "../src/types/generated/")]
 pub enum OstType {
     NarrationOnly = 0,
     OriginalSound = 1,
@@ -41,7 +43,8 @@ fn deserialize_id<'de, D: de::Deserializer<'de>>(d: D) -> Result<i64, D::Error> 
 ///
 /// 5 个核心字段（`_id`, `timestamp`, `picture`, `narration`, `OST`）在 JSON 中必须有值。
 /// 6 个管道扩展字段用 `Option<T>`，加载时为 `None`，管道处理后可能有值。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../src/types/generated/")]
 pub struct ScriptClip {
     #[serde(deserialize_with = "deserialize_id")]
     pub _id: i64,
