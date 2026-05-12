@@ -36,3 +36,94 @@ pub struct ScriptInfo {
     pub total_duration_secs: f64,
     pub unparseable_clips: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_progress_payload_serialize_full() {
+        let payload = ProgressPayload {
+            pipeline_type: "documentary".into(),
+            task_id: "test-uuid".into(),
+            step_name: "tts".into(),
+            percent: 50.0,
+            message: "TTS 生成中".into(),
+            step_index: 1,
+            total_steps: 6,
+            status: "running".into(),
+            error_code: Some("TTS_ERROR".into()),
+            error_message: Some("连接超时".into()),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"pipeline_type\":\"documentary\""));
+        assert!(json.contains("\"error_code\":\"TTS_ERROR\""));
+        assert!(json.contains("\"error_message\":\"连接超时\""));
+    }
+
+    #[test]
+    fn test_progress_payload_skip_optional_when_none() {
+        let payload = ProgressPayload {
+            pipeline_type: "sde".into(),
+            task_id: "uuid".into(),
+            step_name: "clip".into(),
+            percent: 30.0,
+            message: "裁剪中".into(),
+            step_index: 5,
+            total_steps: 9,
+            status: "running".into(),
+            error_code: None,
+            error_message: None,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(!json.contains("error_code"));
+        assert!(!json.contains("error_message"));
+    }
+
+    #[test]
+    fn test_progress_payload_no_sensitive_fields() {
+        // T-10-03: ProgressPayload 不含任何敏感字段
+        let payload = ProgressPayload {
+            pipeline_type: "documentary".into(),
+            task_id: "uuid".into(),
+            step_name: "tts".into(),
+            percent: 0.0,
+            message: String::new(),
+            step_index: 0,
+            total_steps: 6,
+            status: "running".into(),
+            error_code: None,
+            error_message: None,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(!json.contains("api_key"));
+        assert!(!json.contains("secret"));
+        assert!(!json.contains("token"));
+        assert!(!json.contains("password"));
+    }
+
+    #[test]
+    fn test_command_response_roundtrip() {
+        let resp = CommandResponse {
+            output_video_path: PathBuf::from("/output/video.mp4"),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let de: CommandResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(de.output_video_path, PathBuf::from("/output/video.mp4"));
+    }
+
+    #[test]
+    fn test_script_info_roundtrip() {
+        let info = ScriptInfo {
+            clip_count: 42,
+            total_duration_secs: 1800.5,
+            unparseable_clips: 3,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let de: ScriptInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(de.clip_count, 42);
+        assert_eq!(de.total_duration_secs, 1800.5);
+        assert_eq!(de.unparseable_clips, 3);
+    }
+}
