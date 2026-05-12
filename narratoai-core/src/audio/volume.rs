@@ -55,7 +55,7 @@ impl Default for ProcessingConfig {
         Self {
             enable_smart_volume: true,
             enable_audio_normalization: true,
-            target_lufs: -20.0,
+            target_lufs: -14.0,
             max_peak: -1.0,
         }
     }
@@ -122,6 +122,21 @@ pub fn get_optimized_volumes(video_type: &str) -> VolumeConfig {
             tts_volume: 1.0,
             original_volume: 0.6,
             bgm_volume: 0.1,
+        },
+        "documentary" => VolumeConfig {
+            tts_volume: 1.0,
+            original_volume: 0.5,
+            bgm_volume: 0.2,
+        },
+        "sde" => VolumeConfig {
+            tts_volume: 0.9,
+            original_volume: 0.8,
+            bgm_volume: 0.3,
+        },
+        "sdp" => VolumeConfig {
+            tts_volume: 0.0,
+            original_volume: 1.0,
+            bgm_volume: 0.3,
         },
         _ => VolumeConfig {
             tts_volume: 0.8,
@@ -316,7 +331,29 @@ mod tests {
         let cfg = ProcessingConfig::default();
         assert!(cfg.enable_smart_volume);
         assert!(cfg.enable_audio_normalization);
-        assert!((cfg.target_lufs - (-20.0)).abs() < 0.01);
+        assert!((cfg.target_lufs - (-14.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_get_optimized_volumes_documentary() {
+        let v = get_optimized_volumes("documentary");
+        assert!((v.tts_volume - 1.0).abs() < 0.01);
+        assert!((v.original_volume - 0.5).abs() < 0.01);
+        assert!((v.bgm_volume - 0.2).abs() < 0.01);
+    }
+    #[test]
+    fn test_get_optimized_volumes_sde() {
+        let v = get_optimized_volumes("sde");
+        assert!((v.tts_volume - 0.9).abs() < 0.01);
+        assert!((v.original_volume - 0.8).abs() < 0.01);
+        assert!((v.bgm_volume - 0.3).abs() < 0.01);
+    }
+    #[test]
+    fn test_get_optimized_volumes_sdp() {
+        let v = get_optimized_volumes("sdp");
+        assert!((v.tts_volume - 0.0).abs() < 0.01);
+        assert!((v.original_volume - 1.0).abs() < 0.01);
+        assert!((v.bgm_volume - 0.3).abs() < 0.01);
     }
 
     #[test]
