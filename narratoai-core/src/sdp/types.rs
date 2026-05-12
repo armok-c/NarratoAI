@@ -110,7 +110,7 @@ pub enum SdpProgressStep {
 /// SDP 进度回调类型（字符串基——step_name, percent, message）
 pub type SdpProgressCallback = Box<dyn Fn(&str, f32, &str) + Send + Sync>;
 
-/// SDP 流水线中间状态——精简为 4 步所需字段
+/// SDP 流水线中间状态——精简为 3 步所需字段
 ///
 /// 无 TTS/字幕相关字段（区别于 SdePipelineState）：
 /// - 无 tts_results

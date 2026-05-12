@@ -109,6 +109,7 @@ fn test_normalize_to_minus_14_lufs() {
         &wav_path,
         &output_dir,
         -14.0,        // target_lufs
+        -1.0,         // max_peak
         sample_rate,
         1,            // channels (mono)
     )
@@ -120,10 +121,7 @@ fn test_normalize_to_minus_14_lufs() {
         .expect("ffprobe loudnorm 分析应成功");
 
     // Step 4: 验证 integrated LUFS ≈ -14.0（±2 LUFS 容差）
-    let integrated_lufs: f64 = loudnorm
-        .input_i
-        .parse()
-        .expect("input_i 应为数字");
+    let integrated_lufs = loudnorm.measured_I();
 
     let expected = -14.0;
     let tolerance = 2.0;
@@ -149,10 +147,12 @@ fn test_normalize_to_minus_14_lufs() {
 
 #[test]
 fn test_normalize_handles_nonexistent_input() {
+    let tmp = std::env::temp_dir();
     let result = normalize_audio_for_mixing(
         Path::new("/nonexistent/test.wav"),
-        Path::new("/tmp"),
+        &tmp,
         -14.0,
+        -1.0,
         44100,
         1,
     );

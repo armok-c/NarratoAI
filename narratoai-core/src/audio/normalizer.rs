@@ -112,10 +112,18 @@ impl LoudnormData {
 fn extract_json_from_stderr(stderr: &[u8]) -> Result<String, AudioError> {
     let text = String::from_utf8_lossy(stderr);
 
-    // 优先在 loudnorm 标记之后查找 JSON 起始位置，避免误匹配前缀中的花括号
+    // loudnorm 输出格式：[Parsed_loudnorm_<N> @ 0x...] { ... }
+    // 查找最后一段 loudnorm 输出（两遍标准化时第一遍结果也在 stderr 中）
+    let marker = "Parsed_loudnorm_";
     let search_start = text
-        .rfind("Parsed_loudnorm_")
-        .map(|pos| pos + "Parsed_loudnorm_".len())
+        .rfind(marker)
+        .map(|pos| {
+            // 跳过 "Parsed_loudnorm_" 后的实例编号直到 " @ " 或 "{"
+            let rest = &text[pos + marker.len()..];
+            rest.find(|c: char| !c.is_ascii_digit())
+                .map(|i| pos + marker.len() + i)
+                .unwrap_or(pos + marker.len())
+        })
         .unwrap_or(0);
     let start = text[search_start..]
         .find('{')
@@ -283,6 +291,8 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
         .make(codec_params, &DecoderOptions::default())
         .map_err(|e| AudioError::RmsFallbackFailed(format!("解码器初始化失败: {}", e)))?;
 
+    // 展平所有声道计算全局 RMS，作为 loudnorm 的降级回退方案。
+    // 不做声道分离，因为回退场景下精度要求低于 loudnorm 主路径。
     let mut all_samples: Vec<f32> = Vec::new();
 
     loop {
@@ -325,7 +335,8 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
 
 /// 计算 TTS 和原声的音量调整系数
 ///
-/// 纯函数，无文件 I/O。目标响度 -20.0 LUFS。
+/// 纯函数，无文件 I/O。目标响度 -20.0 LUFS（低于全局 target_lufs -14.0），
+/// 因为 TTS 和原声混合后仍需为 BGM 和其他音轨留出响度余量。
 /// - TTS 调整系数 clamp 到 [0.1, 2.0]
 /// - 原声调整系数 clamp 到 [0.1, 3.0]
 ///
@@ -353,6 +364,7 @@ pub fn normalize_audio_for_mixing(
     audio_path: &Path,
     output_dir: &Path,
     target_lufs: f64,
+    max_peak: f64,
     sample_rate: u32,
     channels: u32,
 ) -> Result<PathBuf, AudioError> {
@@ -367,7 +379,7 @@ pub fn normalize_audio_for_mixing(
     let output_path = output_dir.join(format!("{}_normalized.mp3", stem));
 
     // 优先 loudnorm 两遍标准化
-    match normalize_lufs(audio_path, &output_path, target_lufs, -1.0, sample_rate, channels) {
+    match normalize_lufs(audio_path, &output_path, target_lufs, max_peak, sample_rate, channels) {
         Ok(()) => return Ok(output_path),
         Err(e) => tracing::warn!("loudnorm 两遍标准化失败，回退到 RMS 标准化: {}", e),
     }
@@ -485,6 +497,7 @@ mod tests {
             &tmp.join("nonexistent_test.wav"),
             &tmp,
             -20.0,
+            -1.0,
             44100,
             2,
         );

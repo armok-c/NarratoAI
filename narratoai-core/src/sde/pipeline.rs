@@ -548,6 +548,8 @@ pub async fn run_sde(
                 filter_complex_parts.push(format!("{}[aout]", mix_labels.join("")));
             } else {
                 let mix_inputs = mix_labels.join("");
+                // amix 默认衰减 1/N，此处用 volume=N 补偿。当 count≥3 时有削波风险，
+                // 极端配置下可能需添加 limiter 滤镜。
                 let compensation = format!(",volume={}", amix_input_count);
                 filter_complex_parts.push(format!(
                     "{}amix=inputs={}:duration=longest{}[aout]",

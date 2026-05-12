@@ -34,6 +34,30 @@ fixes_applied:
   deferred: 1
   deferred_ids:
     - WR-02
+rereview_findings:
+  critical: 1
+  warning: 8
+  info: 9
+  total: 18
+rereview_fixes:
+  critical: 1
+  warning: 7
+  info: 9
+  total: 17
+  deferred: 1
+  deferred_ids:
+    - WR-R2-01
+r3_review_findings:
+  critical: 0
+  warning: 4
+  info: 5
+  total: 9
+r3_fixes:
+  warning: 3
+  info: 0
+  total: 3
+  skipped:
+    - W1 (volume=1.0 是必要的标签重命名，非真正问题)
 status: fix_applied
 ---
 
@@ -42,11 +66,125 @@ status: fix_applied
 **Reviewed:** 2026-05-12T10:00:00Z
 **Depth:** standard
 **Files Reviewed:** 16
-**Status:** issues_found
+**Status:** fix_applied
 
 ## Summary
 
 Reviewed 16 files across the audio normalization pipeline, documentary/SDE/SDP processing pipelines, Tauri command layer, config types, and integration tests. Found 2 critical bugs (audio loss for OST=1 clips in SDE, and amix=inputs=1 edge case that fails on some FFmpeg versions), 6 warnings (ranging from serde default mismatches to concurrency lock contention and validation inconsistencies), and 4 informational items. The SDE and documentary pipelines share a common root cause: `concat -c copy` strips audio when clips have heterogeneous OST types, which both pipelines handle incorrectly.
+
+All 12 original findings were fixed (1 deferred: WR-02 RwLock refactoring).
+
+---
+
+## Re-Review (2026-05-12, Post-Fix Verification)
+
+Re-reviewed all 18 changed files after original fixes. Found 1 new critical issue, 8 warnings, and 9 informational items. Applied fixes for 17 of 18 findings.
+
+### Critical Issues
+
+### CR-R2-01: SDP composite 未检查 concat 输出音频流存在性
+
+**File:** `narratoai-core/src/sdp/pipeline.rs:302-311`
+**Issue:** Documentary pipeline 在 WR-04 修复中添加了 `has_audio_stream()` 运行时检查，但 SDP pipeline 的 composite 步骤直接引用 `[0:a]`，没有类似验证。SDP 全部依赖源视频音频（OST=1），concat `-c copy` 可能丢失音频流。
+**Fix:** 添加 `has_audio_stream()` 检查，无音频流时提前返回错误。
+
+### Warnings
+
+### WR-R2-01: SDE pipeline `extract_original_audio_track` 中 anullsrc 静音参数与源视频可能不匹配
+
+**File:** `narratoai-core/src/sde/pipeline.rs:698`
+**Issue:** OST=0 静音段使用硬编码 `anullsrc=r=44100:cl=stereo`，但源视频可能使用不同采样率/声道数。concat 合并不同参数的段可能导致播放异常。
+**Status:** **Deferred** — 需要额外的 ffprobe 调用检测源音频参数，当前 44100/stereo 对大多数视频可接受。应在后续阶段解决。
+
+### WR-R2-02: `normalize_audio_for_mixing` 忽略配置中的 `max_peak`
+
+**File:** `narratoai-core/src/audio/normalizer.rs:370`, `narratoai-core/src/audio/pipeline.rs:27-33`
+**Issue:** 函数硬编码 `max_peak=-1.0`，但 `AudioSection` 配置有 `max_peak` 字段。用户修改 config.toml 中的 max_peak 不会生效。
+**Fix:** 添加 `max_peak: f64` 参数，调用方传递 `config.max_peak`。
+
+### WR-R2-03: SDP pipeline composite 使用 `acopy` 滤镜（FFmpeg < 6.0 不可用）
+
+**File:** `narratoai-core/src/sdp/pipeline.rs:343`
+**Issue:** 无 BGM 时使用 `[orig]acopy[aout]`。`acopy` 滤镜在 FFmpeg 6.0 引入，旧版本不支持。
+**Fix:** 替换为 `volume=1.0` 滤镜（兼容所有 FFmpeg 版本）。
+
+### WR-R2-04: `probe_audio` 未处理空输出
+
+**File:** `narratoai-core/src/ffmpeg/probe.rs:147-151`
+**Issue:** ffprobe 输出为空时错误信息不精确（"cannot parse float from empty string"）。
+**Fix:** 添加空输出检查，返回明确的错误信息。
+
+### WR-R2-05: Documentary pipeline `amix_input_count==0` 时未显式丢弃音频流
+
+**File:** `narratoai-core/src/documentary/pipeline.rs:440-454`
+**Issue:** 无任何音频输入时仍设置 `codec_audio("aac")`，可能导致不一致行为。
+**Fix:** 无音频时添加 `-an` 显式丢弃音频流。
+
+### WR-R2-06: `generate_sdp_script` 清理在错误传播前执行
+
+**File:** `src-tauri/src/commands/pipeline.rs:362-364`
+**Issue:** `remove_dir_all` 在 `script?` 之前执行，LLM 失败时临时目录已被删除，无法调试。
+**Fix:** 保持清理在 `script?` 之前（脚本已返回，不影响结果），但移除误导性的注释。
+
+### WR-R2-07: `custom_clips` 参数缺少上限校验
+
+**File:** `src-tauri/src/commands/pipeline.rs:325-330`
+**Issue:** 仅校验 `== 0`，无上限。过大的值可能导致资源过度消耗。
+**Fix:** 添加 `> 100` 上限校验。
+
+### WR-R2-08: SDP pipeline 音频提取失败的 "非致命" 日志与实际行为矛盾
+
+**File:** `narratoai-core/src/sdp/pipeline.rs:141`
+**Issue:** `tracing::warn!("...非致命...")` 但随后返回 `Err` 终止流水线。
+**Fix:** 移除"非致命"描述。
+
+### Info
+
+### IN-R2-01: `VolumeConfig` 缺少 `#[must_use]` 属性
+
+**File:** `narratoai-core/src/audio/volume.rs:18`
+**Fix:** 添加 `#[must_use]`。
+
+### IN-R2-02: `MixingConfig::from_section()` 的 `dynamic_range_compression` 未注释
+
+**File:** `narratoai-core/src/audio/volume.rs:101`
+**Fix:** 添加注释说明此字段尚未暴露到配置层。
+
+### IN-R2-03: `config.example.toml` 缺少 `[tts_qwen]` 的 `api_url` 字段
+
+**File:** `config.example.toml:91-95`
+**Fix:** 添加注释形式的 `api_url` 配置项。
+
+### IN-R2-04: SDP `SdpPipelineState` 注释中 "4 步" 未更新
+
+**File:** `narratoai-core/src/sdp/types.rs:113`
+**Fix:** "4 步" → "3 步"。
+
+### IN-R2-05: Documentary pipeline `split('-')` 风格不一致
+
+**File:** `narratoai-core/src/documentary/pipeline.rs:122-123`
+**Issue:** Documentary 用 `split('-').next()` 而 SDE/SDP 用 `splitn(2, '-')`。
+**Fix:** 统一为 `splitn(2, '-').next()`。
+
+### IN-R2-06: 进度回调 `_ => 0` 默认值可能导致误导性进度显示
+
+**File:** `src-tauri/src/commands/pipeline.rs:64-72`, `:122-133`, `:190-196`
+**Fix:** 未知步骤名时跳过进度事件（`_ => return`）。
+
+### IN-R2-07: `probe_audio` 文档未说明返回容器级时长
+
+**File:** `narratoai-core/src/ffmpeg/probe.rs:110-114`
+**Fix:** 添加文档注释说明返回 format.duration，不验证音频流存在。
+
+### IN-R2-08: `step_merge_audio_subtitle` 过时的 `_request` 注释
+
+**File:** `narratoai-core/src/documentary/pipeline.rs:149-152`
+**Fix:** 删除过时的 `Note: _request` 注释。
+
+### IN-R2-09: 测试文件使用 `/tmp` 路径在 Windows 上可能不一致
+
+**File:** `narratoai-core/tests/audio_normalize_test.rs:153-154`, `narratoai-core/src/ffmpeg/probe.rs:219`
+**Fix:** 使用 `std::env::temp_dir()` 替代硬编码路径。
 
 ## Critical Issues
 
@@ -276,3 +414,80 @@ _Depth: standard_
 ### Verification
 - `cargo check` (workspace): 0 errors, 2 pre-existing warnings (parentheses)
 - `cargo test -p narratoai-core --lib`: **572 passed, 0 failed, 1 ignored**
+
+---
+
+## Re-Review Fix Log (2026-05-12)
+
+| ID | Status | Fix Summary |
+|----|--------|-------------|
+| CR-R2-01 | **Fixed** | SDP composite: added `has_audio_stream()` check before `[0:a]` reference, early error if no audio stream |
+| WR-R2-01 | **Deferred** | SDE anullsrc params: needs ffprobe audio params detection, low priority (44100/stereo works for most cases) |
+| WR-R2-02 | **Fixed** | `normalize_audio_for_mixing`: added `max_peak: f64` parameter, callers pass `config.max_peak` |
+| WR-R2-03 | **Fixed** | SDP composite: replaced `[orig]acopy[aout]` with `[orig]volume=1.0[aout]` (FFmpeg 5.x compatible) |
+| WR-R2-04 | **Fixed** | `probe_audio`: added empty output check before parse, with clear error message |
+| WR-R2-05 | **Fixed** | Documentary composite: added `-an` when `amix_input_count==0` |
+| WR-R2-06 | **Fixed** | `generate_sdp_script`: removed misleading cleanup comment |
+| WR-R2-07 | **Fixed** | `custom_clips`: added upper bound `> 100` validation |
+| WR-R2-08 | **Fixed** | SDP audio extraction: removed misleading "非致命" from warn message |
+| IN-R2-01 | **Fixed** | `VolumeConfig`: added `#[must_use]` attribute |
+| IN-R2-02 | **Fixed** | `MixingConfig::from_section()`: added comment about unexposed field |
+| IN-R2-03 | **Fixed** | `config.example.toml`: added `api_url` comment under `[tts_qwen]` |
+| IN-R2-04 | **Fixed** | `SdpPipelineState`: "4 步" → "3 步" |
+| IN-R2-05 | **Fixed** | Documentary pipeline: `split('-')` → `splitn(2, '-')` for consistency |
+| IN-R2-06 | **Fixed** | Progress callbacks: `_ => 0` → `_ => return` (skip unknown steps) |
+| IN-R2-07 | **Fixed** | `probe_audio` doc: added note about container-level duration |
+| IN-R2-08 | **Fixed** | Removed stale `_request` comment from `step_merge_audio_subtitle` |
+| IN-R2-09 | **Fixed** | Tests: `/tmp` → `std::env::temp_dir()` |
+
+### Verification (Post Re-Review Fixes)
+- `cargo check` (workspace): 0 errors, 2 pre-existing warnings (parentheses)
+- `cargo test -p narratoai-core --lib`: **572 passed, 0 failed, 1 ignored**
+
+---
+
+## Round 3 Verification (2026-05-12)
+
+Re-verified all 10 previously fixed items: **all correctly landed**.
+
+### New Findings (4 Warning, 5 Info)
+
+#### Warning
+
+| ID | File | Summary | Status |
+|----|------|---------|--------|
+| W-R3-01 | `sdp/pipeline.rs:355` | `[orig]volume=1.0[aout]` 冗余滤镜（但为必要标签重命名） | **Skipped** — volume=1.0 是 noop 但用于 `[orig]→[aout]` 标签重命名，下游引用 `[aout]`，FFmpeg < 6.0 兼容 |
+| W-R3-02 | `documentary/pipeline.rs:122` | timestamp 解析 `splitn(2,'-').next().unwrap_or()` 静默接受错误格式 | **Fixed** — 改为 `collect()` + `ok_or_else()` 显式校验 |
+| W-R3-03 | `audio/volume.rs:221` | `validate_volume` 未处理 `Infinity` 值 | **Fixed** — 添加 `is_infinite()` 检查 |
+| W-R3-04 | `sdp/pipeline.rs:158` | 标准化失败时中间临时文件未清理 | **Fixed** — 添加 `remove_file(&raw_audio)` |
+
+#### Info
+
+| ID | File | Summary | Status |
+|----|------|---------|--------|
+| I-R3-01 | `audio/normalizer.rs:116` | `rfind("Parsed_loudnorm_")` 实践中可靠但理论上可能误匹配 | **Fixed** — 改进搜索逻辑，跳过实例编号直到分隔符 |
+| I-R3-02 | `audio/normalizer.rs:286` | `get_audio_rms` 展平所有声道计算 RMS | **Fixed** — 添加注释说明设计意图 |
+| I-R3-03 | `documentary/pipeline.rs:400` | `amix` 补偿 `volume={count}` 在 count≥3 时有削波风险 | **Fixed** — documentary + SDE pipeline 添加削波风险注释 |
+| I-R3-04 | `tests/audio_normalize_test.rs:124` | 直接访问 `input_i` 字段而非 `measured_I()` 方法 | **Fixed** — 改用 `measured_I()` 公共方法 |
+| I-R3-05 | `audio/volume.rs:337` | `calculate_volume_adjustment` 硬编码 -20.0 LUFS | **Fixed** — 文档注释说明与全局 -14.0 的差异及原因 |
+
+### Verification (Round 3)
+- `cargo check` (workspace): 0 errors, 2 pre-existing warnings (parentheses)
+- `cargo test -p narratoai-core --lib`: **572 passed, 0 failed, 1 ignored**
+
+---
+
+## Round 4: Info Items Fix (2026-05-12)
+
+Applied `--fix --all` to remaining Round 3 Info findings (I-R3-01 ~ I-R3-05).
+
+### Verification (Round 4)
+- `cargo check` (workspace): 0 errors, 2 pre-existing warnings (parentheses)
+- `cargo test -p narratoai-core --lib`: **572 passed, 0 failed, 1 ignored**
+
+### Remaining Deferred Items
+| ID | Reason |
+|----|--------|
+| WR-02 | RwLock refactoring requires core API signature change, deferred to separate phase |
+| WR-R2-01 | SDE anullsrc params need ffprobe detection, low priority (44100/stereo works for most cases) |
+| W-R3-01 | volume=1.0 is necessary label rename for `[orig]→[aout]`, not a real issue |

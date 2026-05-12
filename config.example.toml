@@ -92,6 +92,7 @@
     # 通义千问 Qwen3 TTS 配置
     # 访问 https://bailian.console.aliyun.com/?tab=model#/api-key 获取你的 API 密钥
     api_key = ""
+    # api_url = ""  # 可选：自定义 API 地址
     model_name = "qwen3-tts-flash"
     
 [indextts2]

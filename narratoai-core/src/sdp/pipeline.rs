@@ -138,7 +138,7 @@ pub async fn run_sdp(
                     Ok(())
                 }
             }).await.map_err(|e: crate::error::FFmpegError| {
-                tracing::warn!("SDP raw 音频提取失败（非致命）: {}", e);
+                tracing::warn!("SDP raw 音频提取失败: {}", e);
                 SdpError::VideoProcess(PipelineError::FFmpeg { source: e })
             })?;
 
@@ -147,6 +147,7 @@ pub async fn run_sdp(
                 &raw_audio,
                 &task_dir,
                 audio_config.target_lufs,
+                audio_config.max_peak,
                 audio_config.sample_rate,
                 audio_config.channels,
             ) {
@@ -156,6 +157,7 @@ pub async fn run_sdp(
                 }
                 Err(e) => {
                     tracing::warn!("SDP raw 音频标准化失败（非致命，将使用原始音频）: {}", e);
+                    let _ = std::fs::remove_file(&raw_audio);
                 }
             }
         }
@@ -297,6 +299,16 @@ async fn sdp_step_composite(
         .map(|p| p.to_string_lossy().to_string());
     let total_dur = state.total_duration.max(0.0);
     let has_bgm = bgm_path_opt.is_some();
+
+    // CR-SDP: Runtime verification — SDP concat -c copy may lose audio stream
+    if state.normalized_audio_path.is_none() {
+        let actually_has_audio = crate::ffmpeg::probe::has_audio_stream(merged_video);
+        if !actually_has_audio {
+            return Err(SdpError::Validation {
+                details: "拼接视频无音频流，SDP 流水线无法继续".into(),
+            });
+        }
+    }
     let normalized_audio_path = state.normalized_audio_path.clone();
 
     run_ffmpeg(move || {
@@ -340,7 +352,8 @@ async fn sdp_step_composite(
             ));
         } else {
             // 单一音频源，已在上方应用 volume 并标记为 [orig]，直接映射到 [aout]
-            filter_complex_parts.push("[orig]acopy[aout]".to_string());
+            // 单一音频源，直接映射（避免 acopy 滤镜在 FFmpeg < 6.0 不可用）
+            filter_complex_parts.push(format!("[orig]volume=1.0[aout]"));
         }
 
         if !filter_complex_parts.is_empty() {

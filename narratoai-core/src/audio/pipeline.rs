@@ -28,6 +28,7 @@ pub fn normalize_merged_audio(
         input,
         output_dir,
         config.target_lufs,
+        config.max_peak,
         config.sample_rate,
         config.channels,
     )?;

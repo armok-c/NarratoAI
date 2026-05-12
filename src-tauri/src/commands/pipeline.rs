@@ -68,7 +68,7 @@ pub async fn run_documentary(
                 "merge_audio" => 3,
                 "concat" => 4,
                 "composite" => 5,
-                _ => 0,
+                _ => return,
             };
             let payload = ProgressPayload {
                 pipeline_type: "documentary".to_string(),
@@ -129,7 +129,7 @@ pub async fn run_sde(
                 "merge_audio" => 6,
                 "concat" => 7,
                 "composite" => 8,
-                _ => 0,
+                _ => return,
             };
             let payload = ProgressPayload {
                 pipeline_type: "sde".to_string(),
@@ -191,7 +191,7 @@ pub async fn run_sdp(
                 "clip" => 0,
                 "concat" => 1,
                 "composite" => 2,
-                _ => 0,
+                _ => return,
             };
             let payload = ProgressPayload {
                 pipeline_type: "sdp".to_string(),
@@ -322,10 +322,10 @@ pub async fn generate_sdp_script(
             message: format!("temperature 超出有效范围 [0, 2]: {}", temperature),
         });
     }
-    if custom_clips == 0 {
+    if custom_clips == 0 || custom_clips > 100 {
         return Err(CommandError {
             code: "INVALID_PARAM".into(),
-            message: "custom_clips 必须大于 0".to_string(),
+            message: format!("custom_clips 必须在 (0, 100] 范围内: {}", custom_clips),
         });
     }
 
@@ -358,10 +358,8 @@ pub async fn generate_sdp_script(
     ).await;
 
     // 脚本已返回，清理临时文件
-    // WR-03: 清理临时目录（无论成功或失败）
     let _ = tokio::fs::remove_dir_all(&task_dir).await;
 
     let script = script?;
-
     Ok(script)
 }

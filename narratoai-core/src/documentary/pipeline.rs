@@ -119,8 +119,11 @@ pub(crate) async fn step_clip(
                 details: format!("片段 {} 时长计算为零", clip._id),
             });
         }
+        let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
         let start_secs = parse_time_to_secs(
-            clip.timestamp.split('-').next().unwrap_or(&clip.timestamp),
+            ts_parts.first().ok_or_else(|| PipelineError::VideoClip {
+                details: format!("片段 {} timestamp 格式无效: {}", clip._id, clip.timestamp),
+            })?,
         )?;
         let end_secs = start_secs + clip_duration;
 
@@ -147,9 +150,6 @@ pub(crate) async fn step_clip(
 }
 
 /// 步骤 4: 合并音频和字幕
-///
-/// Note: `_request` is currently unused but retained for future
-/// per-request audio volume control during merge.
 pub(crate) async fn step_merge_audio_subtitle(
     state: &mut PipelineState,
     config: &crate::config::types::AppConfig,
@@ -400,6 +400,8 @@ pub(crate) async fn step_composite(
                 filter_complex_parts.push(format!("{}[aout]", mix_labels.join("")));
             } else {
                 let mix_inputs = mix_labels.join("");
+                // amix 默认衰减 1/N，此处用 volume=N 补偿。当 count≥3 时有削波风险，
+                // 极端配置下可能需添加 limiter 滤镜。
                 let compensation = format!(",volume={}", amix_input_count);
                 filter_complex_parts.push(format!(
                     "{}amix=inputs={}:duration=longest{}[aout]",
@@ -442,6 +444,9 @@ pub(crate) async fn step_composite(
             cmd.arg("-map").arg("[aout]");
         } else if has_video_filter {
             cmd.arg("-map").arg("[vout]");
+            cmd.arg("-an"); // 无音频输入，显式丢弃音频流
+        } else {
+            cmd.arg("-an"); // 无音频也无字幕滤镜，显式丢弃音频流
         }
 
         cmd.codec_video("libx264")

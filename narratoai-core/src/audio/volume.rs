@@ -15,6 +15,7 @@ use crate::config::types::AudioSection;
 /// 类型安全的音量配置
 ///
 /// 包含 TTS、原声、BGM 三路音量值，编译时字段检查。
+#[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct VolumeConfig {
     pub tts_volume: f64,
@@ -98,6 +99,7 @@ impl MixingConfig {
         Self {
             crossfade_duration: section.crossfade_duration,
             bgm_fade_out: section.bgm_fade_out,
+            // dynamic_range_compression 尚未暴露到配置层
             dynamic_range_compression: false,
         }
     }
@@ -216,8 +218,8 @@ pub fn get_recommended_volumes_for_content(content_type: &str) -> VolumeConfig {
 ///
 /// 超出范围时记录 warning 并 clamp。
 pub fn validate_volume(volume: f64, name: &str) -> f64 {
-    if volume.is_nan() {
-        tracing::warn!("{} 音量值为 NaN，已调整为 0.0", name);
+    if volume.is_nan() || volume.is_infinite() {
+        tracing::warn!("{} 音量值为 NaN 或 Infinity，已调整为 0.0", name);
         return 0.0;
     }
     let min = 0.0;

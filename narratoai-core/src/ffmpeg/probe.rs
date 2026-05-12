@@ -111,6 +111,9 @@ pub fn probe_video(path: &Path) -> Result<VideoInfo, FFmpegError> {
 ///
 /// 复用 `ffmpeg_sidecar::ffprobe::ffprobe_path()` 获取二进制路径，
 /// 使用 `-show_entries format=duration` 仅获取时长。
+///
+/// 注意：此函数返回的是容器级别的时长（format.duration），
+/// 不验证文件是否包含音频流。如需确认音频流存在，请使用 `has_audio_stream()`。
 pub fn probe_audio(path: &Path) -> Result<f64, FFmpegError> {
     let ffprobe_bin = ffmpeg_sidecar::ffprobe::ffprobe_path();
 
@@ -145,8 +148,13 @@ pub fn probe_audio(path: &Path) -> Result<f64, FFmpegError> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let duration: f64 = stdout
-        .trim()
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Err(FFmpegError::OutputParseError(
+            "ffprobe 输出为空，无法获取音频时长".into(),
+        ));
+    }
+    let duration: f64 = trimmed
         .parse()
         .map_err(|e| FFmpegError::OutputParseError(format!("音频时长解析失败: {}", e)))?;
     if !duration.is_finite() || duration <= 0.0 {
@@ -216,7 +224,7 @@ mod tests {
     /// probe_audio 对不存在的文件返回错误
     #[test]
     fn test_probe_audio_nonexistent_file() {
-        let path = std::path::PathBuf::from("/tmp/narratoai_nonexistent_audio_test_file.mp3");
+        let path = std::env::temp_dir().join("narratoai_nonexistent_audio_test_file.mp3");
         let result = probe_audio(&path);
         assert!(result.is_err(), "不存在的音频文件应返回错误");
     }
