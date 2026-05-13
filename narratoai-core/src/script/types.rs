@@ -48,6 +48,7 @@ fn deserialize_id<'de, D: de::Deserializer<'de>>(d: D) -> Result<i64, D::Error> 
 #[ts(export, export_to = "../src/types/generated/")]
 pub struct ScriptClip {
     #[serde(deserialize_with = "deserialize_id")]
+    #[ts(type = "number")]
     pub _id: i64,
     pub timestamp: String,
     pub picture: String,
