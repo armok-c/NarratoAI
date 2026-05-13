@@ -57,7 +57,7 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 - [ ] **TDET-04**: YouTube/Pexels Tauri 命令暴露 + 前端 UI 集成
 - [ ] **TDET-05**: ConfigManager 热加载激活（TOML 文件监视器 + 前端通知）
 - [ ] **TDET-06**: VisualAnalyzer 门面调用补齐（统一 API 入口）
-- [ ] **TDET-07**: FFmpeg Tauri sidecar 内置打包（externalBin + shell:allow-execute 权限）
+- [x] **TDET-07**: FFmpeg Tauri sidecar 内置打包（externalBin + shell:allow-execute 权限）
 
 ## Out of Scope
 
@@ -110,7 +110,7 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 | TDET-04 | Phase 18 | Pending |
 | TDET-05 | Phase 18 | Pending |
 | TDET-06 | Phase 16 | Pending |
-| TDET-07 | Phase 16 | Pending |
+| TDET-07 | Phase 16 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 34 total
