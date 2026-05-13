@@ -81,7 +81,7 @@ Plans:
 ### Phase 16: Configuration Panels + FFmpeg Sidecar + Core Tech Debt
 **Goal**: 所有设置面板可用，支持双模型 LLM 配置、7 引擎 TTS 选择、BGM/Export 设置、模式专用参数。FFmpeg 内置打包，Edge-TTS 代理隧道和 VisualAnalyzer 门面补齐
 **Depends on**: Phase 15
-**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, TDET-01, TDET-06, TDET-07
+**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, MODE-03, TDET-01, TDET-06, TDET-07
 **Success Criteria** (what must be TRUE):
   1. 用户在 LLM/Mode 面板中可配置双模型（Vision + Text）— Provider/Model/API Key/Base URL 四个字段完整，输入值通过 Pinia store 持久化
   2. 用户在 TTS 面板中可选择 7 个引擎之一，配置各引擎专属参数；Edge-TTS 可加载可用音色列表供选择
@@ -91,8 +91,14 @@ Plans:
   6. FFmpeg 通过 Tauri sidecar 调用成功（externalBin 配置正确，shell:allow-execute 权限已添加），流水线可正常输出视频
   7. Edge-TTS 在代理网络环境下可正常生成音频（HTTP CONNECT 隧道建立，平台代理自动检测工作）
   8. Local Draft 模式保留 SettingsDrawer 中未保存的编辑，仅显式保存或应用启动时持久化到后端
-**Plans**: TBD
+**Plans**: 5 plans
 **UI hint**: yes
+Plans:
+- [ ] 16-01-PLAN.md — FFmpeg sidecar + 5 Tauri config 命令 + shell 插件集成（Wave 0）
+- [ ] 16-02-PLAN.md — Edge-TTS 代理隧道补齐 + VisualAnalyzer 门面审查（Wave 0）
+- [ ] 16-03-PLAN.md — Pinia stores 扩展 + useConfig composable + ts-rs 类型同步（Wave 1）
+- [ ] 16-04-PLAN.md — SettingsDrawer 手风琴 + 7 个配置面板组件 + 面板显隐规则（Wave 2）
+- [ ] 16-05-PLAN.md — Local Draft 暂存 + 全局保存/验证/snackbar + 模式切换保护 + vitest 测试（Wave 3）
 
 ### Phase 17: Pipeline Controls + Progress + Script Preview
 **Goal**: 完整流水线操作体验 — 视频列表数据表、操作按钮行（Upload/Start/Stop/Clear）、模式感知 Start 分发、实时进度事件流、脚本预览弹窗、滚动日志查看器
@@ -141,6 +147,6 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
 | 14. Foundation — Frontend Scaffold | v2.0 | 5/5 | Gap closure complete | - |
 | 15. Layout Shell + 3-Mode UX | v2.0 | 0/5 | Planned | - |
-| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 0/0 | Not started | - |
+| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 0/5 | Not started | - |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
 | 18. Remaining Tech Debt + Polish | v2.0 | 0/0 | Not started | - |
