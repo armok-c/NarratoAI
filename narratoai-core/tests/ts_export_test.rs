@@ -76,3 +76,7 @@ fn ts_export_sde_types() {
 fn ts_export_sdp_types() {
     assert!(!SdpRequest::decl().is_empty());
 }
+
+// NOTE: src-tauri crate 中的 TS 类型 (CommandError, CommandResponse,
+// ScriptInfo, ProgressPayload) 需要在 src-tauri/tests/ 中单独测试，
+// 因为跨 crate integration test 无法直接访问 src-tauri 的导出。
