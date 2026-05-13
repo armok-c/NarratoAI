@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1E1E"/>
+      <stop offset="50%" stop-color="#141414"/>
+      <stop offset="100%" stop-color="#0A0A0A"/>
+    </linearGradient>
+    <linearGradient id="border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#333"/>
+      <stop offset="100%" stop-color="#111"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <rect x="2" y="2" width="508" height="508" rx="106" fill="none" stroke="url(#border)" stroke-width="2"/>
+
+  <g fill="#FFFFFF">
+    <path d="M320 96C352 96 368 112 368 144L368 192C368 224 352 240 320 240L208 240L208 176L304 176L304 144L192 144C160 144 144 160 144 192L144 240L80 240L80 192C80 128 128 96 192 96Z"/>
+    <path d="M192 416C160 416 144 400 144 368L144 320C144 288 160 272 192 272L304 272L304 336L208 336L208 368L320 368C352 368 368 352 368 320L368 272L432 272L432 320C432 384 384 416 320 416Z"/>
+    <circle cx="256" cy="256" r="28"/>
+  </g>
+
+  <circle cx="256" cy="256" r="12" fill="#FF6B35"/>
+</svg>
