@@ -69,8 +69,14 @@ Plans:
   4. 用户通过 ModeSelector 下拉可在 Documentary/SDE/SDP 之间切换 — 面板根据模式动态显示/隐藏：Vision LLM 面板仅 Documentary 可见，TTS 面板在 SDP 模式隐藏
   5. 用户可一键切换深色/浅色主题 — 偏好通过 localStorage 持久化，刷新页面后保持
   6. SystemMonitorBar 在底部实时显示 CPU 和 RAM 使用率百分比
-**Plans**: TBD
+**Plans**: 5 plans
 **UI hint**: yes
+Plans:
+- [ ] 15-01-PLAN.md — Rust sysinfo backend + Tauri config (permissions, decorations) + Wave 0 test stubs（LOUT-06）
+- [ ] 15-02-PLAN.md — AppHeader + WindowControls + logo + ModeStore extension（LOUT-01, MODE-01）
+- [ ] 15-03-PLAN.md — SettingSection + SettingsDrawer（LOUT-04）
+- [ ] 15-04-PLAN.md — SystemMonitorBar + DefaultLayout rewrite（LOUT-02, LOUT-05, LOUT-06）
+- [ ] 15-05-PLAN.md — HomeView 60/40 split + ModeSelector（LOUT-03, MODE-02, MODE-03）
 
 ### Phase 16: Configuration Panels + FFmpeg Sidecar + Core Tech Debt
 **Goal**: 所有设置面板可用，支持双模型 LLM 配置、7 引擎 TTS 选择、BGM/Export 设置、模式专用参数。FFmpeg 内置打包，Edge-TTS 代理隧道和 VisualAnalyzer 门面补齐
@@ -133,8 +139,8 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 11. Extended Features | v1.0 | 5/5 | Complete | 2026-04-30 |
 | 12. Additional TTS Engines | v1.0 | 3/3 | Complete | 2026-04-30 |
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
-| 14. Foundation — Frontend Scaffold | v2.0 | 3/4 | Gap closure planned | - |
-| 15. Layout Shell + 3-Mode UX | v2.0 | 0/0 | Not started | - |
+| 14. Foundation — Frontend Scaffold | v2.0 | 5/5 | Gap closure complete | - |
+| 15. Layout Shell + 3-Mode UX | v2.0 | 0/5 | Planned | - |
 | 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 0/0 | Not started | - |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
 | 18. Remaining Tech Debt + Polish | v2.0 | 0/0 | Not started | - |
