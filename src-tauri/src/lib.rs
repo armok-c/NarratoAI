@@ -25,6 +25,7 @@ pub mod commands;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // ---- 1. 多路径回退加载 config.toml ----
             let config_path = find_config(app)?;
@@ -77,6 +78,9 @@ pub fn run() {
             let mut init_system = System::new_all();
             init_system.refresh_all();
             app.manage(SystemState::new(init_system));
+
+            // ---- 6. 注入 ConfigManager，供配置面板命令读写 config.toml ----
+            app.manage(config_manager);
 
             Ok(())
         })

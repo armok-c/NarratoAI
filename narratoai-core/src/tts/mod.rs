@@ -1,5 +1,5 @@
 mod azure_speech;
-mod common;
+pub mod common;
 mod doubaotts;
 mod edge_tts;
 mod indextts2;

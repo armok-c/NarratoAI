@@ -25,7 +25,13 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: data:; media-src 'self' asset: https:; connect-src 'self' https:; font-src 'self'"
     }
   },
+  "bundle": {
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"]
+  },
   "plugins": {
-    "dialog": {}
+    "dialog": {},
+    "shell": {
+      "open": true
+    }
   }
 }

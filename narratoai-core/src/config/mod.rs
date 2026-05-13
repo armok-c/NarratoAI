@@ -65,6 +65,11 @@ impl ConfigManager {
     pub fn config(&self) -> Arc<RwLock<AppConfig>> {
         Arc::clone(&self.config)
     }
+
+    /// 返回当前配置文件路径。
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
+    }
 }
 
 impl AppConfig {

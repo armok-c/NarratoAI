@@ -15,9 +15,12 @@ path = "src/main.rs"
 narratoai-core = { path = "../narratoai-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.13", features = ["json"] }
 sysinfo = "0.33"
+toml = "1.1.2"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
 ts-rs = { version = "11", features = ["serde-compat", "format"] }

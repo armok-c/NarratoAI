@@ -2,11 +2,13 @@ pub mod pipeline;
 pub mod script;
 pub mod export;
 pub mod system;
+pub mod config;
 
 pub use pipeline::*;
 pub use script::*;
 pub use export::*;
 pub use system::*;
+pub use config::*;
 
 /// 集中注册所有 Tauri 命令（D-05）
 ///
@@ -35,6 +37,11 @@ macro_rules! register_all_commands {
             crate::commands::script::update_timestamp,
             crate::commands::export::export_jianying_draft,
             crate::commands::system::get_system_stats,
+            crate::commands::config::get_config,
+            crate::commands::config::save_config,
+            crate::commands::config::test_llm_connection,
+            crate::commands::config::get_edge_tts_voices,
+            crate::commands::config::get_system_proxy,
         ]
     };
 }
