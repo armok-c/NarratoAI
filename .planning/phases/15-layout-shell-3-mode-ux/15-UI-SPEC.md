@@ -89,8 +89,8 @@ Phase 15 extends the Phase 14 design system. All Phase 14 tokens (8-point spacin
 | SettingSection header | 48px min-height, 12px 16px padding | SettingSection.vue | SmartEdit ref |
 | SettingSection content | 0 16px 16px padding | SettingSection.vue | SmartEdit ref |
 | SettingsDrawer padding | header: 16px 20px, content: 16px 20px, footer: 16px 20px | SettingsDrawer.vue | SmartEdit ref |
-| Custom scrollbar width | 6px | SettingsDrawer, HomeView placeholders | D-30 |
-| SystemMonitorBar dots/spacing | 6px gap between CPU/RAM items | SystemMonitorBar.vue | D-34 |
+| Custom scrollbar width | 8px | SettingsDrawer, HomeView placeholders | D-30 (corrected to 4px grid) |
+| SystemMonitorBar dots/spacing | 8px gap between CPU/RAM items | SystemMonitorBar.vue | D-34 (corrected to 4px grid) |
 
 ---
 
@@ -287,7 +287,7 @@ Accent (`primary` color) reserved exclusively for:
 | Window resize | Layout maintains 60/40 splits proportionally. No responsive breakpoints. minWidth 900px prevents collapse. |
 | Mode selection change | v-select @update:modelValue → ModeStore.setMode() + ModeStore.resetPipeline() |
 | Placeholder zones | No interactions — visual placeholders only. Clicking produces no action. |
-| Content overflow (upper-right settings card) | Vertical scroll. 6px custom scrollbar. |
+| Content overflow (upper-right settings card) | Vertical scroll. 8px custom scrollbar. |
 
 ### 7.5 SettingsDrawer Interactions
 
@@ -295,7 +295,7 @@ Accent (`primary` color) reserved exclusively for:
 |-------------|----------|
 | Open | Slide in from right (temporary drawer default transition) |
 | Close | Three ways: header close button, scrim click, gear button toggle |
-| Scrolling content | Custom 6px scrollbar with transparent track |
+| Scrolling content | Custom 8px scrollbar with transparent track |
 | Theme switch toggle | v-switch → useTheme().toggleTheme() |
 | Version display | Fetch via `getVersion()` on mount, fallback to `0.1.0` |
 
@@ -471,16 +471,18 @@ No shadcn components, no third-party component registries, no blocks to vet.
 - **Reduced motion**: Vuetify transitions respect `prefers-reduced-motion`. No custom CSS animations besides logo glow (pulse-glow) which is decorative.
 - **Chinese text rendering**: All copy uses zhHans locale. System Chinese font stack handles CJK glyphs at all declared sizes.
 - **Window dragging**: Excluded on button and window-control elements to prevent accidental drag during interaction.
+- **Visual hierarchy — HomeView focal points**: The upper-left VideoTable placeholder zone is the primary visual anchor (largest content area, top-left natural reading position); the ModeSelector card in the upper-right is the secondary focal point. All other placeholder zones support these primary/secondary anchors.
+- **Icon-only buttons — aria-label strategy**: All icon-only buttons that lack visible text labels receive explicit `aria-label` attributes: settings gear = `aria-label="设置"`, theme toggle = `aria-label="切换主题"`, WindowControls minimize = `aria-label="最小化"`, maximize = `aria-label="最大化"`, restore = `aria-label="还原"`, close = `aria-label="关闭"`. While Vuetify `v-btn` with `icon` prop provides built-in accessible naming, `aria-label` attributes are bound explicitly as a defense-in-depth best practice.
 
 ---
 
 ## 13. Checker Sign-Off
 
 - [ ] Dimension 1 Copywriting: PASS (all copy elements defined, no placeholders left dangling)
-- [ ] Dimension 2 Visuals: PASS (SmartEdit visual reference aligned)
+- [ ] Dimension 2 Visuals: PASS (SmartEdit visual reference aligned; HomeView focal points declared; all icon-only buttons have explicit aria-labels)
 - [ ] Dimension 3 Color: PASS (extends Phase 14 with 12 new token applications)
 - [ ] Dimension 4 Typography: PASS (extends Phase 14 with 8 new role assignments)
-- [ ] Dimension 5 Spacing: PASS (extends Phase 14 with 16 layout tokens)
+- [ ] Dimension 5 Spacing: PASS (extends Phase 14 with 16 layout tokens; all values align with 4px grid)
 - [ ] Dimension 6 Registry Safety: PASS (no registries to vet)
 
 **Approval:** pending (checker verifier)
