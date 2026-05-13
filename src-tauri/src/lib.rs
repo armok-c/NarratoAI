@@ -1,8 +1,11 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
+use sysinfo::System;
+
+use crate::commands::system::SystemState;
 use narratoai_core::config::ConfigManager;
 use narratoai_core::llm::registry::Registry;
 use narratoai_core::prompt::manager::PromptManager;
@@ -66,6 +69,11 @@ pub fn run() {
                 PromptManager::new(prompt_registry)
             ));
             app.manage::<Arc<tokio::sync::RwLock<PromptManager>>>(prompt_manager);
+
+            // ---- 5. 初始化 System 监控 State（D-32） ----
+            // 使用 std::sync::Mutex 包装的 System 实例，供 get_system_stats 命令复用。
+            // CPU 百分比依赖 sysinfo 内部 delta 计算，必须持久化同一个实例。
+            app.manage(SystemState(Mutex::new(System::new_all())));
 
             Ok(())
         })

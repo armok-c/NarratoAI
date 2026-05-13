@@ -14,7 +14,11 @@
       {
         "title": "NarratoAI",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "decorations": false,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true
       }
     ],
     "security": {
