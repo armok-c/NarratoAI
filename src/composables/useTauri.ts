@@ -52,16 +52,19 @@ export function isDebugMode(): boolean {
  * @returns 过滤后的安全参数
  */
 export function filterSensitiveArgs(args: unknown): unknown {
-  if (typeof args === 'object' && args !== null) {
-    if (Array.isArray(args)) {
-      return args
-    }
+  if (isPlainObject(args)) {
     const safe = { ...(args as Record<string, unknown>) }
     const sensitiveFields = ['apiKey', 'password', 'token', 'secret', 'api_key', 'accessToken']
     for (const field of sensitiveFields) {
       delete safe[field]
     }
+    for (const key of Object.keys(safe)) {
+      safe[key] = filterSensitiveArgs(safe[key])
+    }
     return safe
+  }
+  if (Array.isArray(args)) {
+    return args.map(filterSensitiveArgs)
   }
   return args
 }
