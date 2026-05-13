@@ -655,22 +655,16 @@ export const useModeStore = defineStore('mode', () => {
 | A3 | Tauri 2.0 `getVersion()` from `@tauri-apps/api/app` returns the version set in `tauri.conf.json` | Standard Stack | Low — this is the documented behavior; fallback to `0.1.0` on error mitigates any issues |
 | A4 | The `usePipelineStore().reset()` method exists (or will exist by Phase 17) | Code Examples | Medium — if PipelineStore doesn't have a `reset()` method, the ModeStore `resetPipeline()` implementation needs adjustment. Phase 17 will implement it. For now, a try/catch guard or optional chaining `?.reset()` prevents runtime errors. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **[Vuetify 4 temporary right drawer behavior]**
-   - What we know: Vuetify 3.6.0 introduced a bug where temporary right drawers with explicit width don't fully hide. The workaround is `:width="null"` + `width="420"`.
-   - What's unclear: Whether Vuetify 4 (which NarratoAI uses) has fixed this bug or if the workaround is still needed.
-   - Recommendation: Build SettingsDrawer with explicit `width="420"` first. If the drawer doesn't fully close, add `:width="null"`. Test in the first wave.
+   - RESOLVED: Build SettingsDrawer with explicit `width="420"` first. If the drawer doesn't fully close (Vuetify 3.6.0 bug persists in Vuetify 4), use documented workaround `:width="null"` on the v-navigation-drawer and apply `width="420"` via scoped CSS `.settings-drawer { width: 420px; }`. Test in Wave 2.
 
 2. **[isMaximized initialization timing]**
-   - What we know: `getCurrentWindow().isMaximized()` must be called after the Tauri window is fully initialized. Dynamic import + try/catch handles non-Tauri env.
-   - What's unclear: Whether calling `isMaximized()` in DefaultLayout's `onMounted` is early enough. The SmartEdit reference does it in `onMounted`.
-   - Recommendation: Follow SmartEdit pattern — call in DefaultLayout's `onMounted`. If initial state is wrong, the user can toggle to correct it.
+   - RESOLVED: Call `getCurrentWindow().isMaximized()` in DefaultLayout's `onMounted` hook via dynamic import, following the proven SmartEdit pattern. If the initial state differs from actual window state, toggleMaximize re-synchronizes on first user interaction.
 
 3. **[sysinfo crate CPU accuracy with 2-second polling]**
-   - What we know: `sysinfo::MINIMUM_CPU_UPDATE_INTERVAL` is the recommended sleep between CPU readings for accurate delta calculation.
-   - What's unclear: Whether 2 seconds is enough interval for accurate CPU readings (likely yes since MINIMUM_INTERVAL is ~100ms).
-   - Recommendation: Implement with 2s polling. CPU readings may show slight lag but will be directionally accurate.
+   - RESOLVED: Implement with 2-second `setInterval` polling (2000ms >> sysinfo's MINIMUM_CPU_UPDATE_INTERVAL of ~100ms). CPU readings will be directionally accurate and sufficient for a system monitor bar. Not a precision instrument — acceptable tradeoff.
 
 ## Environment Availability
 
