@@ -7,16 +7,12 @@ export type AppSection = {
   project_version: string;
   vision_llm_provider: string;
   vision_openai_model_name: string;
-  vision_openai_api_key?: string;
   vision_openai_base_url: string;
   text_llm_provider: string;
   text_openai_model_name: string;
-  text_openai_api_key?: string;
   text_openai_base_url: string;
   llm_vision_timeout: bigint;
   llm_text_timeout: bigint;
   llm_max_retries: number;
   hide_config: boolean;
-  pexels_api_keys?: Array<string>;
-  pixabay_api_keys?: Array<string>;
 };

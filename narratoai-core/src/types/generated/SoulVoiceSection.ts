@@ -4,7 +4,6 @@
  * [soulvoice] 配置段
  */
 export type SoulVoiceSection = {
-  api_key?: string;
   voice_uri: string;
   api_url: string;
   model: string;
