@@ -58,11 +58,8 @@ fn test_normalize_lufs_two_pass() {
         return;
     }
 
-    let output_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("test_output")
-        .join("audio_lufs");
-    std::fs::create_dir_all(&output_dir).expect("创建测试输出目录失败");
+    let output_dir = std::env::temp_dir().join("narratoai_audio_lufs_test");
+    std::fs::create_dir_all(&output_dir).expect("创建临时目录失败");
 
     let sample_rate = 44100u32;
     let input = generate_sine_wave(&output_dir, "lufs_input.wav", 440.0, 2.0, sample_rate, 0.8);
