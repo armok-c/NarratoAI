@@ -1,8 +1,8 @@
 ---
 phase: 14-foundation-frontend-scaffold
-verified: 2026-05-13T00:00:00Z
-status: gaps_found
-score: 5/6 must-haves verified
+verified: 2026-05-13T02:55:00Z
+status: passed
+score: 6/6 must-haves verified
 overrides_applied: 1
 overrides:
   - must_have: "Vuetify 3 组件正常渲染"
@@ -11,33 +11,23 @@ overrides:
     accepted_at: "2026-05-12"
 re_verification: true
 previous_status: gaps_found
-previous_score: 4/6
+previous_score: 5/6
 gaps_closed:
   - "tauriInvoke() 封装层通过单元测试验证 — 14-04 gap closure plan 创建了 vitest.config.ts + tests/useTauri.test.ts（22 tests, 22 passed）"
   - "ts-rs 生成类型与 Rust 后端一致 — 14-04 gap closure plan 创建了 ts_export_test.rs 触发机制，22 个 .ts 文件生成在 narratoai-core/src/types/generated/（18）和 src-tauri/src/types/generated/（4）"
-gaps_remaining:
-  - "集成测试中所有 assert!(true) 桩替换为真实断言 — 根目录 tests/ 下仍有 3 个 assert!(true) 桩"
+gaps_remaining: []
 regressions: []
-gaps:
-  - truth: "集成测试中所有 assert!(true) 桩替换为真实断言"
-    status: partial
-    reason: "前一次验证搜索范围仅限 narratoai-core/tests/ 和 src-tauri/（零匹配），遗漏了根目录 tests/ 下的文件。根目录 tests/audio_integration.rs 有 2 个桩，tests/youtube_integration.rs 有 1 个桩，共 3 个 assert!(true) 残留。这些桩均标记 #[ignore] 且依赖外部工具（FFmpeg/yt-dlp），替换为真实断言需要这些外部依赖可用。"
-    artifacts:
-      - path: "tests/audio_integration.rs"
-        issue: "第 23 行和第 31 行有 assert!(true) 桩（标记 #[ignore]，依赖 FFmpeg）"
-      - path: "tests/youtube_integration.rs"
-        issue: "第 36 行有 assert!(true) 桩（标记 #[ignore]，依赖 yt-dlp）"
-    missing:
-      - "将 tests/audio_integration.rs 中 2 个 assert!(true) 替换为真实音频标准化/RMS 验证断言（需要 FFmpeg）"
-      - "将 tests/youtube_integration.rs 中 1 个 assert!(true) 替换为真实视频格式获取验证断言（需要 yt-dlp）"
+gaps: []
+gaps_closed_round3:
+  - "集成测试中所有 assert!(true) 桩替换为真实断言 — 14-05 gap closure plan 替换了根目录 tests/ 下 3 个桩，移入 narratoai-core/tests/ 并编写真实断言"
 ---
 
 # Phase 14: Foundation -- Frontend Scaffold Verification Report
 
 **Phase Goal:** 前端项目脚手架和基础架构就绪 -- 构建工具链、路由、状态管理、API层、类型同步全部就位，集成测试桩替换为真实测试
-**Verified:** 2026-05-13T00:00:00Z
-**Status:** gaps_found
-**Re-verification:** Yes -- after gap closure (14-04 plan)
+**Verified:** 2026-05-13T02:55:00Z
+**Status:** passed
+**Re-verification:** Yes -- after gap closure (14-04 + 14-05 plans)
 
 ## Goal Achievement
 
@@ -49,10 +39,10 @@ gaps:
 | 2 | Vue Router 5 Hash 路由正确导航到 HomeView，未知路由回退到 404 视图 | VERIFIED | `createWebHashHistory` 配置正确，路由表包含 `/` -> DefaultLayout -> HomeView 和 `/:pathMatch(.*)*` -> NotFoundView。全部懒加载。 |
 | 3 | 9 个 Pinia 3 stores 全部正确实例化，返回初始状态 | VERIFIED | 全部 9 个 store 使用 Composition API（defineStore）：app/mode/video/pipeline/script/llm/tts/bgm/export。stores/index.ts barrel re-export 全部 9 个 use*Store。 |
 | 4 | tauriInvoke() 封装层正确处理 BigInt 序列化、敏感字段过滤和调试日志 -- 通过单元测试验证 | VERIFIED | **[GAP CLOSED by 14-04]** vitest.config.ts + tests/useTauri.test.ts 创建完成。`npm test` 输出 22 passed (22)，覆盖 isDebugMode(3)、filterSensitiveArgs(4)、debugLog(3)、debugError(2)、normalizeTauriArgs(7)、tauriInvoke(3)。BigInt 溢出抛错验证、6 个敏感字段过滤验证、DEV/VITE_DEBUG 门控验证均通过。 |
-| 5 | 集成测试中所有 assert!(true) 桩替换为真实断言 | PARTIAL | narratoai-core/tests/ 和 src-tauri/ 零残留（已验证）。但根目录 tests/audio_integration.rs 第 23/31 行和 tests/youtube_integration.rs 第 36 行有 3 个 assert!(true) 桩残留。这些桩均标记 #[ignore] 且需要外部工具（FFmpeg/yt-dlp）。前一次验证的搜索范围遗漏了根目录 tests/。 |
+| 5 | 集成测试中所有 assert!(true) 桩替换为真实断言 | VERIFIED | **[GAP CLOSED by 14-05]** 根目录 tests/audio_integration.rs 和 tests/youtube_integration.rs 已删除。3 个桩替换为真实断言并移入 narratoai-core/tests/（audio_lufs_integration.rs + youtube_integration.rs）。`grep -rn 'assert!(true)'` 全代码库零匹配。 |
 | 6 | TypeScript 编译通过无类型错误，ts-rs 生成类型与 Rust 后端一致 | VERIFIED | **[GAP CLOSED by 14-04]** `npm run typecheck` 通过零错误。22 个 .ts 类型文件已生成：narratoai-core/src/types/generated/（18 文件）+ src-tauri/src/types/generated/（4 文件）。DocumentaryRequest.ts、ProgressPayload.ts、AppConfig.ts 等关键类型内容与 Rust 结构体字段一一对应。ts_export_test.rs 6 个测试验证所有类型 decl() 非空。 |
 
-**Score:** 5/6 truths verified (SC1 UNCERTAIN -- 需人工验证 dev server；SC5 PARTIAL -- 3 个根目录桩残留)
+**Score:** 6/6 truths verified (SC1 UNCERTAIN -- 需人工验证 dev server；SC5 now VERIFIED -- 14-05 closed last gap)
 
 ### Required Artifacts
 
@@ -102,7 +92,7 @@ gaps:
 | Vite 生产构建 | `npm run build` | 1.81s 成功，3 chunk 输出 | PASS |
 | Vitest 单元测试 | `npm test` | 22 passed (22)，171ms | PASS |
 | assert!(true) narratoai-core/src-tauri | `grep -r 'assert!(true)'` | 零匹配 | PASS |
-| assert!(true) root tests/ | `grep -r 'assert!(true)'` | 3 个匹配（audio_integration.rs x2, youtube_integration.rs x1） | PARTIAL |
+| assert!(true) root tests/ | `grep -r 'assert!(true)'` | 零匹配（14-05 已清除） | PASS |
 
 ### Probe Execution
 
@@ -118,16 +108,11 @@ gaps:
 | FNDT-04 | 14-02 | Pinia 3 状态管理 -- 9 个 store | SATISFIED | 全部 9 个 Composition API stores |
 | FNDT-05 | 14-02 | API 层 -- tauriInvoke 封装 | SATISFIED | 实现完整 + 22 个单元测试通过 |
 | FNDT-06 | 14-03/14-04 | ts-rs 类型导出同步 | SATISFIED | 22 个 .ts 文件已生成 |
-| TDET-03 | 14-03 | 集成测试桩替换为真实测试 | PARTIAL | narratoai-core/src-tauri 零残留；根目录 tests/ 下 3 个 assert!(true) 残留 |
+| TDET-03 | 14-03/14-05 | 集成测试桩替换为真实测试 | SATISFIED | 全代码库零 assert!(true) 残留（14-05 关闭最后 3 个桩） |
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-| ---- | ---- | ------- | -------- | ------ |
-| tests/audio_integration.rs | 23, 31 | assert!(true) 桩 + #[ignore] | Warning | 需要 FFmpeg 才能替换为真实断言 |
-| tests/youtube_integration.rs | 36 | assert!(true) 桩 + #[ignore] | Warning | 需要 yt-dlp 才能替换为真实断言 |
-
-所有桩均标记 #[ignore]，不会在常规 `cargo test` 中执行，不阻塞正常测试运行。
+无。所有 assert!(true) 桩已在 14-05 中替换为真实断言。
 
 ### Human Verification Required
 
@@ -144,18 +129,14 @@ gaps:
 
 ### Gaps Summary
 
-**之前 2 个 gap 已关闭（14-04 gap closure plan）：**
-- SC4 tauriInvoke 单元测试 -- 22 个测试全部通过
-- SC6 ts-rs 类型文件生成 -- 22 个 .ts 文件已生成
+**3 个 gap 全部关闭：**
+- SC4 tauriInvoke 单元测试 -- 14-04 关闭，22 个测试全部通过
+- SC6 ts-rs 类型文件生成 -- 14-04 关闭，22 个 .ts 文件已生成
+- SC5 集成测试桩替换 -- 14-05 关闭，根目录 tests/ 下 3 个桩替换为真实断言并移入 narratoai-core/tests/
 
-**1 个新发现的 partial gap：**
-- SC5 根目录 `tests/` 下的 3 个 assert!(true) 桩（audio_integration.rs x2, youtube_integration.rs x1）。这些桩标记 #[ignore]，需要 FFmpeg/yt-dlp 外部工具才能替换为真实断言。前一次验证搜索范围仅限 narratoai-core/tests/ 和 src-tauri/，遗漏了根目录 tests/。
-
-**评估：** 这 3 个桩是 Phase 11 创建的集成测试骨架，标记 #[ignore] 不会影响常规测试运行。替换需要系统安装 FFmpeg 和 yt-dlp，属于外部依赖受限的集成测试。建议：
-1. 如果接受这些桩作为"依赖外部工具的合理占位" -- 添加 override，状态变为 human_needed
-2. 如果严格要求 TDET-03 完全满足 -- 创建新的 gap closure plan 替换这 3 个桩
+**无剩余 gap。**
 
 ---
 
-_Verified: 2026-05-13T00:00:00Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-05-13T02:55:00Z_
+_Verifier: Claude (auto-verification after 14-05 gap closure)_
