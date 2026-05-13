@@ -42,6 +42,7 @@ pub struct AppSection {
     #[serde(default)]
     pub vision_openai_model_name: String,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub vision_openai_api_key: String,
     #[serde(default)]
     pub vision_openai_base_url: String,
@@ -50,6 +51,7 @@ pub struct AppSection {
     #[serde(default)]
     pub text_openai_model_name: String,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub text_openai_api_key: String,
     #[serde(default)]
     pub text_openai_base_url: String,
@@ -62,8 +64,10 @@ pub struct AppSection {
     #[serde(default)]
     pub hide_config: bool,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub pexels_api_keys: Vec<String>,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub pixabay_api_keys: Vec<String>,
 }
 
@@ -102,6 +106,7 @@ pub struct UiSection {
 #[serde(deny_unknown_fields)]
 pub struct AzureSection {
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub speech_key: String,
     #[serde(default)]
     pub speech_region: String,
@@ -113,8 +118,10 @@ pub struct AzureSection {
 #[serde(deny_unknown_fields)]
 pub struct TencentSection {
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub secret_id: String,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub secret_key: String,
     #[serde(default)]
     pub region: String,
@@ -126,6 +133,7 @@ pub struct TencentSection {
 #[serde(deny_unknown_fields)]
 pub struct SoulVoiceSection {
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub api_key: String,
     #[serde(default)]
     pub voice_uri: String,
@@ -141,6 +149,7 @@ pub struct SoulVoiceSection {
 #[serde(deny_unknown_fields)]
 pub struct TtsQwenSection {
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub api_key: String,
     #[serde(default)]
     pub api_url: String,
@@ -179,12 +188,15 @@ pub struct IndexTTS2Section {
 #[serde(deny_unknown_fields)]
 pub struct DoubaoTTSSection {
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub ak: String,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub sk: String,
     #[serde(default)]
     pub appid: String,
     #[serde(default, skip_serializing)]
+    #[ts(skip)]
     pub token: String,
     #[serde(default)]
     pub cluster: String,

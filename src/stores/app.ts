@@ -2,8 +2,9 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
+  const stored = localStorage.getItem('theme')
   const theme = ref<'light' | 'dark'>(
-    (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
+    stored === 'light' || stored === 'dark' ? stored : 'light'
   )
 
   function toggleTheme() {

@@ -7,11 +7,11 @@ export const useLlmStore = defineStore('llm', () => {
   const textConfig = ref<LLMConfig>({ provider: '', model: '', apiKey: '', baseUrl: '' })
 
   function updateVisionConfig(c: Partial<LLMConfig>) {
-    Object.assign(visionConfig.value, c)
+    visionConfig.value = { ...visionConfig.value, ...c }
   }
 
   function updateTextConfig(c: Partial<LLMConfig>) {
-    Object.assign(textConfig.value, c)
+    textConfig.value = { ...textConfig.value, ...c }
   }
 
   return {

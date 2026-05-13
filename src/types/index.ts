@@ -17,6 +17,8 @@ export interface ProgressPayload {
   step_index: number
   total_steps: number
   status: string
+  error_code?: string | null
+  error_message?: string | null
 }
 
 export interface LLMConfig {

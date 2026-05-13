@@ -4,10 +4,7 @@
  * [doubaotts] 配置段
  */
 export type DoubaoTTSSection = {
-  ak?: string;
-  sk?: string;
   appid: string;
-  token?: string;
   cluster: string;
   api_url: string;
   volume: number;

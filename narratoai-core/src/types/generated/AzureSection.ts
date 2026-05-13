@@ -3,4 +3,4 @@
 /**
  * [azure] 配置段
  */
-export type AzureSection = { speech_key?: string; speech_region: string };
+export type AzureSection = { speech_region: string };

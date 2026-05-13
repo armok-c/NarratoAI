@@ -8,7 +8,7 @@ import type { OstType } from "./OstType";
  * 6 个管道扩展字段用 `Option<T>`，加载时为 `None`，管道处理后可能有值。
  */
 export type ScriptClip = {
-  _id: bigint;
+  _id: number;
   timestamp: string;
   picture: string;
   narration: string;

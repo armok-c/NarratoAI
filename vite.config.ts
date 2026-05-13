@@ -21,6 +21,7 @@ export default defineConfig({
           )
             return 'vue-vendor'
           if (id.includes('node_modules/@tauri-apps')) return 'tauri'
+          return 'vendor'
         },
       },
     },

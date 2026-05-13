@@ -83,6 +83,7 @@ impl Default for IndexTTS2Section {
             top_k: 30,
             do_sample: true,
             num_beams: 3,
+            // test_load_full_config 使用 10.0 以验证 TOML 覆盖默认值
             repetition_penalty: 1.5,
         }
     }

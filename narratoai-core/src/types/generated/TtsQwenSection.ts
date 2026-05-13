@@ -3,8 +3,4 @@
 /**
  * [tts_qwen] 配置段
  */
-export type TtsQwenSection = {
-  api_key?: string;
-  api_url: string;
-  model_name: string;
-};
+export type TtsQwenSection = { api_url: string; model_name: string };

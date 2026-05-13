@@ -7,4 +7,4 @@
  * - `OriginalSound` (1): 保留原声，按脚本 timestamp 精确裁剪
  * - `Mixed` (2): 保留解说+原声（混合），根据 TTS 时长裁剪
  */
-export type OstType = "NarrationOnly" | "OriginalSound" | "Mixed";
+export type OstType = 0 | 1 | 2;

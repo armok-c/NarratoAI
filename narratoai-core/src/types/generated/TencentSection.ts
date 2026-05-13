@@ -3,8 +3,4 @@
 /**
  * [tencent] 配置段
  */
-export type TencentSection = {
-  secret_id?: string;
-  secret_key?: string;
-  region: string;
-};
+export type TencentSection = { region: string };

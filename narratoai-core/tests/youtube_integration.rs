@@ -51,9 +51,10 @@ fn test_get_video_formats() {
     let info: serde_json::Value = match serde_json::from_str(&stdout) {
         Ok(v) => v,
         Err(e) => {
-            // --flat-playlist 可能返回 JSON 数组而非对象
-            eprintln!("JSON 解析失败: {e}，尝试解析为数组");
-            return;
+            // --flat-playlist 可能返回 JSON 数组而非对象，尝试回退解析
+            let fallback: serde_json::Value = serde_json::from_str(&format!("[{stdout}]"))
+                .unwrap_or_else(|e2| panic!("JSON 解析完全失败: {e}, 回退也失败: {e2}"));
+            fallback
         }
     };
 
