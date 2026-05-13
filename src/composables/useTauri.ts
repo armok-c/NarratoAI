@@ -1,5 +1,3 @@
-import { invoke } from '@tauri-apps/api/core'
-
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER)
 const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER)
 
@@ -106,6 +104,7 @@ export async function tauriInvoke<T>(
   args?: Record<string, unknown>
 ): Promise<T> {
   try {
+    const { invoke } = await import('@tauri-apps/api/core')
     debugLog(`[tauriInvoke] 调用命令: ${command}`, args || '')
     const normalizedArgs = normalizeTauriArgs(args)
     const result = await invoke<T>(command, normalizedArgs as Record<string, unknown> | undefined)

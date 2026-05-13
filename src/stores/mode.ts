@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { usePipelineStore } from '@/stores/pipeline'
 
 export type WorkMode = 'documentary' | 'sde' | 'sdp'
 
@@ -17,14 +16,8 @@ export const useModeStore = defineStore('mode', () => {
     localStorage.setItem('lastMode', val)
   }
 
-  function resetPipeline() {
-    const pipelineStore = usePipelineStore()
-    pipelineStore.reset()
-  }
-
   return {
     currentMode,
     setMode,
-    resetPipeline,
   }
 })

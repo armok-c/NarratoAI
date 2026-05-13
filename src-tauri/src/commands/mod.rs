@@ -13,6 +13,10 @@ pub use system::*;
 /// 对齐 Phase 2/3/4 的 register_all_providers()/register_all_prompts() 模式。
 /// 在 Tauri builder 的 invoke_handler 中展开：
 /// `.invoke_handler(register_all_commands!())`
+///
+/// 新增命令时需同步更新两处：
+/// 1. 顶部 `pub mod` + `pub use` 列表
+/// 2. 宏内的命令全路径列表
 #[macro_export]
 macro_rules! register_all_commands {
     () => {

@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tauri::Manager;
 
@@ -73,7 +73,10 @@ pub fn run() {
             // ---- 5. 初始化 System 监控 State（D-32） ----
             // 使用 std::sync::Mutex 包装的 System 实例，供 get_system_stats 命令复用。
             // CPU 百分比依赖 sysinfo 内部 delta 计算，必须持久化同一个实例。
-            app.manage(SystemState(Mutex::new(System::new_all())));
+            // 首次 refresh_all() 建立基准时间戳，避免首次查询返回 CPU 0%。
+            let mut init_system = System::new_all();
+            init_system.refresh_all();
+            app.manage(SystemState::new(init_system));
 
             Ok(())
         })

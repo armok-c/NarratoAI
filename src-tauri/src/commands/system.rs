@@ -1,7 +1,9 @@
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use sysinfo::System;
 use tauri::State;
+
+use crate::error::CommandError;
 
 /// 系统资源使用数据（D-32）
 ///
@@ -18,7 +20,19 @@ pub struct SystemStats {
 /// 使用 std::sync::Mutex 而非 tokio::sync::Mutex，因为 sysinfo 操作
 /// 是同步的（无 .await 点），且每次调用只锁定几毫秒。
 /// CPU 百分比依赖 delta 计算，因此必须复用同一个 System 实例。
-pub struct SystemState(pub Mutex<System>);
+pub struct SystemState {
+    inner: Mutex<System>,
+}
+
+impl SystemState {
+    pub fn new(system: System) -> Self {
+        Self { inner: Mutex::new(system) }
+    }
+
+    pub fn lock(&self) -> Result<MutexGuard<'_, System>, PoisonError<MutexGuard<'_, System>>> {
+        self.inner.lock()
+    }
+}
 
 /// 获取系统 CPU 和 RAM 使用率（D-32）
 ///
@@ -28,25 +42,21 @@ pub struct SystemState(pub Mutex<System>);
 ///
 /// # Errors
 ///
-/// - Mutex 锁定失败时返回 String 错误信息
+/// - Mutex 锁定失败时返回 CommandError (INTERNAL_ERROR)
 /// - total_memory 为 0 时 ram_percent 返回 0.0
 #[tauri::command]
-pub async fn get_system_stats(state: State<'_, SystemState>) -> Result<SystemStats, String> {
+pub fn get_system_stats(state: State<'_, SystemState>) -> Result<SystemStats, CommandError> {
     let mut system = state
-        .0
         .lock()
-        .map_err(|e| format!("无法锁定系统状态: {}", e))?;
+        .map_err(|e| CommandError {
+            code: "INTERNAL_ERROR".into(),
+            message: format!("无法锁定系统状态: {}", e),
+        })?;
 
     system.refresh_all();
 
     let cpu_percent = system.global_cpu_usage() as f64;
-
-    let total_mem = system.total_memory();
-    let ram_percent = if total_mem > 0 {
-        (system.used_memory() as f64 / total_mem as f64) * 100.0
-    } else {
-        0.0
-    };
+    let ram_percent = calc_ram_percent(system.used_memory(), system.total_memory());
 
     Ok(SystemStats {
         cpu_percent,
@@ -57,7 +67,6 @@ pub async fn get_system_stats(state: State<'_, SystemState>) -> Result<SystemSta
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sysinfo::System;
 
     /// 验证 SystemStats 结构体可以构造
     #[test]
@@ -74,24 +83,24 @@ mod tests {
     #[test]
     fn test_system_state_construction() {
         let system = System::new_all();
-        let state = SystemState(Mutex::new(system));
-        assert!(state.0.lock().is_ok());
+        let state = SystemState::new(system);
+        assert!(state.lock().is_ok());
     }
 
-    /// 验证 total_memory 为 0 时 ram_percent 返回 0.0
+    /// 验证 calc_ram_percent 在 total 为 0 时返回 0.0
     #[test]
     fn test_ram_percent_zero_total() {
-        // 使用一个空的 System 实例（memory 字段为 0）
-        let system = System::new();
-        let cpu = system.global_cpu_usage() as f64;
-        let total_mem = system.total_memory();
-        let ram = if total_mem > 0 {
-            (system.used_memory() as f64 / total_mem as f64) * 100.0
-        } else {
-            0.0
-        };
-        assert_eq!(ram, 0.0);
-        // CPU 在新 System 实例上应返回合理值（可能为 0 或任意浮点数）
-        assert!(cpu >= 0.0);
+        assert_eq!(calc_ram_percent(0, 0), 0.0);
+        assert_eq!(calc_ram_percent(100, 0), 0.0);
+        assert_eq!(calc_ram_percent(100, 200), 50.0);
+    }
+}
+
+/// 纯函数：计算 RAM 使用百分比
+fn calc_ram_percent(used: u64, total: u64) -> f64 {
+    if total > 0 {
+        (used as f64 / total as f64) * 100.0
+    } else {
+        0.0
     }
 }

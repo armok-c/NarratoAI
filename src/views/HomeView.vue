@@ -57,10 +57,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useModeStore, type WorkMode } from '@/stores/mode'
+import { usePipelineStore } from '@/stores/pipeline'
 
 const modeStore = useModeStore()
+const pipelineStore = usePipelineStore()
 
 const selectedMode = ref<WorkMode>(modeStore.currentMode)
 
@@ -72,13 +74,8 @@ const modeOptions = ref([
 
 function handleModeChange(val: WorkMode) {
   modeStore.setMode(val)
-  modeStore.resetPipeline()
+  pipelineStore.reset()
 }
-
-// Sync with external ModeStore changes
-watch(() => modeStore.currentMode, (val) => {
-  selectedMode.value = val
-})
 </script>
 
 <style>

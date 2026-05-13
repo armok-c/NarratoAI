@@ -30,8 +30,11 @@ async function fetchStats() {
     cpuPercent.value = Math.round(stats.cpu_percent)
     ramPercent.value = Math.round(stats.ram_percent)
     error.value = false
-  } catch {
+  } catch (e) {
     error.value = true
+    if (import.meta.env.DEV) {
+      console.warn('[SystemMonitorBar] Failed to fetch system stats:', e)
+    }
   }
 }
 

@@ -119,7 +119,6 @@ function handleDoubleClick() {
   background: radial-gradient(circle, rgba(var(--v-theme-primary), 0.25) 0%, transparent 70%);
 }
 
-:root[class*="dark"] .logo-glow,
 .v-theme--dark .logo-glow {
   background: radial-gradient(circle, rgba(var(--v-theme-primary), 0.4) 0%, transparent 70%);
 }
