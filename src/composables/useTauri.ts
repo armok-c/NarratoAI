@@ -89,7 +89,7 @@ export function debugError(message: string, error: unknown): void {
   if (!isDebugMode()) {
     return
   }
-  console.error(message, error)
+  console.error(message, filterSensitiveArgs(error))
 }
 
 /**
