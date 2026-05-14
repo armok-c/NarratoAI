@@ -97,7 +97,7 @@ Plans:
 - [x] 16-01-PLAN.md — FFmpeg sidecar + 5 Tauri config 命令 + shell 插件集成（Wave 0）
 - [x] 16-02-PLAN.md — Edge-TTS 代理隧道补齐 + VisualAnalyzer 门面审查（Wave 0）
 - [x] 16-03-PLAN.md — Pinia stores 扩展 + useConfig composable + ts-rs 类型同步（Wave 1）
-- [ ] 16-04-PLAN.md — SettingsDrawer 手风琴 + 7 个配置面板组件 + 面板显隐规则（Wave 2）
+- [x] 16-04-PLAN.md — SettingsDrawer 手风琴 + 7 个配置面板组件 + 面板显隐规则（Wave 2）
 - [ ] 16-05-PLAN.md — Local Draft 暂存 + 全局保存/验证/snackbar + 模式切换保护 + vitest 测试（Wave 3）
 
 ### Phase 17: Pipeline Controls + Progress + Script Preview
@@ -147,6 +147,6 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
 | 14. Foundation — Frontend Scaffold | v2.0 | 5/5 | Gap closure complete | - |
 | 15. Layout Shell + 3-Mode UX | v2.0 | 0/5 | Planned | - |
-| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 3/5 | In Progress|  |
+| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 4/5 | In Progress|  |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
 | 18. Remaining Tech Debt + Polish | v2.0 | 0/0 | Not started | - |
