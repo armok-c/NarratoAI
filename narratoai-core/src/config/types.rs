@@ -420,10 +420,14 @@ bgm_fade_out = 3.0
 [app]
 project_version = "0.7.8"
 "#;
-        let config: AppConfig = toml::from_str(toml_str).expect("仅含 app section 的 TOML 应解析成功");
+        let config: AppConfig =
+            toml::from_str(toml_str).expect("仅含 app section 的 TOML 应解析成功");
         // 缺失的 section 应使用默认值
         assert_eq!(config.app.project_version, "0.7.8");
-        assert_eq!(config.azure.speech_key, "", "缺失的 azure section 应使用 Default");
+        assert_eq!(
+            config.azure.speech_key, "",
+            "缺失的 azure section 应使用 Default"
+        );
         assert!(!config.proxy.enabled, "缺失的 proxy section 应使用 Default");
     }
 

@@ -2,11 +2,11 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use narratoai_core::config::types::AppConfig;
+use narratoai_core::documentary::script_gen::ScriptGenRequest;
 use narratoai_core::documentary::types::DocumentaryRequest;
+use narratoai_core::script::types::Script;
 use narratoai_core::sde::types::SdeRequest;
 use narratoai_core::sdp::types::SdpRequest;
-use narratoai_core::documentary::script_gen::ScriptGenRequest;
-use narratoai_core::script::types::Script;
 
 use crate::error::{validate_path, CommandError};
 use crate::models::progress::{CommandResponse, ProgressPayload};
@@ -16,25 +16,39 @@ use crate::models::progress::{CommandResponse, ProgressPayload};
 fn validate_documentary_paths(req: &DocumentaryRequest) -> Result<(), CommandError> {
     validate_path(&req.video_path)?;
     validate_path(&req.script_path)?;
-    if let Some(ref p) = req.bgm_path { validate_path(p)?; }
-    if let Some(ref p) = req.output_dir { validate_path(p)?; }
+    if let Some(ref p) = req.bgm_path {
+        validate_path(p)?;
+    }
+    if let Some(ref p) = req.output_dir {
+        validate_path(p)?;
+    }
     Ok(())
 }
 
 fn validate_sde_paths(req: &SdeRequest) -> Result<(), CommandError> {
     validate_path(&req.subtitle_path)?;
     validate_path(&req.video_path)?;
-    if let Some(ref p) = req.bgm_path { validate_path(p)?; }
-    if let Some(ref p) = req.output_dir { validate_path(p)?; }
+    if let Some(ref p) = req.bgm_path {
+        validate_path(p)?;
+    }
+    if let Some(ref p) = req.output_dir {
+        validate_path(p)?;
+    }
     Ok(())
 }
 
 fn validate_sdp_paths(req: &SdpRequest) -> Result<(), CommandError> {
     validate_path(&req.subtitle_path)?;
     validate_path(&req.video_path)?;
-    if let Some(ref p) = req.script_path { validate_path(p)?; }
-    if let Some(ref p) = req.bgm_path { validate_path(p)?; }
-    if let Some(ref p) = req.output_dir { validate_path(p)?; }
+    if let Some(ref p) = req.script_path {
+        validate_path(p)?;
+    }
+    if let Some(ref p) = req.bgm_path {
+        validate_path(p)?;
+    }
+    if let Some(ref p) = req.output_dir {
+        validate_path(p)?;
+    }
     Ok(())
 }
 
@@ -92,7 +106,8 @@ pub async fn run_documentary(
         &config,
         proxy_section,
         Some(progress_callback),
-    ).await?;
+    )
+    .await?;
 
     Ok(CommandResponse {
         output_video_path: output_path,
@@ -109,8 +124,14 @@ pub async fn run_sde(
     app: AppHandle,
     request: SdeRequest,
     config: tauri::State<'_, AppConfig>,
-    registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
-    prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
+    registry: tauri::State<
+        '_,
+        std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>,
+    >,
+    prompt_manager: tauri::State<
+        '_,
+        std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>,
+    >,
 ) -> Result<CommandResponse, CommandError> {
     validate_sde_paths(&request)?;
     let task_id = Uuid::new_v4().to_string();
@@ -163,7 +184,8 @@ pub async fn run_sde(
         &registry,
         &pm,
         Some(progress_callback),
-    ).await?;
+    )
+    .await?;
 
     Ok(CommandResponse {
         output_video_path: output_path,
@@ -208,11 +230,8 @@ pub async fn run_sdp(
             let _ = app_handle.emit("pipeline-progress", payload);
         });
 
-    let output_path = narratoai_core::sdp::pipeline::run_sdp(
-        request,
-        &config,
-        Some(progress_callback),
-    ).await?;
+    let output_path =
+        narratoai_core::sdp::pipeline::run_sdp(request, &config, Some(progress_callback)).await?;
 
     Ok(CommandResponse {
         output_video_path: output_path,
@@ -228,16 +247,26 @@ pub async fn generate_documentary_script(
     app: AppHandle,
     request: ScriptGenRequest,
     config: tauri::State<'_, AppConfig>,
-    registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
-    prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
+    registry: tauri::State<
+        '_,
+        std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>,
+    >,
+    prompt_manager: tauri::State<
+        '_,
+        std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>,
+    >,
 ) -> Result<Script, CommandError> {
     validate_script_gen_paths(&request)?;
     // 从配置中获取 vision 和 text LLM provider（作用域化，确保 guard 在 .await 前释放）
     let (vision_provider, text_provider) = {
         let guard = registry.read().await;
-        let vision_name = request.vision_model.as_deref()
+        let vision_name = request
+            .vision_model
+            .as_deref()
             .unwrap_or(&config.app.vision_llm_provider);
-        let text_name = request.text_model.as_deref()
+        let text_name = request
+            .text_model
+            .as_deref()
             .unwrap_or(&config.app.text_llm_provider);
         let vp = guard.get(vision_name).map_err(|e| CommandError {
             code: "PROVIDER_NOT_FOUND".into(),
@@ -282,7 +311,8 @@ pub async fn generate_documentary_script(
         vision_provider.as_ref(),
         text_provider.as_ref(),
         &pm,
-    ).await?;
+    )
+    .await?;
 
     Ok(clips)
 }
@@ -297,8 +327,14 @@ pub async fn generate_sdp_script(
     temperature: f64,
     custom_clips: u32,
     config: tauri::State<'_, AppConfig>,
-    registry: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>>,
-    prompt_manager: tauri::State<'_, std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>>,
+    registry: tauri::State<
+        '_,
+        std::sync::Arc<tokio::sync::RwLock<narratoai_core::llm::registry::Registry>>,
+    >,
+    prompt_manager: tauri::State<
+        '_,
+        std::sync::Arc<tokio::sync::RwLock<narratoai_core::prompt::manager::PromptManager>>,
+    >,
 ) -> Result<Script, CommandError> {
     validate_path(&subtitle_path)?;
     // 校验字幕文件存在且扩展名合法
@@ -309,7 +345,10 @@ pub async fn generate_sdp_script(
         });
     }
     if !subtitle_path.extension().map_or(false, |ext| {
-        matches!(ext.to_str(), Some("srt") | Some("ass") | Some("ssa") | Some("vtt") | Some("txt"))
+        matches!(
+            ext.to_str(),
+            Some("srt") | Some("ass") | Some("ssa") | Some("vtt") | Some("txt")
+        )
     }) {
         return Err(CommandError {
             code: "INVALID_PATH".into(),
@@ -332,21 +371,27 @@ pub async fn generate_sdp_script(
     // 从配置中获取 text LLM provider（作用域化，确保 registry guard 在 .await 前释放）
     let provider = {
         let guard = registry.read().await;
-        guard.get(&config.app.text_llm_provider).map_err(|e| CommandError {
-            code: "PROVIDER_NOT_FOUND".into(),
-            message: format!("获取 LLM provider 失败: {}", e),
-        })?
+        guard
+            .get(&config.app.text_llm_provider)
+            .map_err(|e| CommandError {
+                code: "PROVIDER_NOT_FOUND".into(),
+                message: format!("获取 LLM provider 失败: {}", e),
+            })?
     };
     // TODO(WR-02): prompt_manager read guard held across two sequential LLM calls;
     // second prompt depends on first LLM output, so pre-rendering both upfront is not possible
     // without splitting the core API. Write operations to prompt registry are blocked during this time.
     let pm = prompt_manager.read().await;
 
-    let task_dir = std::env::temp_dir().join("narratoai").join(Uuid::new_v4().to_string());
-    tokio::fs::create_dir_all(&task_dir).await.map_err(|e| CommandError {
-        code: "IO_ERROR".into(),
-        message: format!("创建临时目录失败: {}", e),
-    })?;
+    let task_dir = std::env::temp_dir()
+        .join("narratoai")
+        .join(Uuid::new_v4().to_string());
+    tokio::fs::create_dir_all(&task_dir)
+        .await
+        .map_err(|e| CommandError {
+            code: "IO_ERROR".into(),
+            message: format!("创建临时目录失败: {}", e),
+        })?;
 
     let script = narratoai_core::sdp::script_gen::generate_sdp_script(
         &subtitle_path,
@@ -355,7 +400,8 @@ pub async fn generate_sdp_script(
         &task_dir,
         temperature,
         custom_clips,
-    ).await;
+    )
+    .await;
 
     // 脚本已返回，清理临时文件
     let _ = tokio::fs::remove_dir_all(&task_dir).await;

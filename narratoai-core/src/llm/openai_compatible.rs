@@ -9,12 +9,11 @@ use async_openai::{
     error::OpenAIError,
     types::chat::{
         ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImage,
-        ChatCompletionRequestMessageContentPartText,
-        ChatCompletionRequestSystemMessage, ChatCompletionRequestSystemMessageContent,
-        ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent,
-        ChatCompletionRequestUserMessageContentPart, CreateChatCompletionRequest,
-        CreateChatCompletionRequestArgs, CreateChatCompletionResponse, ImageUrl,
-        ResponseFormat,
+        ChatCompletionRequestMessageContentPartText, ChatCompletionRequestSystemMessage,
+        ChatCompletionRequestSystemMessageContent, ChatCompletionRequestUserMessage,
+        ChatCompletionRequestUserMessageContent, ChatCompletionRequestUserMessageContentPart,
+        CreateChatCompletionRequest, CreateChatCompletionRequestArgs, CreateChatCompletionResponse,
+        ImageUrl, ResponseFormat,
     },
     Client,
 };
@@ -79,8 +78,8 @@ impl OpenAiCompatibleProvider {
             .with_api_key(&cfg.api_key)
             .with_api_base(cfg.base_url.trim_end_matches('/'));
 
-        let mut http_client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(cfg.timeout_secs));
+        let mut http_client_builder =
+            reqwest::Client::builder().timeout(Duration::from_secs(cfg.timeout_secs));
 
         if let Some(ref proxy_url) = cfg.proxy_http {
             let proxy = reqwest::Proxy::http(proxy_url)
@@ -155,7 +154,9 @@ impl OpenAiCompatibleProvider {
         let mut parts: Vec<ChatCompletionRequestUserMessageContentPart> =
             Vec::with_capacity(1 + batch.len());
         parts.push(ChatCompletionRequestUserMessageContentPart::Text(
-            ChatCompletionRequestMessageContentPartText { text: prompt.to_string() },
+            ChatCompletionRequestMessageContentPartText {
+                text: prompt.to_string(),
+            },
         ));
         for b64 in batch {
             parts.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
@@ -284,11 +285,8 @@ impl OpenAiCompatibleProvider {
                         "{}\n\nIMPORTANT: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks.",
                         original_prompt
                     );
-                    let retry_messages = Self::build_vision_messages(
-                        &json_prompt,
-                        system_prompt,
-                        batch,
-                    );
+                    let retry_messages =
+                        Self::build_vision_messages(&json_prompt, system_prompt, batch);
                     let mut retry_builder = CreateChatCompletionRequestArgs::default();
                     retry_builder.model(model_name);
                     retry_builder.messages(retry_messages);
@@ -300,10 +298,12 @@ impl OpenAiCompatibleProvider {
                     }
                     let retry_request = retry_builder
                         .build()
-                        .map_err(|e| {
-                            LLMError::APICall(format!("请求重建失败: {}", e))
-                        })?;
-                    client.chat().create(retry_request).await.map_err(LLMError::from)
+                        .map_err(|e| LLMError::APICall(format!("请求重建失败: {}", e)))?;
+                    client
+                        .chat()
+                        .create(retry_request)
+                        .await
+                        .map_err(LLMError::from)
                 } else {
                     Err(LLMError::from(OpenAIError::ApiError(api_err)))
                 }
@@ -348,8 +348,14 @@ impl LlmProvider for OpenAiCompatibleProvider {
             .map_err(|e| LLMError::Configuration(format!("请求构建失败: {}", e)))?;
 
         let response = if use_json {
-            self.generate_text_with_json_fallback(request, prompt, system_prompt, temperature, max_tokens)
-                .await?
+            self.generate_text_with_json_fallback(
+                request,
+                prompt,
+                system_prompt,
+                temperature,
+                max_tokens,
+            )
+            .await?
         } else {
             self.client
                 .chat()
@@ -431,7 +437,8 @@ impl LlmProvider for OpenAiCompatibleProvider {
         // 将图片分片，每个 batch 仅在执行时才预处理自己的图片（避免所有 base64 同时驻留内存）
         const MAX_CONCURRENT_PREPROCESSING: usize = 4;
         let preprocess_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PREPROCESSING));
-        let image_chunks: Vec<Vec<PathBuf>> = images.chunks(batch_size).map(|c| c.to_vec()).collect();
+        let image_chunks: Vec<Vec<PathBuf>> =
+            images.chunks(batch_size).map(|c| c.to_vec()).collect();
         let total_batches = image_chunks.len();
         let semaphore = Arc::new(Semaphore::new(bounded_concurrency));
         let cancel = cancel.unwrap_or_default();
@@ -454,19 +461,25 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let max_tokens = max_tokens;
 
             handles.push(tokio::spawn(async move {
-                let _permit = sem_clone.acquire_owned().await.map_err(|_| {
-                    LLMError::General("信号量获取失败".to_string())
-                })?;
+                let _permit = sem_clone
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| LLMError::General("信号量获取失败".to_string()))?;
 
                 // 仅预处理本 batch 的图片，通过预处理信号量限制并发解码数
                 let mut data_urls = Vec::with_capacity(image_chunk.len());
                 for img_path in image_chunk {
-                    let _pp_permit = preprocess_sem.clone().acquire_owned().await.map_err(|_| {
-                        LLMError::General("预处理信号量获取失败".to_string())
-                    })?;
-                    let data_url = tokio::task::spawn_blocking(move || image_to_base64_data_url(&img_path))
+                    let _pp_permit = preprocess_sem
+                        .clone()
+                        .acquire_owned()
                         .await
-                        .map_err(|join_err| LLMError::General(format!("图片预处理任务失败: {}", join_err)))??;
+                        .map_err(|_| LLMError::General("预处理信号量获取失败".to_string()))?;
+                    let data_url =
+                        tokio::task::spawn_blocking(move || image_to_base64_data_url(&img_path))
+                            .await
+                            .map_err(|join_err| {
+                                LLMError::General(format!("图片预处理任务失败: {}", join_err))
+                            })??;
                     data_urls.push(data_url);
                 }
 
@@ -489,9 +502,9 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 if use_json {
                     request_builder.response_format(ResponseFormat::JsonObject);
                 }
-                let request = request_builder.build().map_err(|e| {
-                    LLMError::Configuration(format!("请求构建失败: {}", e))
-                })?;
+                let request = request_builder
+                    .build()
+                    .map_err(|e| LLMError::Configuration(format!("请求构建失败: {}", e)))?;
 
                 let response = if use_json {
                     Self::create_vision_chat_with_json_fallback(
@@ -518,8 +531,12 @@ impl LlmProvider for OpenAiCompatibleProvider {
                     .and_then(|c| c.message.content.as_deref())
                     .ok_or_else(|| {
                         // 检查是否为内容过滤导致的空响应
-                        if let Some(finish_reason) = first_choice.and_then(|c| c.finish_reason.as_ref()) {
-                            if *finish_reason == async_openai::types::chat::FinishReason::ContentFilter {
+                        if let Some(finish_reason) =
+                            first_choice.and_then(|c| c.finish_reason.as_ref())
+                        {
+                            if *finish_reason
+                                == async_openai::types::chat::FinishReason::ContentFilter
+                            {
                                 return LLMError::ContentFilter("内容被安全过滤器阻止".to_string());
                             }
                         }
@@ -539,10 +556,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 Ok(Ok((idx, text))) => sorted_results.push((idx, text)),
                 Ok(Err(e)) => return Err(e),
                 Err(join_err) => {
-                    return Err(LLMError::General(format!(
-                        "任务执行失败: {}",
-                        join_err
-                    )));
+                    return Err(LLMError::General(format!("任务执行失败: {}", join_err)));
                 }
             }
         }

@@ -39,9 +39,10 @@ impl PromptManager {
         name: &str,
         version: Option<&str>,
     ) -> Result<Prompt, PromptError> {
-        let registry = self.registry.read().map_err(|e| {
-            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
-        })?;
+        let registry = self
+            .registry
+            .read()
+            .map_err(|e| PromptError::LockFailure(format!("注册中心读取锁失败: {}", e)))?;
         let prompt = registry.get(category, name, version)?;
         Ok(prompt.clone())
     }
@@ -73,13 +74,15 @@ impl PromptManager {
         // 校验必需参数
         let mut missing: Vec<String> = Vec::new();
         for param in &prompt.metadata.parameters {
-            if param.required && param.default.is_none() && !vars.contains_key(param.name.as_str()) {
+            if param.required && param.default.is_none() && !vars.contains_key(param.name.as_str())
+            {
                 missing.push(param.name.clone());
             }
         }
         if !missing.is_empty() {
             return Err(PromptError::Validation(format!(
-                "缺少必需参数: {}", missing.join(", ")
+                "缺少必需参数: {}",
+                missing.join(", ")
             )));
         }
 
@@ -103,50 +106,47 @@ impl PromptManager {
     }
 
     /// 注册 Prompt 到 Registry（D-17）
-    pub fn register_prompt(
-        &self,
-        prompt: Prompt,
-        is_default: bool,
-    ) -> Result<(), PromptError> {
-        let mut registry = self.registry.write().map_err(|e| {
-            PromptError::LockFailure(format!("注册中心写入锁失败: {}", e))
-        })?;
+    pub fn register_prompt(&self, prompt: Prompt, is_default: bool) -> Result<(), PromptError> {
+        let mut registry = self
+            .registry
+            .write()
+            .map_err(|e| PromptError::LockFailure(format!("注册中心写入锁失败: {}", e)))?;
         registry.register(prompt, is_default)
     }
 
     /// 搜索匹配的 Prompt（D-02）
     pub fn search_prompts(&self, query: &str) -> Result<Vec<Prompt>, PromptError> {
-        let registry = self.registry.read().map_err(|e| {
-            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
-        })?;
+        let registry = self
+            .registry
+            .read()
+            .map_err(|e| PromptError::LockFailure(format!("注册中心读取锁失败: {}", e)))?;
         Ok(registry.search(query).into_iter().cloned().collect())
     }
 
     /// 校验 LLM 输出格式（D-20）
     ///
     /// 委托给 `validators::validate_output()`。
-    pub fn validate_output(
-        &self,
-        output: &str,
-        format: &OutputFormat,
-    ) -> Result<(), PromptError> {
+    pub fn validate_output(&self, output: &str, format: &OutputFormat) -> Result<(), PromptError> {
         validators::validate_output(output, format)
     }
 
     /// 列出所有已注册的分类
     pub fn list_categories(&self) -> Result<Vec<String>, PromptError> {
-        let registry = self.registry.read().map_err(|e| {
-            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
-        })?;
+        let registry = self
+            .registry
+            .read()
+            .map_err(|e| PromptError::LockFailure(format!("注册中心读取锁失败: {}", e)))?;
         Ok(registry.list_categories())
     }
 
     /// 列出指定分类下的所有 Prompt 名称
     pub fn list_prompts(&self, category: &str) -> Result<Vec<String>, PromptError> {
-        let registry = self.registry.read().map_err(|e| {
-            PromptError::LockFailure(format!("注册中心读取锁失败: {}", e))
-        })?;
-        Ok(registry.list_prompts(category)
+        let registry = self
+            .registry
+            .read()
+            .map_err(|e| PromptError::LockFailure(format!("注册中心读取锁失败: {}", e)))?;
+        Ok(registry
+            .list_prompts(category)
             .iter()
             .map(|p| p.metadata.name.clone())
             .collect())
@@ -315,10 +315,7 @@ mod tests {
     fn test_search_prompts_no_match() {
         let manager = make_manager();
         manager
-            .register_prompt(
-                make_test_prompt("doc", "test", "v1.0", "content"),
-                true,
-            )
+            .register_prompt(make_test_prompt("doc", "test", "v1.0", "content"), true)
             .unwrap();
 
         let results = manager.search_prompts("nonexistent").unwrap();
@@ -342,16 +339,10 @@ mod tests {
     fn test_list_categories() {
         let manager = make_manager();
         manager
-            .register_prompt(
-                make_test_prompt("cat1", "p1", "v1.0", "c"),
-                true,
-            )
+            .register_prompt(make_test_prompt("cat1", "p1", "v1.0", "c"), true)
             .unwrap();
         manager
-            .register_prompt(
-                make_test_prompt("cat2", "p2", "v1.0", "c"),
-                true,
-            )
+            .register_prompt(make_test_prompt("cat2", "p2", "v1.0", "c"), true)
             .unwrap();
 
         let cats = manager.list_categories().unwrap();
@@ -363,16 +354,10 @@ mod tests {
     fn test_list_prompts() {
         let manager = make_manager();
         manager
-            .register_prompt(
-                make_test_prompt("doc", "frame_analysis", "v1.0", "c"),
-                true,
-            )
+            .register_prompt(make_test_prompt("doc", "frame_analysis", "v1.0", "c"), true)
             .unwrap();
         manager
-            .register_prompt(
-                make_test_prompt("doc", "narration_gen", "v2.0", "c"),
-                true,
-            )
+            .register_prompt(make_test_prompt("doc", "narration_gen", "v2.0", "c"), true)
             .unwrap();
 
         let prompts = manager.list_prompts("doc").unwrap();
@@ -405,6 +390,10 @@ mod tests {
         let result = manager.render_prompt("test", "required_test", None, &vars);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("video_title"), "错误应提及缺失的参数名: {}", err_msg);
+        assert!(
+            err_msg.contains("video_title"),
+            "错误应提及缺失的参数名: {}",
+            err_msg
+        );
     }
 }

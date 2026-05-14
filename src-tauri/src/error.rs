@@ -160,20 +160,26 @@ mod tests {
 
     #[test]
     fn test_from_pipeline_error() {
-        let err = CommandError::from(PipelineError::VideoClip { details: "test.mp4".into() });
+        let err = CommandError::from(PipelineError::VideoClip {
+            details: "test.mp4".into(),
+        });
         assert_eq!(err.code, "PIPELINE_ERROR");
         assert!(err.message.contains("test.mp4"));
     }
 
     #[test]
     fn test_from_sde_error() {
-        let err = CommandError::from(SdeError::Validation { details: "参数错误".into() });
+        let err = CommandError::from(SdeError::Validation {
+            details: "参数错误".into(),
+        });
         assert_eq!(err.code, "SDE_ERROR");
     }
 
     #[test]
     fn test_from_sdp_error() {
-        let err = CommandError::from(SdpError::Validation { details: "校验失败".into() });
+        let err = CommandError::from(SdpError::Validation {
+            details: "校验失败".into(),
+        });
         assert_eq!(err.code, "SDP_ERROR");
     }
 
@@ -185,13 +191,17 @@ mod tests {
 
     #[test]
     fn test_from_config_error() {
-        let err = CommandError::from(ConfigError::NotFound { path: "config.toml".into() });
+        let err = CommandError::from(ConfigError::NotFound {
+            path: "config.toml".into(),
+        });
         assert_eq!(err.code, "CONFIG_ERROR");
     }
 
     #[test]
     fn test_from_tts_error() {
-        let err = CommandError::from(TTSError::UnknownEngine { engine: "bad_engine".into() });
+        let err = CommandError::from(TTSError::UnknownEngine {
+            engine: "bad_engine".into(),
+        });
         assert_eq!(err.code, "TTS_ERROR");
     }
 
@@ -203,7 +213,9 @@ mod tests {
 
     #[test]
     fn test_from_jianying_error() {
-        let err = CommandError::from(JianYingError::Validation { details: "验证失败".into() });
+        let err = CommandError::from(JianYingError::Validation {
+            details: "验证失败".into(),
+        });
         assert_eq!(err.code, "JIANYING_ERROR");
     }
 
@@ -246,4 +258,3 @@ mod tests {
         let _: &dyn std::error::Error = &err;
     }
 }
-

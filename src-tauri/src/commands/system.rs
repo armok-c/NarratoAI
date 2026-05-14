@@ -26,7 +26,9 @@ pub struct SystemState {
 
 impl SystemState {
     pub fn new(system: System) -> Self {
-        Self { inner: Mutex::new(system) }
+        Self {
+            inner: Mutex::new(system),
+        }
     }
 
     pub fn lock(&self) -> Result<MutexGuard<'_, System>, PoisonError<MutexGuard<'_, System>>> {
@@ -46,12 +48,10 @@ impl SystemState {
 /// - total_memory 为 0 时 ram_percent 返回 0.0
 #[tauri::command]
 pub fn get_system_stats(state: State<'_, SystemState>) -> Result<SystemStats, CommandError> {
-    let mut system = state
-        .lock()
-        .map_err(|e| CommandError {
-            code: "INTERNAL_ERROR".into(),
-            message: format!("无法锁定系统状态: {}", e),
-        })?;
+    let mut system = state.lock().map_err(|e| CommandError {
+        code: "INTERNAL_ERROR".into(),
+        message: format!("无法锁定系统状态: {}", e),
+    })?;
 
     system.refresh_all();
 

@@ -55,7 +55,12 @@ impl VideoMaterial {
     /// - `duration_us`: 时长（微秒）
     /// - `width`: 视频宽度
     /// - `height`: 视频高度
-    pub fn new(path: &Path, duration_us: i64, width: u32, height: u32) -> Result<Self, JianYingError> {
+    pub fn new(
+        path: &Path,
+        duration_us: i64,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, JianYingError> {
         let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         if !abs_path.is_absolute() {
             return Err(JianYingError::Validation {
@@ -174,12 +179,16 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("创建临时目录失败");
         let path = dir.path().join("test_video.mp4");
         std::fs::write(&path, b"").expect("创建测试文件失败");
-        let mat = VideoMaterial::new(&path, 5_000_000, 1920, 1080).expect("应成功创建 VideoMaterial");
+        let mat =
+            VideoMaterial::new(&path, 5_000_000, 1920, 1080).expect("应成功创建 VideoMaterial");
         let json = mat.to_json();
 
         // id 应为 32 位 hex
         assert_eq!(json.id.len(), 32, "id 应为 32 位 hex");
-        assert!(json.id.chars().all(|c| c.is_ascii_hexdigit()), "id 应为 hex 字符");
+        assert!(
+            json.id.chars().all(|c| c.is_ascii_hexdigit()),
+            "id 应为 hex 字符"
+        );
 
         // material_id 应与 id 相同
         assert_eq!(json.material_id, json.id, "material_id 应等于 id");
@@ -230,7 +239,10 @@ mod tests {
 
         // id 应为 32 位 hex
         assert_eq!(json.id.len(), 32, "id 应为 32 位 hex");
-        assert!(json.id.chars().all(|c| c.is_ascii_hexdigit()), "id 应为 hex 字符");
+        assert!(
+            json.id.chars().all(|c| c.is_ascii_hexdigit()),
+            "id 应为 hex 字符"
+        );
 
         // type 应为 extract_music
         assert_eq!(json.type_field, "extract_music", "type 应为 extract_music");

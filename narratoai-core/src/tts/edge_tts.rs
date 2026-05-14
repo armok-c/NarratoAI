@@ -168,7 +168,9 @@ fn build_ssml(text: &str, voice_name: &str, rate: f64, pitch: f64) -> String {
         r#"<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{}"><voice name="{}"><prosody rate="{}" pitch="{}">{}</prosody></voice></speak>"#,
         common::escape_xml_attr(&voice_lang),
         common::escape_xml_attr(voice_name),
-        rate_str, pitch_str, escaped_text
+        rate_str,
+        pitch_str,
+        escaped_text
     )
 }
 
@@ -207,7 +209,10 @@ impl EdgeTtsEngine {
         let headers: &[(&str, &str)] = &[
             ("Pragma", "no-cache"),
             ("Cache-Control", "no-cache"),
-            ("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"),
+            (
+                "Origin",
+                "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+            ),
             ("Accept-Language", "en-US,en;q=0.9"),
         ];
 
@@ -451,6 +456,24 @@ impl EdgeTtsEngine {
         }
     }
 
+    fn build_http_client(&self, timeout: Duration) -> Result<reqwest::Client, TTSError> {
+        let builder = reqwest::Client::builder().timeout(timeout);
+        let builder = if self.proxy_enabled {
+            let proxy_config = common::ProxyConfig {
+                http: self.proxy_http.clone(),
+                https: self.proxy_https.clone(),
+                enabled: true,
+            };
+            proxy_config.apply_to_client(builder)
+        } else {
+            builder
+        };
+
+        builder.build().map_err(|e| {
+            TTSError::ConnectionFailed(format!("构建 Edge-TTS HTTP 客户端失败: {}", e))
+        })
+    }
+
     async fn synthesize_with_retry(
         &self,
         ssml: &str,
@@ -474,10 +497,13 @@ impl EdgeTtsEngine {
             TRUSTED_CLIENT_TOKEN, sec_ms_gec, SEC_MS_GEC_VERSION
         );
 
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_default();
+        let client = match self.build_http_client(Duration::from_secs(10)) {
+            Ok(client) => client,
+            Err(e) => {
+                tracing::warn!("Edge-TTS clock skew correction failed: {}", e);
+                return;
+            }
+        };
 
         let muid = generate_muid();
         match client
@@ -493,10 +519,8 @@ impl EdgeTtsEngine {
                     if let Some(server_ts) = parse_rfc2616_date(date) {
                         let skew = server_ts - get_corrected_timestamp();
                         if skew.abs() > 1.0 {
-                            CLOCK_SKEW_MICROS.fetch_add(
-                                (skew * 1_000_000.0) as i64,
-                                Ordering::SeqCst,
-                            );
+                            CLOCK_SKEW_MICROS
+                                .fetch_add((skew * 1_000_000.0) as i64, Ordering::SeqCst);
                         }
                     }
                 }
@@ -505,6 +529,39 @@ impl EdgeTtsEngine {
                 tracing::warn!("Edge-TTS clock skew correction failed: {}", e);
             }
         }
+    }
+
+    pub(super) async fn get_voices(&self) -> Result<serde_json::Value, TTSError> {
+        let sec_ms_gec = generate_sec_ms_gec();
+        let url = format!(
+            "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken={}&Sec-MS-GEC={}&Sec-MS-GEC-Version={}",
+            TRUSTED_CLIENT_TOKEN, sec_ms_gec, SEC_MS_GEC_VERSION
+        );
+
+        let client = self.build_http_client(Duration::from_secs(30))?;
+        let muid = generate_muid();
+        let response = client
+            .get(&url)
+            .header("User-Agent", build_user_agent())
+            .header("Cookie", format!("muid={};", muid))
+            .header("Accept-Encoding", "gzip, deflate, br, zstd")
+            .send()
+            .await
+            .map_err(|e| TTSError::ConnectionFailed(format!("获取 Edge-TTS 音色失败: {}", e)))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(Self::classify_error(
+                format!("获取 Edge-TTS 音色失败: HTTP {} {}", status, body),
+                TTSError::SynthesisFailed,
+            ));
+        }
+
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| TTSError::SynthesisFailed(format!("解析 Edge-TTS 音色失败: {}", e)))
     }
 
     async fn synthesize_once(&self, ssml: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
@@ -532,10 +589,9 @@ impl EdgeTtsEngine {
         let mut word_boundaries: Vec<WordBoundary> = Vec::new();
         let mut duration: f64 = 0.0;
         let mut received_turn_end = false;
-        while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, rx.next())
-            .await
-            .map_err(|_| TTSError::SynthesisFailed("receive timeout: server did not respond".to_string()))?
-        {
+        while let Some(msg_result) = timeout(WS_RECEIVE_TIMEOUT, rx.next()).await.map_err(|_| {
+            TTSError::SynthesisFailed("receive timeout: server did not respond".to_string())
+        })? {
             let msg = msg_result.map_err(|e| {
                 let err_msg = format!("receive failed: {}", e);
                 Self::classify_error(err_msg, TTSError::SynthesisFailed)
@@ -552,10 +608,16 @@ impl EdgeTtsEngine {
                                 received_turn_end = true;
                                 match std::str::from_utf8(&content.payload) {
                                     Ok(payload_str) => {
-                                        if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                                            duration = if let Some(d) = metadata["audio_duration"].as_f64() {
+                                        if let Ok(metadata) =
+                                            serde_json::from_str::<serde_json::Value>(payload_str)
+                                        {
+                                            duration = if let Some(d) =
+                                                metadata["audio_duration"].as_f64()
+                                            {
                                                 d / 10_000_000.0
-                                            } else if let Some(s) = metadata["audio_duration"].as_str() {
+                                            } else if let Some(s) =
+                                                metadata["audio_duration"].as_str()
+                                            {
                                                 s.parse::<f64>().unwrap_or(0.0) / 10_000_000.0
                                             } else {
                                                 0.0
@@ -584,13 +646,16 @@ impl EdgeTtsEngine {
                             received_turn_end = true;
                             if let Some(json_start) = text.find("\r\n\r\n") {
                                 let json_str = &text[json_start + 4..];
-                                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                if let Ok(metadata) =
+                                    serde_json::from_str::<serde_json::Value>(json_str)
+                                {
                                     duration = metadata["audioDuration"]
                                         .as_f64()
                                         .or_else(|| metadata["audio_duration"].as_f64())
                                         .map(|d| d / 10_000_000.0)
                                         .or_else(|| {
-                                            metadata["audioDuration"].as_u64()
+                                            metadata["audioDuration"]
+                                                .as_u64()
                                                 .or_else(|| metadata["audio_duration"].as_u64())
                                                 .map(|d| d as f64 / 10_000_000.0)
                                         })
@@ -602,14 +667,21 @@ impl EdgeTtsEngine {
                         "audio.metadata" => {
                             if let Some(json_start) = text.find("\r\n\r\n") {
                                 let json_str = &text[json_start + 4..];
-                                if let Ok(frame) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                if let Ok(frame) =
+                                    serde_json::from_str::<serde_json::Value>(json_str)
+                                {
                                     if let Some(metadata) = frame["Metadata"].as_array() {
                                         for item in metadata {
                                             if item["Type"].as_str() == Some("WordBoundary") {
                                                 if let Some(data) = item["Data"].as_object() {
-                                                    let offset = data["Offset"].as_u64().unwrap_or(0);
-                                                    let dur = data["Duration"].as_u64().unwrap_or(0);
-                                                    let wb_text = data["text"]["Text"].as_str().unwrap_or("").to_string();
+                                                    let offset =
+                                                        data["Offset"].as_u64().unwrap_or(0);
+                                                    let dur =
+                                                        data["Duration"].as_u64().unwrap_or(0);
+                                                    let wb_text = data["text"]["Text"]
+                                                        .as_str()
+                                                        .unwrap_or("")
+                                                        .to_string();
                                                     if !wb_text.is_empty() {
                                                         word_boundaries.push(WordBoundary {
                                                             start_offset: offset,
@@ -640,7 +712,9 @@ impl EdgeTtsEngine {
         }
 
         if audio_data.is_empty() {
-            return Err(TTSError::SynthesisFailed("no audio data received".to_string()));
+            return Err(TTSError::SynthesisFailed(
+                "no audio data received".to_string(),
+            ));
         }
 
         if !received_turn_end {
@@ -765,10 +839,14 @@ impl TtsProvider for EdgeTtsEngine {
         output_path: &Path,
     ) -> Result<TtsOutput, TTSError> {
         if text.trim().is_empty() {
-            return Err(TTSError::SynthesisFailed("text cannot be empty".to_string()));
+            return Err(TTSError::SynthesisFailed(
+                "text cannot be empty".to_string(),
+            ));
         }
         if voice_name.trim().is_empty() {
-            return Err(TTSError::SynthesisFailed("voice_name cannot be empty".to_string()));
+            return Err(TTSError::SynthesisFailed(
+                "voice_name cannot be empty".to_string(),
+            ));
         }
         if !rate.is_finite() || rate < 0.0 {
             return Err(TTSError::SynthesisFailed(format!(
@@ -991,7 +1069,11 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_ok(), "Edge-TTS integration test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Edge-TTS integration test failed: {:?}",
+            result.err()
+        );
         let output = result.unwrap();
         assert!(output.audio_file_path.exists(), "audio file should exist");
         assert!(output.audio_file_path.metadata().unwrap().len() > 1000);

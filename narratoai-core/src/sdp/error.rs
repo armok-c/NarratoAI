@@ -45,16 +45,19 @@ impl From<crate::subtitle::error::SubtitleError> for SdpError {
 impl From<crate::script::error::ScriptError> for SdpError {
     fn from(e: crate::script::error::ScriptError) -> Self {
         match e {
-            crate::script::error::ScriptError::JsonParse(je) =>
-                SdpError::JsonRepair { details: je.to_string() },
-            crate::script::error::ScriptError::Validation(errors) =>
-                SdpError::Validation { details: format!("{:?}", errors) },
-            crate::script::error::ScriptError::Io(source) =>
-                SdpError::Io { source },
-            crate::script::error::ScriptError::IndexOutOfBounds =>
-                SdpError::Validation { details: "索引越界".into() },
-            crate::script::error::ScriptError::InvalidTimestamp(ts) =>
-                SdpError::Validation { details: format!("时间戳格式无效: {}", ts) },
+            crate::script::error::ScriptError::JsonParse(je) => SdpError::JsonRepair {
+                details: je.to_string(),
+            },
+            crate::script::error::ScriptError::Validation(errors) => SdpError::Validation {
+                details: format!("{:?}", errors),
+            },
+            crate::script::error::ScriptError::Io(source) => SdpError::Io { source },
+            crate::script::error::ScriptError::IndexOutOfBounds => SdpError::Validation {
+                details: "索引越界".into(),
+            },
+            crate::script::error::ScriptError::InvalidTimestamp(ts) => SdpError::Validation {
+                details: format!("时间戳格式无效: {}", ts),
+            },
         }
     }
 }

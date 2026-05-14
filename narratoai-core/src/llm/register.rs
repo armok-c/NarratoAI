@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use crate::config::types::AppConfig;
 use crate::error::LLMError;
-use crate::llm::registry::Registry;
 use crate::llm::openai_compatible::{OpenAiCompatibleProvider, ProviderConfig};
+use crate::llm::registry::Registry;
+use std::sync::Arc;
 
 /// Vision provider 在注册中心中的默认名称
 pub const VISION_PROVIDER_NAME: &str = "openai_vision";
@@ -42,7 +42,10 @@ impl std::error::Error for RegistrationErrors {}
 ///
 /// 返回所有注册失败的 LLMError 列表。即使部分 provider 注册失败，成功注册的
 /// provider 仍然保留在 registry 中。调用者可以检查返回的错误以判断注册是否完全成功。
-pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Result<(), RegistrationErrors> {
+pub fn register_all_providers(
+    config: &AppConfig,
+    registry: &mut Registry,
+) -> Result<(), RegistrationErrors> {
     let proxy_http = if config.proxy.enabled && !config.proxy.http.is_empty() {
         Some(config.proxy.http.clone())
     } else {
@@ -83,9 +86,7 @@ pub fn register_all_providers(config: &AppConfig, registry: &mut Registry) -> Re
     }
 
     // 注册 text provider（D-15: timeout from config）
-    if !config.app.text_openai_api_key.is_empty()
-        && !config.app.text_openai_model_name.is_empty()
-    {
+    if !config.app.text_openai_api_key.is_empty() && !config.app.text_openai_model_name.is_empty() {
         let text_name = if config.app.text_llm_provider.is_empty() {
             TEXT_PROVIDER_NAME
         } else {
@@ -127,7 +128,10 @@ mod tests {
         let mut registry = Registry::new();
         let result = register_all_providers(&config, &mut registry);
         assert!(result.is_ok(), "空 API key 不应产生错误");
-        assert!(registry.list_providers().is_empty(), "空 API key 不应注册 provider");
+        assert!(
+            registry.list_providers().is_empty(),
+            "空 API key 不应注册 provider"
+        );
     }
 
     /// 验证 vision 和 text 配置都提供时两个 provider 都注册
@@ -149,7 +153,11 @@ mod tests {
         };
         let mut registry = Registry::new();
         let result = register_all_providers(&config, &mut registry);
-        assert!(result.is_ok(), "provider 注册应全部成功: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "provider 注册应全部成功: {:?}",
+            result.err()
+        );
         let providers = registry.list_providers();
         assert!(providers.contains(&"openai_vision".to_string()));
         assert!(providers.contains(&"openai_text".to_string()));

@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use crate::config::types::AppConfig;
 use crate::documentary::error::PipelineError;
 use crate::ffmpeg::command::run_ffmpeg;
+use crate::script::types::OstType;
 use crate::sdp::error::SdpError;
 use crate::sdp::types::{SdpPipelineState, SdpProgressCallback, SdpRequest};
-use crate::script::types::OstType;
 
 /// SDP 流水线主入口——3 步顺序编排
 ///
@@ -43,13 +43,12 @@ pub async fn run_sdp(
         .clone()
         .unwrap_or_else(|| state.task_dir.join("merged_subtitle.json"));
     let script_path_clone = script_path.clone();
-    state.script = tokio::task::spawn_blocking(move || {
-        crate::script::load_script(&script_path_clone)
-    })
-    .await
-    .map_err(|e| SdpError::Io {
-        source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-    })??;
+    state.script =
+        tokio::task::spawn_blocking(move || crate::script::load_script(&script_path_clone))
+            .await
+            .map_err(|e| SdpError::Io {
+                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            })??;
 
     // G4: OST 校验——所有片段必须为 OST=1（OriginalSound）
     if state.script.iter().any(|c| c.ost != OstType::OriginalSound) {
@@ -73,8 +72,12 @@ pub async fn run_sdp(
                     return Err(SdpError::Validation {
                         details: format!(
                             "片段 {} 和 {} 时间戳重叠: {} 结束于 {:.3}s, {} 开始于 {:.3}s",
-                            current._id, next._id, current.timestamp, cur_end,
-                            next.timestamp, next_start
+                            current._id,
+                            next._id,
+                            current.timestamp,
+                            cur_end,
+                            next.timestamp,
+                            next_start
                         ),
                     });
                 }
@@ -123,21 +126,29 @@ pub async fn run_sdp(
                 let raw_str = raw_str.clone();
                 move || {
                     let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
-                    cmd.arg("-i").arg(&combined_str)
+                    cmd.arg("-i")
+                        .arg(&combined_str)
                         .arg("-vn")
-                        .arg("-acodec").arg("pcm_s16le")
+                        .arg("-acodec")
+                        .arg("pcm_s16le")
                         .arg("-y")
                         .arg(&raw_str);
-                    let mut child = cmd.spawn()
+                    let mut child = cmd
+                        .spawn()
                         .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
-                    let status = child.wait()
+                    let status = child
+                        .wait()
                         .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
                     if !status.success() {
-                        return Err(crate::error::FFmpegError::ExecutionError("SDP 音频提取失败".into()));
+                        return Err(crate::error::FFmpegError::ExecutionError(
+                            "SDP 音频提取失败".into(),
+                        ));
                     }
                     Ok(())
                 }
-            }).await.map_err(|e: crate::error::FFmpegError| {
+            })
+            .await
+            .map_err(|e: crate::error::FFmpegError| {
                 tracing::warn!("SDP raw 音频提取失败: {}", e);
                 SdpError::VideoProcess(PipelineError::FFmpeg { source: e })
             })?;
@@ -153,7 +164,10 @@ pub async fn run_sdp(
             ) {
                 Ok(normalized) => {
                     state.normalized_audio_path = Some(normalized);
-                    tracing::info!("SDP raw 音频标准化完成 (target_lufs={})", audio_config.target_lufs);
+                    tracing::info!(
+                        "SDP raw 音频标准化完成 (target_lufs={})",
+                        audio_config.target_lufs
+                    );
                 }
                 Err(e) => {
                     tracing::warn!("SDP raw 音频标准化失败（非致命，将使用原始音频）: {}", e);
@@ -186,9 +200,7 @@ async fn sdp_step_concat(state: &mut SdpPipelineState) -> Result<(), SdpError> {
 
     for clip in &state.script {
         if let Some(ref video_path) = clip.video {
-            let path_str = video_path
-                .to_string_lossy()
-                .replace('\\', "/");
+            let path_str = video_path.to_string_lossy().replace('\\', "/");
             if path_str.contains('\n') || path_str.contains('\r') {
                 return Err(SdpError::Validation {
                     details: format!("视频路径包含非法字符: {}", clip._id),
@@ -282,13 +294,11 @@ async fn sdp_step_composite(
 
     // 智能音量覆盖（D-08~D-13）
     let request_volumes = crate::audio::volume::VolumeConfig {
-        tts_volume: 0.0,  // SDP 无 TTS
+        tts_volume: 0.0, // SDP 无 TTS
         original_volume: request.original_volume,
         bgm_volume: request.bgm_volume,
     };
-    let resolved = crate::audio::pipeline::resolve_volumes(
-        &request_volumes, "sdp", &config.audio,
-    );
+    let resolved = crate::audio::pipeline::resolve_volumes(&request_volumes, "sdp", &config.audio);
 
     // 预先提取所有值，确保 move closure 不捕获&mut state或&request引用
     let original_volume = resolved.original_volume;
@@ -454,9 +464,7 @@ mod tests {
 
     #[test]
     fn test_sdp_ost_validation_mixed_fails() {
-        let script = vec![
-            make_clip(1, "00:00:00-00:00:05", OstType::Mixed),
-        ];
+        let script = vec![make_clip(1, "00:00:00-00:00:05", OstType::Mixed)];
         let has_non_ost1 = script.iter().any(|c| c.ost != OstType::OriginalSound);
         assert!(has_non_ost1, "OST=2 (Mixed) 也应不通过");
     }
@@ -466,9 +474,7 @@ mod tests {
     #[test]
     fn test_sdp_concat_validation_no_video_fails() {
         // 所有 clip.video = None，should trigger early error before FFmpeg
-        let script = vec![
-            make_clip(1, "00:00:00-00:00:05", OstType::OriginalSound),
-        ];
+        let script = vec![make_clip(1, "00:00:00-00:00:05", OstType::OriginalSound)];
         let all_missing_video = script.iter().any(|c| c.video.is_none());
         assert!(all_missing_video, "video 为 None 时应检测到");
     }

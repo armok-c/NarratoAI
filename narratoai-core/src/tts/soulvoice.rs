@@ -1,7 +1,7 @@
-use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider};
 use crate::config::types::SoulVoiceSection;
+use crate::error::TTSError;
 use crate::tts::common;
+use crate::tts::{TtsOutput, TtsProvider};
 use async_trait::async_trait;
 use std::path::Path;
 use std::time::Duration;
@@ -20,20 +20,31 @@ pub(super) struct SoulVoiceEngine {
 }
 
 impl SoulVoiceEngine {
-    pub(super) fn new(config: SoulVoiceSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+    pub(super) fn new(
+        config: SoulVoiceSection,
+        proxy_config: &common::ProxyConfig,
+    ) -> Result<Self, TTSError> {
         let client = common::build_client(proxy_config)?;
         Ok(Self { client, config })
     }
 
     /// 单次 TTS 合成（无重试）
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(
+        &self,
+        text: &str,
+        voice_name: &str,
+        output_path: &Path,
+        rate: f64,
+    ) -> Result<TtsOutput, TTSError> {
         // 解析 voice_name: 去除 "soulvoice:" 前缀
         // 对齐 Python 版 parse_soulvoice_voice() 函数
         let parsed_voice = common::parse_engine_prefix(voice_name, &["soulvoice:"]);
 
         let api_key = &self.config.api_key;
         if api_key.is_empty() {
-            return Err(TTSError::AuthenticationFailed("SoulVoice API key 未配置".to_string()));
+            return Err(TTSError::AuthenticationFailed(
+                "SoulVoice API key 未配置".to_string(),
+            ));
         }
 
         let api_url = if self.config.api_url.is_empty() {
@@ -48,7 +59,7 @@ impl SoulVoiceEngine {
             && !api_url.starts_with("http://localhost")
         {
             return Err(TTSError::SynthesisFailed(
-                "SoulVoice API URL must use HTTPS for cloud services".to_string()
+                "SoulVoice API URL must use HTTPS for cloud services".to_string(),
             ));
         }
 
@@ -68,7 +79,8 @@ impl SoulVoiceEngine {
             "speed": rate,
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(api_url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -82,11 +94,15 @@ impl SoulVoiceEngine {
         if !status.is_success() {
             let body_text = response.text().await.unwrap_or_default();
             return Err(TTSError::SynthesisFailed(format!(
-                "SoulVoice API 返回 {}: {}", status.as_u16(), body_text
+                "SoulVoice API 返回 {}: {}",
+                status.as_u16(),
+                body_text
             )));
         }
 
-        let audio_bytes = response.bytes().await
+        let audio_bytes = response
+            .bytes()
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("SoulVoice 读取响应失败: {}", e)))?;
 
         common::write_audio_bytes(output_path, &audio_bytes).await?;
@@ -116,7 +132,8 @@ impl TtsProvider for SoulVoiceEngine {
         if voice_name.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
+        let result =
+            common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
@@ -127,9 +144,9 @@ impl TtsProvider for SoulVoiceEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use tempfile::TempDir;
 
     #[test]
     fn test_soulvoice_engine_new() {
@@ -151,9 +168,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/tts"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_bytes(mock_response)
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(mock_response))
             .mount(&mock_server)
             .await;
 
@@ -169,7 +184,9 @@ mod tests {
         let output_path = dir.path().join("output.mp3");
 
         // Override retry_loop by calling synthesize_once directly to avoid retry complexity
-        let result = engine.synthesize_once("test text", "soulvoice:speech:voice:id", &output_path, 1.0).await;
+        let result = engine
+            .synthesize_once("test text", "soulvoice:speech:voice:id", &output_path, 1.0)
+            .await;
         assert!(result.is_ok(), "soulvoice 成功: {:?}", result.err());
         let output = result.unwrap();
         assert!(output.audio_file_path.exists());
@@ -218,17 +235,22 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "soulvoice:voice", &output_path, 1.0).await;
+        let result = engine
+            .synthesize_once("test text", "soulvoice:voice", &output_path, 1.0)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            TTSError::SynthesisFailed(msg) => assert!(msg.contains("401") || msg.contains("unauthorized")),
+            TTSError::SynthesisFailed(msg) => {
+                assert!(msg.contains("401") || msg.contains("unauthorized"))
+            }
             _ => panic!("应为 SynthesisFailed"),
         }
     }
 
     #[test]
     fn test_soulvoice_parse_prefix() {
-        let parsed = common::parse_engine_prefix("soulvoice:speech:model:voice:id", &["soulvoice:"]);
+        let parsed =
+            common::parse_engine_prefix("soulvoice:speech:model:voice:id", &["soulvoice:"]);
         assert_eq!(parsed, "speech:model:voice:id");
     }
 }

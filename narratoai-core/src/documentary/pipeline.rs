@@ -103,8 +103,13 @@ pub(crate) async fn step_clip(
 ) -> Result<(), PipelineError> {
     tracing::info!("## 3. 视频裁剪 — {} 个片段", state.script.len());
 
-    let video_clips =
-        clip_all_videos(video_path, &state.script, &state.tts_results, &state.task_dir).await?;
+    let video_clips = clip_all_videos(
+        video_path,
+        &state.script,
+        &state.tts_results,
+        &state.task_dir,
+    )
+    .await?;
 
     // Update script clips with computed fields
     let mut cumulative_time = 0.0f64;
@@ -120,11 +125,10 @@ pub(crate) async fn step_clip(
             });
         }
         let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
-        let start_secs = parse_time_to_secs(
-            ts_parts.first().ok_or_else(|| PipelineError::VideoClip {
+        let start_secs =
+            parse_time_to_secs(ts_parts.first().ok_or_else(|| PipelineError::VideoClip {
                 details: format!("片段 {} timestamp 格式无效: {}", clip._id, clip.timestamp),
-            })?,
-        )?;
+            })?)?;
         let end_secs = start_secs + clip_duration;
 
         clip.source_time_range = Some(format!(
@@ -174,12 +178,8 @@ pub(crate) async fn step_merge_audio_subtitle(
     }
 
     // Merge subtitles
-    let merged_sub = merge_subtitle_files(
-        &state.script,
-        &state.tts_results,
-        &state.task_dir,
-    )
-    .await?;
+    let merged_sub =
+        merge_subtitle_files(&state.script, &state.tts_results, &state.task_dir).await?;
     state.merged_subtitle_path = merged_sub;
 
     state.emit_progress("merge_audio", 70.0, "音频字幕合并完成");
@@ -286,23 +286,34 @@ pub(crate) async fn step_composite(
             original_volume: request.original_volume,
             bgm_volume: request.bgm_volume,
         },
-        "documentary", &config.audio,
+        "documentary",
+        &config.audio,
     );
 
-    let merged_video = state
-        .combined_video_path
-        .as_ref()
-        .ok_or_else(|| PipelineError::Composite {
-            details: "缺少拼接视频".to_string(),
-        })?;
+    let merged_video =
+        state
+            .combined_video_path
+            .as_ref()
+            .ok_or_else(|| PipelineError::Composite {
+                details: "缺少拼接视频".to_string(),
+            })?;
 
     let output_path = state.task_dir.join("combined.mp4");
 
     let output_str = output_path.to_string_lossy().to_string();
     let video_str_clone = merged_video.to_string_lossy().to_string();
-    let audio_str_opt = state.merged_audio_path.as_ref().map(|p| p.to_string_lossy().to_string());
-    let srt_path_opt = state.merged_subtitle_path.as_ref().map(|p| p.to_string_lossy().to_string());
-    let bgm_path_opt = request.bgm_path.as_ref().map(|p| p.to_string_lossy().to_string());
+    let audio_str_opt = state
+        .merged_audio_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+    let srt_path_opt = state
+        .merged_subtitle_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+    let bgm_path_opt = request
+        .bgm_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
     let tts_vol = resolved.tts_volume;
     let bgm_vol = resolved.bgm_volume;
     let total_dur = state.total_duration;
@@ -314,9 +325,7 @@ pub(crate) async fn step_composite(
     if has_original_audio {
         let actually_has_audio = crate::ffmpeg::probe::has_audio_stream(merged_video);
         if !actually_has_audio {
-            tracing::warn!(
-                "has_original_audio 为 true 但 concat 输出无音频流，跳过原声混音"
-            );
+            tracing::warn!("has_original_audio 为 true 但 concat 输出无音频流，跳过原声混音");
             has_original_audio = false;
         }
     }
@@ -335,7 +344,10 @@ pub(crate) async fn step_composite(
             "center" => "5",
             _ => "2",
         };
-        let mut style = format!("FontSize={},PrimaryColour={},Alignment={}", font_size, ass_color, alignment);
+        let mut style = format!(
+            "FontSize={},PrimaryColour={},Alignment={}",
+            font_size, ass_color, alignment
+        );
         if let Some(ref font) = request.subtitle_font {
             let sanitized: String = font
                 .chars()
@@ -506,7 +518,9 @@ pub async fn run_documentary(
     proxy: Option<&crate::config::types::ProxySection>,
     progress: Option<ProgressCallback>,
 ) -> Result<PathBuf, PipelineError> {
-    request.validate().map_err(|e| PipelineError::Validation { details: e })?;
+    request
+        .validate()
+        .map_err(|e| PipelineError::Validation { details: e })?;
 
     // Create task directory
     let task_id = uuid::Uuid::new_v4().to_string();

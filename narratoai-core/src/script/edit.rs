@@ -141,8 +141,7 @@ mod tests {
     #[test]
     fn test_update_timestamp_success() {
         let script = make_test_script();
-        let result =
-            update_timestamp(&script, 0, "00:01:00,000-00:02:00,000").expect("应成功");
+        let result = update_timestamp(&script, 0, "00:01:00,000-00:02:00,000").expect("应成功");
         assert_eq!(result[0].timestamp, "00:01:00,000-00:02:00,000");
     }
 
@@ -280,9 +279,15 @@ mod tests {
         let _ = update_timestamp(&script, 0, "00:00:00,000-00:00:00,001");
         let _ = update_picture(&script, 0, "修改后画面");
 
-        assert_eq!(script[0].narration, original_narration, "原始 narration 不应变");
+        assert_eq!(
+            script[0].narration, original_narration,
+            "原始 narration 不应变"
+        );
         assert_eq!(script[0].ost, original_ost, "原始 ost 不应变");
-        assert_eq!(script[0].timestamp, original_timestamp, "原始 timestamp 不应变");
+        assert_eq!(
+            script[0].timestamp, original_timestamp,
+            "原始 timestamp 不应变"
+        );
         assert_eq!(script[0].picture, original_picture, "原始 picture 不应变");
     }
 }

@@ -11,9 +11,9 @@ use narratoai_core::llm::registry::Registry;
 use narratoai_core::prompt::manager::PromptManager;
 use narratoai_core::prompt::registry::PromptRegistry;
 
+pub mod commands;
 pub mod error;
 pub mod models;
-pub mod commands;
 
 /// Tauri 应用入口
 ///
@@ -29,8 +29,8 @@ pub fn run() {
         .setup(|app| {
             // ---- 1. 多路径回退加载 config.toml ----
             let config_path = find_config(app)?;
-            let config_manager = ConfigManager::load(&config_path)
-                .map_err(|e| format!("配置加载失败: {}", e))?;
+            let config_manager =
+                ConfigManager::load(&config_path).map_err(|e| format!("配置加载失败: {}", e))?;
 
             // ---- 2. 注入 AppConfig 到 Tauri State ----
             let app_config = config_manager.get().clone();
@@ -45,9 +45,8 @@ pub fn run() {
             narratoai_core::llm::register::register_all_providers(
                 &config_manager.get(),
                 &mut registry_inner,
-            ).map_err(|errors| {
-                format!("LLM provider 注册失败: {:?}", errors)
-            })?;
+            )
+            .map_err(|errors| format!("LLM provider 注册失败: {:?}", errors))?;
             let registry = Arc::new(tokio::sync::RwLock::new(registry_inner));
             app.manage::<Arc<tokio::sync::RwLock<Registry>>>(registry);
 
@@ -57,18 +56,15 @@ pub fn run() {
             let prompt_registry: narratoai_core::prompt::registry::SharedPromptRegistry =
                 Arc::new(std::sync::RwLock::new(PromptRegistry::new()));
             {
-                let mut reg = prompt_registry.write().map_err(|e| {
-                    format!("Prompt 注册表写入锁失败: {}", e)
-                })?;
-                narratoai_core::prompt::register::register_all_prompts(
-                    &mut reg,
-                ).map_err(|errors| {
-                    format!("Prompt 注册失败: {:?}", errors)
-                })?;
+                let mut reg = prompt_registry
+                    .write()
+                    .map_err(|e| format!("Prompt 注册表写入锁失败: {}", e))?;
+                narratoai_core::prompt::register::register_all_prompts(&mut reg)
+                    .map_err(|errors| format!("Prompt 注册失败: {:?}", errors))?;
             }
-            let prompt_manager = Arc::new(tokio::sync::RwLock::new(
-                PromptManager::new(prompt_registry)
-            ));
+            let prompt_manager = Arc::new(tokio::sync::RwLock::new(PromptManager::new(
+                prompt_registry,
+            )));
             app.manage::<Arc<tokio::sync::RwLock<PromptManager>>>(prompt_manager);
 
             // ---- 5. 初始化 System 监控 State（D-32） ----

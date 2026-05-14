@@ -35,8 +35,16 @@ fn test_tts_output_with_word_boundaries() {
     let output = TtsOutput {
         audio_file_path: Path::new("test.mp3").to_path_buf(),
         word_boundaries: vec![
-            WordBoundary { start_offset: 0, end_offset: 30000000, text: "你好".to_string() },
-            WordBoundary { start_offset: 30000000, end_offset: 60000000, text: "世界".to_string() },
+            WordBoundary {
+                start_offset: 0,
+                end_offset: 30000000,
+                text: "你好".to_string(),
+            },
+            WordBoundary {
+                start_offset: 30000000,
+                end_offset: 60000000,
+                text: "世界".to_string(),
+            },
         ],
         duration: 6.0,
     };

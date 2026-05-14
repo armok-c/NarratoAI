@@ -1,7 +1,7 @@
-use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider};
 use crate::config::types::DoubaoTTSSection;
+use crate::error::TTSError;
 use crate::tts::common;
+use crate::tts::{TtsOutput, TtsProvider};
 use async_trait::async_trait;
 use base64::Engine;
 use std::path::Path;
@@ -21,22 +21,34 @@ pub(super) struct DoubaoTtsEngine {
 }
 
 impl DoubaoTtsEngine {
-    pub(super) fn new(config: DoubaoTTSSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+    pub(super) fn new(
+        config: DoubaoTTSSection,
+        proxy_config: &common::ProxyConfig,
+    ) -> Result<Self, TTSError> {
         let client = common::build_client(proxy_config)?;
         Ok(Self { client, config })
     }
 
     /// 单次合成（无重试）
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64, _pitch: f64) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(
+        &self,
+        text: &str,
+        voice_name: &str,
+        output_path: &Path,
+        rate: f64,
+        _pitch: f64,
+    ) -> Result<TtsOutput, TTSError> {
         // Doubao 不使用 voice_name 前缀解析，voice_name 直接作为 voice_type
         // 配置检查
         if self.config.appid.is_empty() || self.config.token.is_empty() {
             if !self.config.ak.is_empty() || !self.config.sk.is_empty() {
                 return Err(TTSError::AuthenticationFailed(
-                    "豆包语音 TTS: ak/sk 认证方式暂未实现，请使用 appid + token 认证".to_string()
+                    "豆包语音 TTS: ak/sk 认证方式暂未实现，请使用 appid + token 认证".to_string(),
                 ));
             }
-            return Err(TTSError::AuthenticationFailed("豆包语音 TTS 配置未完成（缺少 appid 或 token）".to_string()));
+            return Err(TTSError::AuthenticationFailed(
+                "豆包语音 TTS 配置未完成（缺少 appid 或 token）".to_string(),
+            ));
         }
 
         let api_url = if self.config.api_url.is_empty() {
@@ -51,11 +63,11 @@ impl DoubaoTtsEngine {
             && !api_url.starts_with("http://localhost")
         {
             return Err(TTSError::SynthesisFailed(
-                "Doubao API URL must use HTTPS for cloud services".to_string()
+                "Doubao API URL must use HTTPS for cloud services".to_string(),
             ));
         }
 
-        let speed_ratio = rate;  // 使用调用方传入的 rate 参数
+        let speed_ratio = rate; // 使用调用方传入的 rate 参数
 
         // 构建请求体 (对齐 Python 版 payload — voice.py:1149-1176)
         let mut payload = serde_json::json!({
@@ -88,7 +100,8 @@ impl DoubaoTtsEngine {
             payload["audio"]["silence_duration"] = serde_json::json!(self.config.silence_duration);
         }
 
-        let response = self.client
+        let response = self
+            .client
             .post(api_url)
             // 分号不是空格 — 对齐 Python 版: headers = {"Authorization": f"Bearer;{token}"}
             .header("Authorization", format!("Bearer;{}", self.config.token))
@@ -102,21 +115,31 @@ impl DoubaoTtsEngine {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(TTSError::SynthesisFailed(format!("Doubao API 返回 {}: {}", status.as_u16(), body)));
+            return Err(TTSError::SynthesisFailed(format!(
+                "Doubao API 返回 {}: {}",
+                status.as_u16(),
+                body
+            )));
         }
 
-        let result: serde_json::Value = response.json().await
+        let result: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("Doubao 响应 JSON 解析失败: {}", e)))?;
 
         // 检查业务状态码 (Python 版: result.get("code") == 3000)
         let code = result["code"].as_i64().unwrap_or(0);
         if code != 3000 {
             let msg = result["message"].as_str().unwrap_or("未知错误");
-            return Err(TTSError::SynthesisFailed(format!("Doubao TTS 错误 ({}): {}", code, msg)));
+            return Err(TTSError::SynthesisFailed(format!(
+                "Doubao TTS 错误 ({}): {}",
+                code, msg
+            )));
         }
 
         // 解码 base64 audio data (Python 版: base64.b64decode(result.get("data", "")))
-        let audio_base64 = result["data"].as_str()
+        let audio_base64 = result["data"]
+            .as_str()
             .ok_or_else(|| TTSError::SynthesisFailed("Doubao 响应中无 data 字段".to_string()))?;
 
         let audio_bytes = base64::engine::general_purpose::STANDARD
@@ -150,7 +173,9 @@ impl TtsProvider for DoubaoTtsEngine {
         if voice_name.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate, pitch)).await;
+        let result =
+            common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate, pitch))
+                .await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
@@ -200,7 +225,9 @@ mod tests {
         let result = engine.synthesize("", "voice", 1.0, 0.0, &output_path).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            TTSError::SynthesisFailed(msg) => assert!(msg.contains("不能为空"), "错误消息: {}", msg),
+            TTSError::SynthesisFailed(msg) => {
+                assert!(msg.contains("不能为空"), "错误消息: {}", msg)
+            }
             _ => panic!("应为 SynthesisFailed"),
         }
     }
@@ -222,9 +249,13 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "voice", &output_path, 1.0, 1.0).await;
+        let result = engine
+            .synthesize_once("test text", "voice", &output_path, 1.0, 1.0)
+            .await;
         match result.unwrap_err() {
-            TTSError::AuthenticationFailed(msg) => assert!(msg.contains("配置未完成"), "错误消息: {}", msg),
+            TTSError::AuthenticationFailed(msg) => {
+                assert!(msg.contains("配置未完成"), "错误消息: {}", msg)
+            }
             _ => panic!("应为 AuthenticationFailed"),
         }
     }
@@ -248,9 +279,13 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "voice", &output_path, 1.0, 1.0).await;
+        let result = engine
+            .synthesize_once("test text", "voice", &output_path, 1.0, 1.0)
+            .await;
         match result.unwrap_err() {
-            TTSError::AuthenticationFailed(msg) => assert!(msg.contains("ak/sk"), "错误消息应提及 ak/sk: {}", msg),
+            TTSError::AuthenticationFailed(msg) => {
+                assert!(msg.contains("ak/sk"), "错误消息应提及 ak/sk: {}", msg)
+            }
             _ => panic!("应为 AuthenticationFailed"),
         }
     }

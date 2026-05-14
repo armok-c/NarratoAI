@@ -8,7 +8,6 @@ use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::prompt::manager::PromptManager;
 use crate::script::types::ScriptClip;
-use crate::visual::types::BatchAnalysisResult;
 
 /// 脚本生成请求参数
 #[derive(Serialize, Deserialize)]
@@ -68,7 +67,9 @@ pub async fn analyze_video(
 
     // Create output directory for keyframes
     // On failure, clean up automatically via guard; on success, retain for user inspection
-    let output_dir = request.video_path.parent()
+    let output_dir = request
+        .video_path
+        .parent()
         .unwrap_or(std::path::Path::new("."))
         .join("keyframes_cache")
         .join(uuid::Uuid::new_v4().to_string());
@@ -77,36 +78,17 @@ pub async fn analyze_video(
 
     emit_progress(request, 10.0, "提取关键帧");
 
-    // Extract frames (returns (count, sorted path list))
-    let (frame_count, keyframe_files) = crate::visual::frame_extractor::extract_frames(
-        &request.video_path,
-        &output_dir,
-        interval,
-        None,
-        None,
-        None,
-    )
-    .await
-    .map_err(|e| PipelineError::FrameExtraction {
-        details: e.to_string(),
-    })?;
-
-    if frame_count == 0 {
-        return Err(PipelineError::FrameExtraction {
-            details: "未提取到任何关键帧".to_string(),
-        });
-    }
-
     emit_progress(request, 30.0, "初始化分析器");
 
-    // extract_frames already returned the keyframe paths -- no re-scan needed
-
-    // Analyze frames using vision LLM
+    // Render prompt through PromptManager before entering the VisualAnalyzer facade.
     let batch_size = request.vision_batch_size.unwrap_or(5);
     let max_concurrency = request.max_concurrency.unwrap_or(2);
 
     let mut vars = HashMap::new();
-    let video_desc = request.custom_prompt.as_deref().unwrap_or("根据视频关键帧生成帧分析报告");
+    let video_desc = request
+        .custom_prompt
+        .as_deref()
+        .unwrap_or("根据视频关键帧生成帧分析报告");
     vars.insert("video_description", video_desc);
     vars.insert("language", "zh-CN");
     let analysis_prompt = prompt_manager
@@ -115,48 +97,30 @@ pub async fn analyze_video(
             source: crate::error::LLMError::Validation(e.to_string()),
         })?;
 
-    let batch_results = provider
-        .analyze_images(
-            &keyframe_files,
-            &analysis_prompt,
-            None,
-            Some(batch_size),
-            Some(max_concurrency),
-            Some(LlmResponseFormat::Json),
-            Some(0.3),
-            Some(4096),
-            None,  // cancel: Option<CancellationToken>
-        )
-        .await
-        .map_err(PipelineError::from)?;
-
-    // Parse batch results
-    let mut batches = Vec::new();
-    for (i, result_text) in batch_results.iter().enumerate() {
-        let parsed = parse_batch_response(result_text);
-        batches.push(parsed);
-
-        let pct = 40.0 + (i as f32 / batch_results.len().max(1) as f32) * 25.0;
-        emit_progress(request, pct, &format!("分析批次 ({}/{})", i + 1, batch_results.len()));
-    }
-
-    let total_errors: usize = batches.iter().map(|b| b.errors.len()).sum();
-    if total_errors == batches.len() && !batches.is_empty() {
-        return Err(PipelineError::Llm {
-            source: crate::error::LLMError::Validation(
-                format!("所有批次分析均解析失败 ({} 个批次)", batches.len()),
-            ),
-        });
-    }
+    let analysis_result = crate::visual::analyzer::analyze_video_frames(
+        &request.video_path,
+        &output_dir,
+        provider,
+        &analysis_prompt,
+        batch_size,
+        max_concurrency,
+        Some(interval),
+        None,
+        None,
+        None,
+    )
+    .await
+    .map_err(PipelineError::from)?;
 
     emit_progress(request, 75.0, "逐帧分析完成");
+    let keyframe_files = collect_keyframe_paths(&output_dir)?;
 
     // Save analysis artifact
+    let batches = vec![analysis_result];
     let analysis_json_path = output_dir.join("analysis.json");
-    let analysis_json = serde_json::to_string_pretty(&batches)
-        .map_err(|e| PipelineError::Llm {
-            source: crate::error::LLMError::Validation(format!("分析结果序列化失败: {}", e)),
-        })?;
+    let analysis_json = serde_json::to_string_pretty(&batches).map_err(|e| PipelineError::Llm {
+        source: crate::error::LLMError::Validation(format!("分析结果序列化失败: {}", e)),
+    })?;
     std::fs::write(&analysis_json_path, &analysis_json)?;
 
     // Success — cancel cleanup so files are retained for user inspection
@@ -167,6 +131,22 @@ pub async fn analyze_video(
         keyframe_files,
         batches,
     })
+}
+
+fn collect_keyframe_paths(output_dir: &std::path::Path) -> Result<Vec<PathBuf>, PipelineError> {
+    let mut paths = Vec::new();
+    for entry in std::fs::read_dir(output_dir)? {
+        let path = entry?.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        if file_name.starts_with("keyframe_") && file_name.ends_with(".jpg") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
 }
 
 /// 从帧分析结果生成 Markdown 描述
@@ -180,7 +160,10 @@ pub fn convert_analysis_to_markdown(analysis: &FrameAnalysisResult) -> String {
         }
         md.push_str("- 详细描述：\n");
         for obs in &batch.observations {
-            md.push_str(&format!("  - {}: {}\n", obs.timestamp, obs.scene_description));
+            md.push_str(&format!(
+                "  - {}: {}\n",
+                obs.timestamp, obs.scene_description
+            ));
         }
         md.push('\n');
     }
@@ -252,56 +235,14 @@ pub async fn generate_documentary_script(
     Ok(clips)
 }
 
-/// 解析批次响应为 BatchAnalysisResult
-fn parse_batch_response(text: &str) -> BatchAnalysisResult {
-    let cleaned = crate::visual::types::strip_code_fence(text);
-
-    match serde_json::from_str::<serde_json::Value>(cleaned) {
-        Ok(val) => {
-            // Try to extract frame_observations array
-            if let Some(observations) = val.get("frame_observations") {
-                if let Ok(obs) = serde_json::from_value::<Vec<crate::visual::types::FrameObservation>>(observations.clone()) {
-                    let summary = val.get("overall_activity_summary")
-                        .and_then(|s| s.as_str())
-                        .map(|s| s.to_string());
-                    return BatchAnalysisResult {
-                        observations: obs,
-                        overall_activity_summary: summary,
-                        total_frames: 0,
-                        analyzed_batches: 1,
-                        errors: vec![],
-                    };
-                }
-            }
-
-            // Fallback: return empty with the raw text as error
-            BatchAnalysisResult {
-                observations: vec![],
-                overall_activity_summary: None,
-                total_frames: 0,
-                analyzed_batches: 1,
-                errors: vec![format!("无法解析批次响应: {}", cleaned.chars().take(200).collect::<String>())],
-            }
-        }
-        Err(e) => BatchAnalysisResult {
-            observations: vec![],
-            overall_activity_summary: None,
-            total_frames: 0,
-            analyzed_batches: 1,
-            errors: vec![format!("JSON 解析失败: {}", e)],
-        },
-    }
-}
-
 /// 解析 LLM 返回的脚本 JSON 为 ScriptClip 列表
 fn parse_script_clips(response: &str) -> Result<Vec<ScriptClip>, PipelineError> {
     let cleaned = strip_and_repair_json(response);
 
-    let parsed: serde_json::Value = serde_json::from_str(&cleaned).map_err(|e| {
-        PipelineError::Llm {
+    let parsed: serde_json::Value =
+        serde_json::from_str(&cleaned).map_err(|e| PipelineError::Llm {
             source: crate::error::LLMError::Validation(format!("脚本 JSON 解析失败: {}", e)),
-        }
-    })?;
+        })?;
 
     // Extract items array
     let items = parsed
@@ -476,6 +417,7 @@ fn emit_progress(request: &ScriptGenRequest, pct: f32, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::visual::types::BatchAnalysisResult;
 
     #[test]
     fn test_convert_analysis_to_markdown() {
@@ -484,34 +426,30 @@ mod tests {
             keyframe_files: vec![],
             batches: vec![
                 BatchAnalysisResult {
-                    observations: vec![
-                        crate::visual::types::FrameObservation {
-                            frame_number: 0,
-                            timestamp: "00:00:00.000".to_string(),
-                            scene_description: "湖面".to_string(),
-                            objects: vec!["水".to_string()],
-                            actions: vec![],
-                            on_screen_text: None,
-                            visual_salience: None,
-                        },
-                    ],
+                    observations: vec![crate::visual::types::FrameObservation {
+                        frame_number: 0,
+                        timestamp: "00:00:00.000".to_string(),
+                        scene_description: "湖面".to_string(),
+                        objects: vec!["水".to_string()],
+                        actions: vec![],
+                        on_screen_text: None,
+                        visual_salience: None,
+                    }],
                     overall_activity_summary: Some("开场画面".to_string()),
                     total_frames: 1,
                     analyzed_batches: 1,
                     errors: vec![],
                 },
                 BatchAnalysisResult {
-                    observations: vec![
-                        crate::visual::types::FrameObservation {
-                            frame_number: 1,
-                            timestamp: "00:00:03.000".to_string(),
-                            scene_description: "山峰".to_string(),
-                            objects: vec!["山".to_string()],
-                            actions: vec![],
-                            on_screen_text: None,
-                            visual_salience: None,
-                        },
-                    ],
+                    observations: vec![crate::visual::types::FrameObservation {
+                        frame_number: 1,
+                        timestamp: "00:00:03.000".to_string(),
+                        scene_description: "山峰".to_string(),
+                        objects: vec!["山".to_string()],
+                        actions: vec![],
+                        on_screen_text: None,
+                        visual_salience: None,
+                    }],
                     overall_activity_summary: Some("远景".to_string()),
                     total_frames: 1,
                     analyzed_batches: 1,

@@ -40,8 +40,7 @@ fn get_config_path() -> std::path::PathBuf {
 fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .try_init();
 }
@@ -55,8 +54,7 @@ fn create_text_provider() -> OpenAiCompatibleProvider {
         config_path.display()
     );
 
-    let config_manager =
-        ConfigManager::load(&config_path).expect("配置文件加载失败");
+    let config_manager = ConfigManager::load(&config_path).expect("配置文件加载失败");
     let config = config_manager.get();
 
     assert!(
@@ -230,16 +228,10 @@ fn test_provider_not_found() {
     match result {
         Err(LLMError::ProviderNotFound(name)) => {
             assert_eq!(name, "nonexistent_provider");
-            tracing::info!(
-                "[test3] 成功: ProviderNotFound('{}')",
-                name
-            );
+            tracing::info!("[test3] 成功: ProviderNotFound('{}')", name);
         }
         Err(other) => {
-            panic!(
-                "应返回 LLMError::ProviderNotFound, 得到: {}",
-                other
-            );
+            panic!("应返回 LLMError::ProviderNotFound, 得到: {}", other);
         }
         Ok(_) => {
             panic!("应返回错误, 却得到 Ok");

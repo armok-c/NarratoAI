@@ -75,7 +75,10 @@ mod tests {
         let obs: FrameObservation = serde_json::from_str(json).expect("应反序列化成功");
         assert_eq!(obs.frame_number, 0);
         assert_eq!(obs.timestamp, "00:00:00.000");
-        assert_eq!(obs.scene_description, "一个安静的湖泊，湖面如镜，倒映着远处的雪山");
+        assert_eq!(
+            obs.scene_description,
+            "一个安静的湖泊，湖面如镜，倒映着远处的雪山"
+        );
         assert_eq!(obs.objects, vec!["湖水", "雪山", "天空", "云彩"]);
         assert_eq!(obs.actions, vec!["湖面微波荡漾"]);
         assert_eq!(obs.on_screen_text, Some("西藏 纳木错".to_string()));
@@ -103,7 +106,8 @@ mod tests {
     fn test_strip_code_fence_json_prefix() {
         let raw = "```json\n{\"frame_number\": 2, \"timestamp\": \"00:00:06.000\", \"scene_description\": \"室内\", \"objects\": [\"桌子\"], \"actions\": [\"摆放\"]}\n```";
         let cleaned = strip_code_fence(raw);
-        let obs: FrameObservation = serde_json::from_str(cleaned).expect("剥离代码块后应反序列化成功");
+        let obs: FrameObservation =
+            serde_json::from_str(cleaned).expect("剥离代码块后应反序列化成功");
         assert_eq!(obs.frame_number, 2);
         assert_eq!(obs.scene_description, "室内");
     }
@@ -113,7 +117,8 @@ mod tests {
     fn test_strip_code_fence_plain() {
         let raw = "```\n{\"frame_number\": 3, \"timestamp\": \"00:00:09.000\", \"scene_description\": \"室外\", \"objects\": [\"树\"], \"actions\": [\"摇摆\"]}\n```";
         let cleaned = strip_code_fence(raw);
-        let obs: FrameObservation = serde_json::from_str(cleaned).expect("剥离 ``` 后应反序列化成功");
+        let obs: FrameObservation =
+            serde_json::from_str(cleaned).expect("剥离 ``` 后应反序列化成功");
         assert_eq!(obs.frame_number, 3);
         assert_eq!(obs.scene_description, "室外");
     }
@@ -180,7 +185,8 @@ mod tests {
             "actions": ["演讲"],
             "on_screen_text": null
         }"#;
-        let obs: FrameObservation = serde_json::from_str(json).expect("null 可选字段应反序列化成功");
+        let obs: FrameObservation =
+            serde_json::from_str(json).expect("null 可选字段应反序列化成功");
         assert_eq!(obs.on_screen_text, None);
     }
 
@@ -188,17 +194,15 @@ mod tests {
     #[test]
     fn test_batch_analysis_result_roundtrip() {
         let original = BatchAnalysisResult {
-            observations: vec![
-                FrameObservation {
-                    frame_number: 0,
-                    timestamp: "00:00:00.000".to_string(),
-                    scene_description: "开场画面".to_string(),
-                    objects: vec!["背景".to_string()],
-                    actions: vec!["淡入".to_string()],
-                    on_screen_text: Some("标题".to_string()),
-                    visual_salience: Some(0.9),
-                },
-            ],
+            observations: vec![FrameObservation {
+                frame_number: 0,
+                timestamp: "00:00:00.000".to_string(),
+                scene_description: "开场画面".to_string(),
+                objects: vec!["背景".to_string()],
+                actions: vec!["淡入".to_string()],
+                on_screen_text: Some("标题".to_string()),
+                visual_salience: Some(0.9),
+            }],
             overall_activity_summary: Some("视频开场".to_string()),
             total_frames: 1,
             analyzed_batches: 1,

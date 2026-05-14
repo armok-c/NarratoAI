@@ -32,9 +32,10 @@ impl VolumeConfig {
             ("bgm_volume", self.bgm_volume),
         ] {
             if val.is_nan() || val < 0.0 || val > 2.0 {
-                return Err(super::normalizer::AudioError::InvalidVolume(
-                    format!("{}={} 不在 [0.0, 2.0] 范围内", name, val),
-                ));
+                return Err(super::normalizer::AudioError::InvalidVolume(format!(
+                    "{}={} 不在 [0.0, 2.0] 范围内",
+                    name, val
+                )));
             }
         }
         Ok(())

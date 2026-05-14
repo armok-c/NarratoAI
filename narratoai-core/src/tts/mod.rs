@@ -7,11 +7,11 @@ mod qwen_tts;
 mod soulvoice;
 mod tencent_tts;
 
+use self::edge_tts::EdgeTtsEngine;
+use crate::error::TTSError;
 use async_trait::async_trait;
 use std::path::Path;
 use std::path::PathBuf;
-use crate::error::TTSError;
-use self::edge_tts::EdgeTtsEngine;
 
 /// 词边界，单位 100 纳秒（与 Python 版一致，Phase 6 字幕生成使用）
 ///
@@ -66,6 +66,15 @@ pub trait TtsProvider: Send + Sync {
     ) -> Result<TtsOutput, TTSError>;
 }
 
+pub async fn get_edge_tts_voices(
+    proxy: Option<&crate::config::types::ProxySection>,
+) -> Result<serde_json::Value, TTSError> {
+    let proxy_config = common::ProxyConfig::from_proxy(proxy);
+    let edge_engine =
+        EdgeTtsEngine::new(proxy_config.enabled, proxy_config.http, proxy_config.https);
+    edge_engine.get_voices().await
+}
+
 /// TTS 路由器：按引擎名字符串分发到对应实现
 ///
 /// 对应 D-11: 字符串匹配分发
@@ -88,66 +97,86 @@ pub async fn synthesize(
 ) -> Result<TtsOutput, TTSError> {
     match engine {
         "edge_tts" => {
-            let (proxy_enabled, proxy_http, proxy_https) = match proxy {
-                Some(p) => (p.enabled, p.http.clone(), p.https.clone()),
-                None => (false, String::new(), String::new()),
-            };
+            let proxy_config = common::ProxyConfig::from_proxy(proxy);
+            let (proxy_enabled, proxy_http, proxy_https) =
+                (proxy_config.enabled, proxy_config.http, proxy_config.https);
             let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
-            edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            edge_engine
+                .synthesize(text, voice_name, rate, pitch, output_path)
+                .await
         }
         "soulvoice" => {
-            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let cfg = app_config
+                .ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = soulvoice::SoulVoiceEngine::new(cfg.soulvoice.clone(), &proxy_config)
                 .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
-            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            engine
+                .synthesize(text, voice_name, rate, pitch, output_path)
+                .await
         }
         "doubaotts" => {
-            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let cfg = app_config
+                .ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = doubaotts::DoubaoTtsEngine::new(cfg.doubaotts.clone(), &proxy_config)
                 .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
-            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            engine
+                .synthesize(text, voice_name, rate, pitch, output_path)
+                .await
         }
         "qwen_tts" => {
-            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let cfg = app_config
+                .ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = qwen_tts::QwenTtsEngine::new(cfg.tts_qwen.clone(), &proxy_config)
                 .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
-            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            engine
+                .synthesize(text, voice_name, rate, pitch, output_path)
+                .await
         }
         "indextts2" => {
-            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let cfg = app_config
+                .ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = indextts2::IndexTts2Engine::new(cfg.indextts2.clone(), &proxy_config)
                 .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
-            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            engine
+                .synthesize(text, voice_name, rate, pitch, output_path)
+                .await
         }
         "azure_speech" => {
             // D-01/D-02: 内联智能回退 (对齐 Python 版 should_use_azure_speech_services)
             if azure_speech::should_use_azure_services(voice_name) {
                 // V2: Azure Speech REST API
-                let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+                let cfg = app_config
+                    .ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
                 let proxy_config = common::ProxyConfig::from_proxy(proxy);
                 let engine = azure_speech::AzureSpeechEngine::new(cfg.azure.clone(), &proxy_config)
                     .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
-                engine.synthesize(text, voice_name, rate, pitch, output_path).await
+                engine
+                    .synthesize(text, voice_name, rate, pitch, output_path)
+                    .await
             } else {
                 // V1: 回退 Edge-TTS
-                let (proxy_enabled, proxy_http, proxy_https) = match proxy {
-                    Some(p) => (p.enabled, p.http.clone(), p.https.clone()),
-                    None => (false, String::new(), String::new()),
-                };
+                let proxy_config = common::ProxyConfig::from_proxy(proxy);
+                let (proxy_enabled, proxy_http, proxy_https) =
+                    (proxy_config.enabled, proxy_config.http, proxy_config.https);
                 let edge_engine = EdgeTtsEngine::new(proxy_enabled, proxy_http, proxy_https);
-                edge_engine.synthesize(text, voice_name, rate, pitch, output_path).await
+                edge_engine
+                    .synthesize(text, voice_name, rate, pitch, output_path)
+                    .await
             }
         }
         "tencent_tts" => {
-            let cfg = app_config.ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
+            let cfg = app_config
+                .ok_or_else(|| TTSError::SynthesisFailed("需要 AppConfig".to_string()))?;
             let proxy_config = common::ProxyConfig::from_proxy(proxy);
             let engine = tencent_tts::TencentTtsEngine::new(cfg.tencent.clone(), &proxy_config)
                 .map_err(|e| TTSError::ConnectionFailed(format!("引擎初始化失败: {}", e)))?;
-            engine.synthesize(text, voice_name, rate, pitch, output_path).await
+            engine
+                .synthesize(text, voice_name, rate, pitch, output_path)
+                .await
         }
         _ => Err(TTSError::UnknownEngine {
             engine: engine.to_string(),

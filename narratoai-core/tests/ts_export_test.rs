@@ -8,14 +8,12 @@
 /// `cargo test -p narratoai-core` runs because ts-rs writes files at compile
 /// time of the derive macro.  This test adds a runtime assertion so CI fails
 /// if a newly added TS type is accidentally omitted from the list.
-
 use ts_rs::TS;
 
 // ---- config::types ----
 use narratoai_core::config::types::{
-    AppConfig, AppSection, UiSection, AzureSection, TencentSection,
-    SoulVoiceSection, TtsQwenSection, IndexTTS2Section, DoubaoTTSSection,
-    ProxySection, FramesSection, AudioSection,
+    AppConfig, AppSection, AudioSection, AzureSection, DoubaoTTSSection, FramesSection,
+    IndexTTS2Section, ProxySection, SoulVoiceSection, TencentSection, TtsQwenSection, UiSection,
 };
 
 // ---- llm::types ----
@@ -37,7 +35,10 @@ use narratoai_core::sdp::types::SdpRequest;
 fn ts_export_config_types() {
     // Each export() call writes the .ts file via the #[ts(export, export_to)] attribute
     // at compile time. At runtime, we just verify it doesn't panic.
-    assert!(!AppConfig::decl().is_empty(), "AppConfig decl should not be empty");
+    assert!(
+        !AppConfig::decl().is_empty(),
+        "AppConfig decl should not be empty"
+    );
     assert!(!AppSection::decl().is_empty());
     assert!(!UiSection::decl().is_empty());
     assert!(!AzureSection::decl().is_empty());

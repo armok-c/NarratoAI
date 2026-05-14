@@ -17,9 +17,9 @@ use tracing::{error, info, warn};
 use crate::ffmpeg::command::ProgressCallback;
 use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
+use crate::text_utils;
 use crate::visual::error::VisualError;
 use crate::visual::frame_extractor::extract_frames;
-use crate::text_utils;
 use crate::visual::types::{BatchAnalysisResult, FrameObservation};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -124,7 +124,7 @@ pub async fn analyze_video_frames(
         interval_seconds.unwrap_or(DEFAULT_INTERVAL_SECONDS), // 默认 3 秒间隔
         quality,
         progress_for_extract, // progress
-        cancel, // cancel
+        cancel,               // cancel
     )
     .await
     .map_err(|e| {
@@ -141,17 +141,12 @@ pub async fn analyze_video_frames(
 
     // Step 3 — 空检查（在线护栏：帧数量边界检查，AI-SPEC Section 6）
     if frame_count == 0 {
-        return Err(VisualError::FrameExtraction(
-            "未提取到任何帧".into(),
-        ));
+        return Err(VisualError::FrameExtraction("未提取到任何帧".into()));
     }
 
     // Step 5 — 进度汇报
     if let Some(ref cb) = shared_progress {
-        cb(
-            Some(0.3),
-            &format!("提取到 {} 帧，开始分析", frame_count),
-        );
+        cb(Some(0.3), &format!("提取到 {} 帧，开始分析", frame_count));
     }
 
     // Step 6 — 渲染 prompt + 通过 LlmProvider 批量发送（D-19 混合模式）
@@ -231,9 +226,7 @@ pub async fn analyze_video_frames(
 
     // Step 8b — 所有批次成功但均返回空观察结果的盲区检查
     if observations.is_empty() {
-        return Err(VisualError::Analysis(
-            "所有批次返回空观察结果".into(),
-        ));
+        return Err(VisualError::Analysis("所有批次返回空观察结果".into()));
     }
 
     // Step 9 — 返回结果
@@ -301,9 +294,7 @@ fn parse_and_retry(json_text: &str) -> Result<ParsedBatch, VisualError> {
                         raw_preview = truncate_str(json_text, 200),
                         "All JSON deserialization paths failed",
                     );
-                    Err(VisualError::Analysis(format!(
-                        "JSON 解析失败: {}", e
-                    )))
+                    Err(VisualError::Analysis(format!("JSON 解析失败: {}", e)))
                 }
             }
         }
@@ -322,16 +313,26 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 // 测试
 // ---------------------------------------------------------------------------
 
+// ===== VisualAnalyzer 门面调用路径审查 (TDET-06, 2026-05-14) =====
+// 入口: analyze_video_frames()
+// 调用者:
+//   - narratoai-core/src/documentary/script_gen.rs 的 analyze_video()
+//   - src-tauri/src/commands/pipeline.rs 的 generate_documentary_script 命令经 script_gen 进入
+// 调用方式:
+//   - 通过 LlmProvider trait 传入 llm_provider
+//   - 通过 prompt_template 参数接收 prompt（来源: PromptManager/PromptRegistry）
+// 结论:
+//   - 现行 Rust 视觉分析调用统一走此门面
+//   - SDE/SDP pipeline 不包含视觉分析步骤
+//   - 旧版 Python app/services/documentary/frame_analysis_service.py 仍有 analyze_images 调用，但不属于 v2.0 Tauri/Rust 运行路径
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
 
     fn extract_frame_number_from_keyframe(path: &Path) -> Result<u64, VisualError> {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let num_str = name
             .strip_prefix("keyframe_")
             .and_then(|s| s.split('_').next())
@@ -339,30 +340,22 @@ mod tests {
                 VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", name))
             })?;
         num_str.parse::<u64>().map_err(|_| {
-            VisualError::FrameExtraction(format!(
-                "帧序号不是有效数字: {} (from {})",
-                num_str, name
-            ))
+            VisualError::FrameExtraction(format!("帧序号不是有效数字: {} (from {})", num_str, name))
         })
     }
 
     fn collect_frame_paths(output_dir: &Path) -> Result<Vec<PathBuf>, VisualError> {
         let mut paths: Vec<PathBuf> = Vec::new();
 
-        let dir_reader = std::fs::read_dir(output_dir).map_err(|e| {
-            VisualError::FrameExtraction(format!("读取帧目录失败: {}", e))
-        })?;
+        let dir_reader = std::fs::read_dir(output_dir)
+            .map_err(|e| VisualError::FrameExtraction(format!("读取帧目录失败: {}", e)))?;
 
         for entry in dir_reader {
-            let entry = entry.map_err(|e| {
-                VisualError::FrameExtraction(format!("读取目录项失败: {}", e))
-            })?;
+            let entry = entry
+                .map_err(|e| VisualError::FrameExtraction(format!("读取目录项失败: {}", e)))?;
 
             let path = entry.path();
-            let file_name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             if file_name.starts_with("keyframe_") && file_name.ends_with(".jpg") {
                 paths.push(path);
@@ -451,7 +444,10 @@ mod tests {
         let batch = result.unwrap();
         assert_eq!(batch.observations.len(), 1);
         assert_eq!(batch.observations[0].scene_description, "场景A");
-        assert_eq!(batch.overall_activity_summary, Some("带额外字段的响应".to_string()));
+        assert_eq!(
+            batch.overall_activity_summary,
+            Some("带额外字段的响应".to_string())
+        );
     }
 
     /// Test: ```json ... ``` 包裹的 JSON 应被剥离后解析
@@ -459,10 +455,7 @@ mod tests {
     fn test_parse_and_retry_code_block_wrapped() {
         let raw = "```json\n{\"frame_number\": 1, \"timestamp\": \"00:00:03.000\", \"scene_description\": \"室内\", \"objects\": [\"桌子\"], \"actions\": [\"摆放\"]}\n```";
         let result = parse_and_retry(raw);
-        assert!(
-            result.is_ok(),
-            "代码块包裹的 JSON 应被剥离后解析成功"
-        );
+        assert!(result.is_ok(), "代码块包裹的 JSON 应被剥离后解析成功");
         let batch = result.unwrap();
         assert_eq!(batch.observations[0].frame_number, 1);
         assert_eq!(batch.observations[0].scene_description, "室内");
@@ -487,13 +480,13 @@ mod tests {
     fn test_parse_and_retry_invalid_json() {
         let raw = "这是一段纯文本响应，不是 JSON 格式";
         let result = parse_and_retry(raw);
-        assert!(
-            result.is_err(),
-            "纯文本响应应返回错误"
-        );
+        assert!(result.is_err(), "纯文本响应应返回错误");
         match result {
             Err(VisualError::Analysis(msg)) => {
-                assert!(msg.contains("JSON 解析失败"), "错误消息应包含 JSON 解析失败");
+                assert!(
+                    msg.contains("JSON 解析失败"),
+                    "错误消息应包含 JSON 解析失败"
+                );
             }
             _ => panic!("应返回 VisualError::Analysis"),
         }
@@ -530,7 +523,12 @@ mod tests {
 
         // Verify sorting order
         assert!(
-            paths[0].file_name().unwrap().to_str().unwrap().contains("000000"),
+            paths[0]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("000000"),
             "应按帧序号排序"
         );
 
@@ -544,10 +542,7 @@ mod tests {
         let temp_dir = temp.path();
 
         let result = collect_frame_paths(temp_dir);
-        assert!(
-            result.is_err(),
-            "空目录应返回错误"
-        );
+        assert!(result.is_err(), "空目录应返回错误");
         if let Err(VisualError::FrameExtraction(msg)) = result {
             assert!(
                 msg.contains("没有匹配 keyframe_*.jpg 的文件"),
@@ -575,8 +570,7 @@ mod tests {
         .expect("应能写入测试文件");
         std::fs::write(temp_dir.join("fastframe_000000.jpg"), b"fast path frame")
             .expect("应能写入测试文件");
-        std::fs::write(temp_dir.join("notes.txt"), b"not a frame")
-            .expect("应能写入测试文件");
+        std::fs::write(temp_dir.join("notes.txt"), b"not a frame").expect("应能写入测试文件");
 
         let result = collect_frame_paths(temp_dir);
         assert!(result.is_ok(), "应成功收集帧文件");

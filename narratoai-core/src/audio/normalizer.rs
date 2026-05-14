@@ -73,7 +73,12 @@ impl LoudnormData {
         match value.parse::<f64>() {
             Ok(v) if v.is_finite() => v,
             _ => {
-                tracing::warn!("{} 解析失败 ('{}')，使用回退值 {}", field_name, value, fallback);
+                tracing::warn!(
+                    "{} 解析失败 ('{}')，使用回退值 {}",
+                    field_name,
+                    value,
+                    fallback
+                );
                 fallback
             }
         }
@@ -200,9 +205,10 @@ pub fn normalize_lufs(
     }
 
     if sample_rate == 0 || channels == 0 {
-        return Err(AudioError::InvalidVolume(
-            format!("sample_rate={} channels={} 不能为 0", sample_rate, channels),
-        ));
+        return Err(AudioError::InvalidVolume(format!(
+            "sample_rate={} channels={} 不能为 0",
+            sample_rate, channels
+        )));
     }
 
     // 第一遍：分析
@@ -226,7 +232,12 @@ pub fn normalize_lufs(
         .args(["-y", "-hide_banner", "-i"])
         .arg(input.as_os_str())
         .args(["-af", &filter])
-        .args(["-ar", &sample_rate.to_string(), "-ac", &channels.to_string()])
+        .args([
+            "-ar",
+            &sample_rate.to_string(),
+            "-ac",
+            &channels.to_string(),
+        ])
         .arg(output.as_os_str())
         .output()
         .map_err(|e| {
@@ -299,7 +310,10 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
         let packet = match format.next_packet() {
             Ok(pkt) => pkt,
             Err(symphonia::core::errors::Error::IoError(ref e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break
+            }
             Err(_) => break,
         };
         if packet.track_id() != track_id {
@@ -319,10 +333,7 @@ pub fn get_audio_rms(input: &Path) -> Result<f64, AudioError> {
         return Err(AudioError::RmsFallbackFailed("解码后无音频采样".into()));
     }
 
-    let sum_sq: f64 = all_samples
-        .iter()
-        .map(|s| (*s as f64) * (*s as f64))
-        .sum();
+    let sum_sq: f64 = all_samples.iter().map(|s| (*s as f64) * (*s as f64)).sum();
     let rms = (sum_sq / all_samples.len() as f64).sqrt();
 
     let rms_db = if rms > 0.0 {
@@ -379,7 +390,14 @@ pub fn normalize_audio_for_mixing(
     let output_path = output_dir.join(format!("{}_normalized.mp3", stem));
 
     // 优先 loudnorm 两遍标准化
-    match normalize_lufs(audio_path, &output_path, target_lufs, max_peak, sample_rate, channels) {
+    match normalize_lufs(
+        audio_path,
+        &output_path,
+        target_lufs,
+        max_peak,
+        sample_rate,
+        channels,
+    ) {
         Ok(()) => return Ok(output_path),
         Err(e) => tracing::warn!("loudnorm 两遍标准化失败，回退到 RMS 标准化: {}", e),
     }
@@ -393,7 +411,12 @@ pub fn normalize_audio_for_mixing(
         .args(["-y", "-hide_banner", "-i"])
         .arg(audio_path.as_os_str())
         .args(["-af", &format!("volume={}dB", gain_db)])
-        .args(["-ar", &sample_rate.to_string(), "-ac", &channels.to_string()])
+        .args([
+            "-ar",
+            &sample_rate.to_string(),
+            "-ac",
+            &channels.to_string(),
+        ])
         .arg(&output_path)
         .output()
         .map_err(|e| AudioError::LoudnormNormalizeFailed(e.to_string()))?;
@@ -465,11 +488,7 @@ mod tests {
         // 极端值测试 clamp
         let (tts_adj, orig_adj) = calculate_volume_adjustment(-60.0, -80.0);
         assert!(tts_adj <= 2.0, "TTS 不应超过 2.0 clamp: {}", tts_adj);
-        assert!(
-            orig_adj <= 3.0,
-            "原声不应超过 3.0 clamp: {}",
-            orig_adj
-        );
+        assert!(orig_adj <= 3.0, "原声不应超过 3.0 clamp: {}", orig_adj);
     }
 
     #[test]
@@ -508,24 +527,45 @@ mod tests {
     fn test_get_audio_rms_formula() {
         // 静音：全零采样 → RMS = 0.0
         let silent: Vec<f32> = vec![0.0; 100];
-        let rms_silent = (silent.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>() / silent.len() as f64).sqrt();
+        let rms_silent = (silent
+            .iter()
+            .map(|s| (*s as f64) * (*s as f64))
+            .sum::<f64>()
+            / silent.len() as f64)
+            .sqrt();
         assert!((rms_silent - 0.0).abs() < f64::EPSILON);
         // 静音时 rms = 0，进入 else 分支，返回 -60.0
 
         // 恒定振幅 0.5 → RMS = 0.5 → dB ≈ -6.02
         let half: Vec<f32> = vec![0.5; 100];
-        let rms_half = (half.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>() / half.len() as f64).sqrt();
+        let rms_half = (half.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>()
+            / half.len() as f64)
+            .sqrt();
         let db_half = 20.0 * rms_half.log10();
-        assert!((db_half - (-6.0206)).abs() < 0.01, "0.5 RMS 应为 -6.02 dB, got {}", db_half);
+        assert!(
+            (db_half - (-6.0206)).abs() < 0.01,
+            "0.5 RMS 应为 -6.02 dB, got {}",
+            db_half
+        );
 
         // 恒定振幅 1.0 → RMS = 1.0 → dB = 0.0
         let full: Vec<f32> = vec![1.0; 100];
-        let rms_full = (full.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>() / full.len() as f64).sqrt();
+        let rms_full = (full.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>()
+            / full.len() as f64)
+            .sqrt();
         let db_full = 20.0 * rms_full.log10();
-        assert!((db_full - 0.0).abs() < 0.01, "1.0 RMS 应为 0 dB, got {}", db_full);
+        assert!(
+            (db_full - 0.0).abs() < 0.01,
+            "1.0 RMS 应为 0 dB, got {}",
+            db_full
+        );
 
         // 验证旧公式（i16::MAX 参考）产生错误结果
         let db_old = 20.0 * (rms_half / (i16::MAX as f64)).log10();
-        assert!((db_old - (-96.329)).abs() < 0.01, "旧公式 0.5 RMS 应为 -96.33 dB, got {}", db_old);
+        assert!(
+            (db_old - (-96.329)).abs() < 0.01,
+            "旧公式 0.5 RMS 应为 -96.33 dB, got {}",
+            db_old
+        );
     }
 }

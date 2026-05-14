@@ -4,9 +4,9 @@ use crate::llm::provider::LlmProvider;
 use crate::llm::types::LlmResponseFormat;
 use crate::prompt::manager::PromptManager;
 use crate::prompt::types::OutputFormat;
+use crate::script::types::Script;
 use crate::sde::error::SdeError;
 use crate::sde::types::SdePipelineState;
-use crate::script::types::Script;
 
 /// 检查文本中是否包含 SRT 时间戳模式
 #[cfg(test)]
@@ -224,21 +224,32 @@ fn fix_truncated_json(text: &str) -> String {
     if needs_quote {
         result.push('"');
     }
-    for _ in 0..bracket_depth.max(0) { result.push(']'); }
-    for _ in 0..brace_depth.max(0) { result.push('}'); }
+    for _ in 0..bracket_depth.max(0) {
+        result.push(']');
+    }
+    for _ in 0..brace_depth.max(0) {
+        result.push('}');
+    }
 
     result
 }
 
 fn needs_closing_quote(s: &str) -> bool {
     s.lines().last().map_or(false, |last_line| {
-        let quote_count = last_line.chars()
+        let quote_count = last_line
+            .chars()
             .fold((0u32, false), |(count, escaped), c| {
-                if escaped { (count, false) }
-                else if c == '\\' { (count, true) }
-                else if c == '"' { (count + 1, false) }
-                else { (count, false) }
-            }).0;
+                if escaped {
+                    (count, false)
+                } else if c == '\\' {
+                    (count, true)
+                } else if c == '"' {
+                    (count + 1, false)
+                } else {
+                    (count, false)
+                }
+            })
+            .0;
         quote_count % 2 != 0
     })
 }
@@ -250,10 +261,21 @@ fn count_unbalanced_brackets(s: &str) -> (i32, i32) {
     let mut escape_next = false;
 
     for c in s.chars() {
-        if escape_next { escape_next = false; continue; }
-        if c == '\\' && in_string { escape_next = true; continue; }
-        if c == '"' { in_string = !in_string; continue; }
-        if in_string { continue; }
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        if c == '\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+        if c == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
         match c {
             '{' => brace_depth += 1,
             '}' => brace_depth -= 1,
@@ -364,11 +386,10 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 pub fn parse_script(raw_json: &str) -> Result<Script, SdeError> {
     let repaired = repair_json(raw_json);
 
-    let value: serde_json::Value = serde_json::from_str(&repaired).map_err(|e| {
-        SdeError::JsonRepair {
+    let value: serde_json::Value =
+        serde_json::from_str(&repaired).map_err(|e| SdeError::JsonRepair {
             details: format!("JSON 解析失败: {}", e),
-        }
-    })?;
+        })?;
 
     // 获取数组：顶层数组或 items/clips 字段
     let items = value
@@ -387,10 +408,7 @@ pub fn parse_script(raw_json: &str) -> Result<Script, SdeError> {
         // 缺失 OST 字段 → 默认 OST=0 (NarrationOnly)
         if obj.get("OST").is_none() && obj.get("ost").is_none() {
             if let Some(val) = obj.as_object_mut() {
-                val.insert(
-                    "OST".to_string(),
-                    serde_json::Value::Number(0.into()),
-                );
+                val.insert("OST".to_string(), serde_json::Value::Number(0.into()));
             }
         }
 
@@ -459,7 +477,10 @@ mod tests {
             "trailing comma should be removed: {}",
             result
         );
-        assert!(!result.contains(",]"), "should not contain trailing comma in array");
+        assert!(
+            !result.contains(",]"),
+            "should not contain trailing comma in array"
+        );
     }
 
     #[test]
@@ -537,9 +558,15 @@ mod tests {
 
     #[test]
     fn test_parse_script_valid_items() {
-        let json = make_items_json(r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#);
+        let json = make_items_json(
+            r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#,
+        );
         let result = parse_script(&json);
-        assert!(result.is_ok(), "valid items should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "valid items should parse: {:?}",
+            result.err()
+        );
         let clips = result.unwrap();
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0]._id, 1);
@@ -550,14 +577,22 @@ mod tests {
     fn test_parse_script_top_level_array() {
         let json = r#"[{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559", "OST": 0}]"#;
         let result = parse_script(json);
-        assert!(result.is_ok(), "top-level array should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "top-level array should parse: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_parse_script_missing_ost_default() {
         let json = r#"{"items": [{"_id": 1, "picture": "画面1", "narration": "解说1", "timestamp": "00:00:00,600-00:00:07,559"}]}"#;
         let clips = parse_script(json).expect("missing OST should default");
-        assert_eq!(clips[0].ost, OstType::NarrationOnly, "missing OST should default to 0");
+        assert_eq!(
+            clips[0].ost,
+            OstType::NarrationOnly,
+            "missing OST should default to 0"
+        );
     }
 
     #[test]

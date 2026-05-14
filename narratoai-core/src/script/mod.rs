@@ -258,7 +258,9 @@ mod tests {
         match result {
             Err(ScriptError::Validation(errors)) => {
                 assert!(
-                    errors.iter().any(|e| e.message.contains("脚本数组不能为空")),
+                    errors
+                        .iter()
+                        .any(|e| e.message.contains("脚本数组不能为空")),
                     "应包含空数组错误信息"
                 );
             }
@@ -417,10 +419,7 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).expect("读取输出文件失败");
         // 验证美化 JSON 格式（包含缩进）
-        assert!(
-            content.contains("\n"),
-            "美化 JSON 应包含换行"
-        );
+        assert!(content.contains("\n"), "美化 JSON 应包含换行");
         // 验证中文字符原样输出
         assert!(
             content.contains("中文画面"),
@@ -503,10 +502,7 @@ mod tests {
         );
 
         // 无效格式
-        assert!(
-            !validate_timestamp("bad-format"),
-            "无效格式应失败"
-        );
+        assert!(!validate_timestamp("bad-format"), "无效格式应失败");
         assert!(
             validate_timestamp("00:00:00-00:00:07"),
             "无毫秒格式（Python 管道格式）应通过"
@@ -519,14 +515,8 @@ mod tests {
             !validate_timestamp("00:00:00,60-00:00:07,559"),
             "毫秒非三位应失败"
         );
-        assert!(
-            !validate_timestamp("00:00:00,600"),
-            "缺少结束时间应失败"
-        );
-        assert!(
-            !validate_timestamp(""),
-            "空字符串应失败"
-        );
+        assert!(!validate_timestamp("00:00:00,600"), "缺少结束时间应失败");
+        assert!(!validate_timestamp(""), "空字符串应失败");
 
         // WR-01: 范围校验 — 不可能的时间值应失败
         assert!(

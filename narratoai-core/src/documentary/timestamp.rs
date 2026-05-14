@@ -49,17 +49,25 @@ pub fn parse_time_to_secs(input: &str) -> Result<f64, PipelineError> {
         .map_err(|_| PipelineError::Timestamp(format!("秒解析失败: {}", parts[2])))?;
 
     if !(0.0..=59.0).contains(&m) {
-        return Err(PipelineError::Timestamp(format!("分钟超出范围 (0-59): {}", m)));
+        return Err(PipelineError::Timestamp(format!(
+            "分钟超出范围 (0-59): {}",
+            m
+        )));
     }
     if !(0.0..=59.0).contains(&s) {
-        return Err(PipelineError::Timestamp(format!("秒超出范围 (0-59): {}", s)));
+        return Err(PipelineError::Timestamp(format!(
+            "秒超出范围 (0-59): {}",
+            s
+        )));
     }
 
     let ms: f64 = if millis.is_empty() {
         0.0
     } else {
         let padded = format!("{:0<3}", millis);
-        let ms_val: f64 = padded[..3].parse().map_err(|_| PipelineError::Timestamp(format!("毫秒解析失败: {}", millis)))?;
+        let ms_val: f64 = padded[..3]
+            .parse()
+            .map_err(|_| PipelineError::Timestamp(format!("毫秒解析失败: {}", millis)))?;
         ms_val / 1000.0
     };
     let total = h * 3600.0 + m * 60.0 + s + ms;

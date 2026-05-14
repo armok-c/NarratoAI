@@ -1,7 +1,7 @@
-use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider};
 use crate::config::types::TtsQwenSection;
+use crate::error::TTSError;
 use crate::tts::common;
+use crate::tts::{TtsOutput, TtsProvider};
 use async_trait::async_trait;
 use std::path::Path;
 use std::time::Duration;
@@ -43,7 +43,8 @@ fn is_ssrf_safe_url(url: &str) -> bool {
 
     // 172.16.0.0 - 172.31.255.255 (172.16-31.x.x)
     if host.starts_with("172.") {
-        if let Some(second_octet_str) = host.strip_prefix("172.").and_then(|s| s.split('.').next()) {
+        if let Some(second_octet_str) = host.strip_prefix("172.").and_then(|s| s.split('.').next())
+        {
             if let Ok(second_octet) = second_octet_str.parse::<u8>() {
                 if (16..=31).contains(&second_octet) {
                     return false;
@@ -71,20 +72,30 @@ pub(super) struct QwenTtsEngine {
 }
 
 impl QwenTtsEngine {
-    pub(super) fn new(config: TtsQwenSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+    pub(super) fn new(
+        config: TtsQwenSection,
+        proxy_config: &common::ProxyConfig,
+    ) -> Result<Self, TTSError> {
         let client = common::build_client(proxy_config)?;
         Ok(Self { client, config })
     }
 
     /// 单次合成（无重试）
     /// 步骤: 1) 构建并发送 TTS 请求  2) 从响应解析 audio_url  3) 下载音频  4) 写入文件
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(
+        &self,
+        text: &str,
+        voice_name: &str,
+        output_path: &Path,
+    ) -> Result<TtsOutput, TTSError> {
         // 解析 voice_name: 去除 "qwen3:" 前缀 (Python 版 parse_qwen3_voice — voice.py:1831)
         let parsed_voice = common::parse_engine_prefix(voice_name, &["qwen3:"]);
 
         let api_key = &self.config.api_key;
         if api_key.is_empty() {
-            return Err(TTSError::AuthenticationFailed("Qwen TTS API key 未配置".to_string()));
+            return Err(TTSError::AuthenticationFailed(
+                "Qwen TTS API key 未配置".to_string(),
+            ));
         }
 
         let model_name = if self.config.model_name.is_empty() {
@@ -111,7 +122,8 @@ impl QwenTtsEngine {
             },
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(api_url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -125,16 +137,21 @@ impl QwenTtsEngine {
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(TTSError::SynthesisFailed(format!(
-                "Qwen API 返回 {}: {}", status.as_u16(), body
+                "Qwen API 返回 {}: {}",
+                status.as_u16(),
+                body
             )));
         }
 
         // Step 2: 解析响应，提取 audio URL 和 duration
-        let result: serde_json::Value = response.json().await
+        let result: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("Qwen 响应 JSON 解析失败: {}", e)))?;
 
-        let audio_url = result["output"]["audio"]["url"].as_str()
-            .ok_or_else(|| TTSError::SynthesisFailed("Qwen 响应中无 output.audio.url".to_string()))?;
+        let audio_url = result["output"]["audio"]["url"].as_str().ok_or_else(|| {
+            TTSError::SynthesisFailed("Qwen 响应中无 output.audio.url".to_string())
+        })?;
 
         // SSRF protection for the audio download URL returned by DashScope.
         //
@@ -144,15 +161,19 @@ impl QwenTtsEngine {
         // localhost URLs allowed without port restriction (intentional for testing)
         if !is_ssrf_safe_url(audio_url) {
             return Err(TTSError::SynthesisFailed(format!(
-                "Qwen audio_url 未通过 SSRF 安全检查: {}", audio_url
+                "Qwen audio_url 未通过 SSRF 安全检查: {}",
+                audio_url
             )));
         }
 
-        let duration = result["output"]["audio"]["duration"].as_f64().unwrap_or(0.0);
+        let duration = result["output"]["audio"]["duration"]
+            .as_f64()
+            .unwrap_or(0.0);
 
         // Step 3: 下载音频文件
         // Python 版: requests.get(audio_url, timeout=30)
-        let audio_response = self.client
+        let audio_response = self
+            .client
             .get(audio_url)
             .timeout(Duration::from_secs(60))
             .send()
@@ -162,11 +183,14 @@ impl QwenTtsEngine {
         let audio_status = audio_response.status();
         if !audio_status.is_success() {
             return Err(TTSError::SynthesisFailed(format!(
-                "Qwen 音频 URL 返回 {} (期望 200)", audio_status.as_u16()
+                "Qwen 音频 URL 返回 {} (期望 200)",
+                audio_status.as_u16()
             )));
         }
 
-        let audio_bytes = audio_response.bytes().await
+        let audio_bytes = audio_response
+            .bytes()
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("Qwen 读取音频响应失败: {}", e)))?;
 
         // Step 4: 写入文件
@@ -196,7 +220,8 @@ impl TtsProvider for QwenTtsEngine {
         if voice_name.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
+        let result =
+            common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
@@ -207,9 +232,9 @@ impl TtsProvider for QwenTtsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use tempfile::TempDir;
 
     #[test]
     fn test_qwen_engine_new() {
@@ -253,7 +278,10 @@ mod tests {
 
         let config = TtsQwenSection {
             api_key: "test-key".to_string(),
-            api_url: format!("{}/api/v1/services/audio/tts/customization", mock_server.uri()),
+            api_url: format!(
+                "{}/api/v1/services/audio/tts/customization",
+                mock_server.uri()
+            ),
             model_name: "qwen3-tts-flash".to_string(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
@@ -261,10 +289,16 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "qwen3:Cherry", &output_path).await;
+        let result = engine
+            .synthesize_once("test text", "qwen3:Cherry", &output_path)
+            .await;
         assert!(result.is_ok(), "Qwen 成功: {:?}", result.err());
         let output = result.unwrap();
-        assert!((output.duration - 12.5).abs() < f64::EPSILON, "duration 应为 12.5, got {}", output.duration);
+        assert!(
+            (output.duration - 12.5).abs() < f64::EPSILON,
+            "duration 应为 12.5, got {}",
+            output.duration
+        );
         assert!(output.audio_file_path.exists());
         let written = std::fs::read(&output.audio_file_path).expect("读取输出文件失败");
         assert_eq!(written, audio_bytes_data);
@@ -282,7 +316,9 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize("", "qwen3:Cherry", 1.0, 0.0, &output_path).await;
+        let result = engine
+            .synthesize("", "qwen3:Cherry", 1.0, 0.0, &output_path)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::SynthesisFailed(msg) => assert!(msg.contains("不能为空")),
@@ -306,7 +342,10 @@ mod tests {
 
         let config = TtsQwenSection {
             api_key: "test-key".to_string(),
-            api_url: format!("{}/api/v1/services/audio/tts/customization", mock_server.uri()),
+            api_url: format!(
+                "{}/api/v1/services/audio/tts/customization",
+                mock_server.uri()
+            ),
             model_name: String::new(),
         };
         let proxy_config = common::ProxyConfig::from_proxy(None);
@@ -314,7 +353,9 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test text", "qwen3:Cherry", &output_path).await;
+        let result = engine
+            .synthesize_once("test text", "qwen3:Cherry", &output_path)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::SynthesisFailed(msg) => assert!(msg.contains("output.audio.url")),

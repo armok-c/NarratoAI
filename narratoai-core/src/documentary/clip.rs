@@ -19,14 +19,27 @@ pub async fn clip_ost0_narration_only(
     task_dir: &Path,
     profile: HwAccelProfile,
 ) -> Result<PathBuf, PipelineError> {
-    let start_secs = parse_time_to_secs(&clip.timestamp.split('-').next().unwrap_or(&clip.timestamp))?;
+    let start_secs =
+        parse_time_to_secs(&clip.timestamp.split('-').next().unwrap_or(&clip.timestamp))?;
     let end_secs = start_secs + tts_result.duration;
     let duration = tts_result.duration;
 
-    let filename = format_clip_filename(OstType::NarrationOnly, &secs_to_ffmpeg_time(start_secs), &secs_to_ffmpeg_time(end_secs));
+    let filename = format_clip_filename(
+        OstType::NarrationOnly,
+        &secs_to_ffmpeg_time(start_secs),
+        &secs_to_ffmpeg_time(end_secs),
+    );
     let output_path = task_dir.join(&filename);
 
-    run_clip_ffmpeg(video_path, &output_path, start_secs, duration, true, profile).await?;
+    run_clip_ffmpeg(
+        video_path,
+        &output_path,
+        start_secs,
+        duration,
+        true,
+        profile,
+    )
+    .await?;
     Ok(output_path)
 }
 
@@ -57,10 +70,22 @@ pub async fn clip_ost1_original_sound(
         });
     }
 
-    let filename = format_clip_filename(OstType::OriginalSound, &secs_to_ffmpeg_time(start_secs), &secs_to_ffmpeg_time(end_secs));
+    let filename = format_clip_filename(
+        OstType::OriginalSound,
+        &secs_to_ffmpeg_time(start_secs),
+        &secs_to_ffmpeg_time(end_secs),
+    );
     let output_path = task_dir.join(&filename);
 
-    run_clip_ffmpeg(video_path, &output_path, start_secs, duration, false, profile).await?;
+    run_clip_ffmpeg(
+        video_path,
+        &output_path,
+        start_secs,
+        duration,
+        false,
+        profile,
+    )
+    .await?;
     Ok(output_path)
 }
 
@@ -74,14 +99,27 @@ pub async fn clip_ost2_mixed(
     task_dir: &Path,
     profile: HwAccelProfile,
 ) -> Result<PathBuf, PipelineError> {
-    let start_secs = parse_time_to_secs(&clip.timestamp.split('-').next().unwrap_or(&clip.timestamp))?;
+    let start_secs =
+        parse_time_to_secs(&clip.timestamp.split('-').next().unwrap_or(&clip.timestamp))?;
     let end_secs = start_secs + tts_result.duration;
     let duration = tts_result.duration;
 
-    let filename = format_clip_filename(OstType::Mixed, &secs_to_ffmpeg_time(start_secs), &secs_to_ffmpeg_time(end_secs));
+    let filename = format_clip_filename(
+        OstType::Mixed,
+        &secs_to_ffmpeg_time(start_secs),
+        &secs_to_ffmpeg_time(end_secs),
+    );
     let output_path = task_dir.join(&filename);
 
-    run_clip_ffmpeg(video_path, &output_path, start_secs, duration, false, profile).await?;
+    run_clip_ffmpeg(
+        video_path,
+        &output_path,
+        start_secs,
+        duration,
+        false,
+        profile,
+    )
+    .await?;
     Ok(output_path)
 }
 
@@ -98,22 +136,22 @@ pub async fn clip_all_videos(
     for clip in script_clips {
         let output = match clip.ost {
             OstType::NarrationOnly => {
-                let tts = tts_results.get(&clip._id).ok_or_else(|| {
-                    PipelineError::VideoClip {
+                let tts = tts_results
+                    .get(&clip._id)
+                    .ok_or_else(|| PipelineError::VideoClip {
                         details: format!("OST=0 片段 {} 缺少 TTS 结果", clip._id),
-                    }
-                })?;
+                    })?;
                 clip_ost0_narration_only(video_path, clip, tts, task_dir, profile).await?
             }
             OstType::OriginalSound => {
                 clip_ost1_original_sound(video_path, clip, task_dir, profile).await?
             }
             OstType::Mixed => {
-                let tts = tts_results.get(&clip._id).ok_or_else(|| {
-                    PipelineError::VideoClip {
+                let tts = tts_results
+                    .get(&clip._id)
+                    .ok_or_else(|| PipelineError::VideoClip {
                         details: format!("OST=2 片段 {} 缺少 TTS 结果", clip._id),
-                    }
-                })?;
+                    })?;
                 clip_ost2_mixed(video_path, clip, tts, task_dir, profile).await?
             }
         };
@@ -218,7 +256,16 @@ async fn run_clip_ffmpeg(
         let start_str = start_str.clone();
         let duration_str = duration_str.clone();
         let enc = recommended_encoder.to_string();
-        move || run_clip_ffmpeg_inner(&input_str, &output_str, &start_str, &duration_str, no_audio, &enc)
+        move || {
+            run_clip_ffmpeg_inner(
+                &input_str,
+                &output_str,
+                &start_str,
+                &duration_str,
+                no_audio,
+                &enc,
+            )
+        }
     })
     .await;
 
@@ -233,7 +280,14 @@ async fn run_clip_ffmpeg(
     );
 
     let fallback_result = crate::ffmpeg::command::run_ffmpeg(move || {
-        run_clip_ffmpeg_inner(&input_str, &output_str, &start_str, &duration_str, no_audio, "libx264")
+        run_clip_ffmpeg_inner(
+            &input_str,
+            &output_str,
+            &start_str,
+            &duration_str,
+            no_audio,
+            "libx264",
+        )
     })
     .await;
 

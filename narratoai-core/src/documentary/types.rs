@@ -58,28 +58,49 @@ impl DocumentaryRequest {
             return Err("video_path 不能为空".to_string());
         }
         if !self.video_path.exists() {
-            return Err(format!("video_path 文件不存在: {}", self.video_path.display()));
+            return Err(format!(
+                "video_path 文件不存在: {}",
+                self.video_path.display()
+            ));
         }
         if self.script_path.as_os_str().is_empty() {
             return Err("script_path 不能为空".to_string());
         }
         if !self.script_path.exists() {
-            return Err(format!("script_path 文件不存在: {}", self.script_path.display()));
+            return Err(format!(
+                "script_path 文件不存在: {}",
+                self.script_path.display()
+            ));
         }
         if self.voice_rate <= 0.0 || self.voice_rate > 5.0 {
-            return Err(format!("voice_rate 超出有效范围 (0, 5]: {}", self.voice_rate));
+            return Err(format!(
+                "voice_rate 超出有效范围 (0, 5]: {}",
+                self.voice_rate
+            ));
         }
         if self.voice_pitch < -10.0 || self.voice_pitch > 10.0 {
-            return Err(format!("voice_pitch 超出有效范围 [-10, 10]: {}", self.voice_pitch));
+            return Err(format!(
+                "voice_pitch 超出有效范围 [-10, 10]: {}",
+                self.voice_pitch
+            ));
         }
         if self.tts_volume <= 0.0 || self.tts_volume > 10.0 {
-            return Err(format!("tts_volume 超出有效范围 (0, 10]: {}", self.tts_volume));
+            return Err(format!(
+                "tts_volume 超出有效范围 (0, 10]: {}",
+                self.tts_volume
+            ));
         }
         if self.original_volume < 0.0 || self.original_volume > 10.0 {
-            return Err(format!("original_volume 超出有效范围 [0, 10]: {}", self.original_volume));
+            return Err(format!(
+                "original_volume 超出有效范围 [0, 10]: {}",
+                self.original_volume
+            ));
         }
         if self.bgm_volume < 0.0 || self.bgm_volume > 10.0 {
-            return Err(format!("bgm_volume 超出有效范围 [0, 10]: {}", self.bgm_volume));
+            return Err(format!(
+                "bgm_volume 超出有效范围 [0, 10]: {}",
+                self.bgm_volume
+            ));
         }
         if self.threads == 0 {
             return Err("threads 必须大于 0".to_string());

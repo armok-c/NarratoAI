@@ -15,9 +15,9 @@ use crate::prompt::manager::PromptManager;
 use crate::script::types::{OstType, ScriptClip};
 use crate::sde::error::SdeError;
 use crate::sde::script_gen::{parse_script, step_analyze_plot, step_generate_script};
-use crate::subtitle::parser::parse_subtitle_file;
 use crate::sde::timestamp::find_precise_range;
 use crate::sde::types::{SdePipelineState, SdeProgressCallback, SdeRequest};
+use crate::subtitle::parser::parse_subtitle_file;
 
 // ============================================================
 //  主编排器：run_sde()
@@ -57,11 +57,12 @@ pub async fn run_sde(
     state.progress = progress;
 
     // 3. 获取 text LLM provider
-    let text_provider = registry
-        .get(&config.app.text_llm_provider)
-        .map_err(|e| SdeError::Validation {
-            details: format!("获取 LLM provider 失败: {}", e),
-        })?;
+    let text_provider =
+        registry
+            .get(&config.app.text_llm_provider)
+            .map_err(|e| SdeError::Validation {
+                details: format!("获取 LLM provider 失败: {}", e),
+            })?;
 
     // ============================================================
     //  步骤 0: 字幕解析 (ParseSubtitle)  —  0% → 10%
@@ -69,21 +70,23 @@ pub async fn run_sde(
     state.emit_progress("parse_subtitle", 0.0, "解析字幕文件");
 
     let subtitle_path = request.subtitle_path.clone();
-    let (segments, text, encoding) = tokio::task::spawn_blocking(move || {
-        parse_subtitle_file(&subtitle_path)
-    })
-    .await
-    .map_err(|e| SdeError::Io {
-        source: std::io::Error::new(std::io::ErrorKind::Other, e),
-    })??;
+    let (segments, text, encoding) =
+        tokio::task::spawn_blocking(move || parse_subtitle_file(&subtitle_path))
+            .await
+            .map_err(|e| SdeError::Io {
+                source: std::io::Error::new(std::io::ErrorKind::Other, e),
+            })??;
 
     state.subtitle_text = text;
     state.subtitle_segments = segments;
     state.detected_encoding = encoding;
 
     // 保存中间产物
-    tokio::fs::write(state.task_dir.join("subtitle_source.txt"), &state.subtitle_text)
-        .await?;
+    tokio::fs::write(
+        state.task_dir.join("subtitle_source.txt"),
+        &state.subtitle_text,
+    )
+    .await?;
     state.emit_progress("parse_subtitle", 10.0, "字幕解析完成");
 
     // ============================================================
@@ -129,8 +132,8 @@ pub async fn run_sde(
 
     // 保存最终脚本（异步 I/O，避免阻塞 tokio runtime）
     {
-        let script_json = serde_json::to_string_pretty(&state.script)
-            .map_err(|e| SdeError::JsonRepair {
+        let script_json =
+            serde_json::to_string_pretty(&state.script).map_err(|e| SdeError::JsonRepair {
                 details: format!("序列化脚本失败: {}", e),
             })?;
         tokio::fs::write(state.task_dir.join("script_final.json"), &script_json)
@@ -177,8 +180,7 @@ pub async fn run_sde(
 
         // 生成单片段 SRT 字幕
         if !tts_output.word_boundaries.is_empty() {
-            let srt_content =
-                generate_srt_from_word_boundaries(&tts_output.word_boundaries, 0.0);
+            let srt_content = generate_srt_from_word_boundaries(&tts_output.word_boundaries, 0.0);
             tokio::fs::write(&srt_path, &srt_content)
                 .await
                 .map_err(|e| SdeError::Io { source: e })?;
@@ -291,18 +293,17 @@ pub async fn run_sde(
 
     // 音频标准化：合并完成后立即标准化（D-01~D-06）
     if let Some(ref merged_path) = state.merged_audio_path {
-        crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio)
-            .map_err(|e| SdeError::VideoProcess(PipelineError::AudioNormalization {
-                details: e.to_string(),
-            }))?;
+        crate::audio::pipeline::normalize_merged_audio(merged_path, &config.audio).map_err(
+            |e| {
+                SdeError::VideoProcess(PipelineError::AudioNormalization {
+                    details: e.to_string(),
+                })
+            },
+        )?;
     }
 
-    let merged_sub = merge_subtitle_files(
-        &state.script,
-        &state.tts_results,
-        &state.task_dir,
-    )
-    .await?;
+    let merged_sub =
+        merge_subtitle_files(&state.script, &state.tts_results, &state.task_dir).await?;
     state.merged_subtitle_path = merged_sub;
 
     state.emit_progress("merge_audio", 85.0, "音频字幕合并完成");
@@ -392,10 +393,7 @@ pub async fn run_sde(
     state.emit_progress("concat", 95.0, "视频拼接完成");
 
     // CR-01: 判断是否存在需要原始音频的片段（OST != NarrationOnly）
-    let has_original_audio = state
-        .script
-        .iter()
-        .any(|c| c.ost != OstType::NarrationOnly);
+    let has_original_audio = state.script.iter().any(|c| c.ost != OstType::NarrationOnly);
 
     // ============================================================
     //  CR-01: 提取原始音轨（替代 composite 中的 anullsrc 静音）
@@ -429,16 +427,13 @@ pub async fn run_sde(
         original_volume: request.original_volume,
         bgm_volume: request.bgm_volume,
     };
-    let resolved = crate::audio::pipeline::resolve_volumes(
-        &request_volumes, "sde", &config.audio,
-    );
+    let resolved = crate::audio::pipeline::resolve_volumes(&request_volumes, "sde", &config.audio);
 
-    let merged_video = state
-        .combined_video_path
-        .as_ref()
-        .ok_or_else(|| SdeError::VideoProcess(PipelineError::Composite {
+    let merged_video = state.combined_video_path.as_ref().ok_or_else(|| {
+        SdeError::VideoProcess(PipelineError::Composite {
             details: "缺少拼接视频".to_string(),
-        }))?;
+        })
+    })?;
 
     let final_path = state.task_dir.join("combined_sde.mp4");
 
@@ -452,12 +447,17 @@ pub async fn run_sde(
         .merged_subtitle_path
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
-    let bgm_path_opt = request.bgm_path.as_ref().map(|p| p.to_string_lossy().to_string());
+    let bgm_path_opt = request
+        .bgm_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
     let tts_vol = resolved.tts_volume;
     let bgm_vol = resolved.bgm_volume;
     let total_dur = state.total_duration;
     let orig_vol = resolved.original_volume;
-    let orig_audio_str_opt = orig_audio_path_opt.as_ref().map(|p| p.to_string_lossy().to_string());
+    let orig_audio_str_opt = orig_audio_path_opt
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
     let font_size = request.subtitle_font_size;
     let subtitle_enabled = request.subtitle_enabled;
     let subtitle_force_style = {
@@ -472,11 +472,10 @@ pub async fn run_sde(
             "center" => "5",
             _ => "2",
         };
-        let mut style =
-            format!(
-                "FontSize={},PrimaryColour={},Alignment={}",
-                font_size, ass_color, alignment
-            );
+        let mut style = format!(
+            "FontSize={},PrimaryColour={},Alignment={}",
+            font_size, ass_color, alignment
+        );
         if let Some(ref font) = request.subtitle_font {
             let sanitized: String = font
                 .chars()
@@ -678,19 +677,22 @@ fn extract_original_audio_track(
     let source_str = source_video.to_string_lossy().to_string();
 
     for clip in script {
-        let clip_duration = clip.duration.ok_or_else(|| PipelineError::Timestamp(
-            format!("片段 {} 缺少 duration，无法提取原始音轨", clip._id),
-        ))?;
+        let clip_duration = clip.duration.ok_or_else(|| {
+            PipelineError::Timestamp(format!("片段 {} 缺少 duration，无法提取原始音轨", clip._id))
+        })?;
 
         // 解析源时间范围
         let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
         if ts_parts.len() != 2 {
-            return Err(PipelineError::Timestamp(
-                format!("片段 {} 时间戳格式无效: {}", clip._id, clip.timestamp),
-            ));
+            return Err(PipelineError::Timestamp(format!(
+                "片段 {} 时间戳格式无效: {}",
+                clip._id, clip.timestamp
+            )));
         }
-        let start_secs = parse_time_to_secs(ts_parts[0]).map_err(|e| PipelineError::Timestamp(e.to_string()))?;
-        let end_secs = parse_time_to_secs(ts_parts[1]).map_err(|e| PipelineError::Timestamp(e.to_string()))?;
+        let start_secs =
+            parse_time_to_secs(ts_parts[0]).map_err(|e| PipelineError::Timestamp(e.to_string()))?;
+        let end_secs =
+            parse_time_to_secs(ts_parts[1]).map_err(|e| PipelineError::Timestamp(e.to_string()))?;
 
         let segment_path = segments_dir.join(format!("orig_seg_{}.aac", clip._id));
         let segment_path_str = segment_path.to_string_lossy().to_string();
@@ -699,29 +701,37 @@ fn extract_original_audio_track(
             OstType::NarrationOnly => {
                 // OST=0: 用 anullsrc 生成静音段
                 let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
-                cmd.arg("-f").arg("lavfi")
-                    .arg("-i").arg(format!("anullsrc=r=44100:cl=stereo"))
-                    .arg("-t").arg(format!("{:.3}", clip_duration))
-                    .arg("-c:a").arg("aac")
+                cmd.arg("-f")
+                    .arg("lavfi")
+                    .arg("-i")
+                    .arg(format!("anullsrc=r=44100:cl=stereo"))
+                    .arg("-t")
+                    .arg(format!("{:.3}", clip_duration))
+                    .arg("-c:a")
+                    .arg("aac")
                     .arg("-y")
                     .output(&segment_path_str);
 
-                let mut child = cmd.spawn()
+                let mut child = cmd
+                    .spawn()
                     .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
-                let iter = child.iter()
+                let iter = child
+                    .iter()
                     .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
                 for event in iter {
                     if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
                         tracing::warn!("orig_audio silence segment (non-fatal): {}", e);
                     }
                 }
-                let status = child.wait()
+                let status = child
+                    .wait()
                     .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
                 if !status.success() {
                     return Err(PipelineError::FFmpeg {
-                        source: crate::error::FFmpegError::ExecutionError(
-                            format!("静音段生成失败，片段 {}", clip._id),
-                        ),
+                        source: crate::error::FFmpegError::ExecutionError(format!(
+                            "静音段生成失败，片段 {}",
+                            clip._id
+                        )),
                     });
                 }
             }
@@ -731,30 +741,38 @@ fn extract_original_audio_track(
                 let source_dur = end_secs - start_secs;
 
                 let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
-                cmd.arg("-ss").arg(&start_str)
-                    .arg("-i").arg(&source_str)
-                    .arg("-t").arg(format!("{:.3}", source_dur))
+                cmd.arg("-ss")
+                    .arg(&start_str)
+                    .arg("-i")
+                    .arg(&source_str)
+                    .arg("-t")
+                    .arg(format!("{:.3}", source_dur))
                     .arg("-vn")
-                    .arg("-acodec").arg("aac")
+                    .arg("-acodec")
+                    .arg("aac")
                     .arg("-y")
                     .output(&segment_path_str);
 
-                let mut child = cmd.spawn()
+                let mut child = cmd
+                    .spawn()
                     .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
-                let iter = child.iter()
+                let iter = child
+                    .iter()
                     .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
                 for event in iter {
                     if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
                         tracing::warn!("orig_audio extract segment (non-fatal): {}", e);
                     }
                 }
-                let status = child.wait()
+                let status = child
+                    .wait()
                     .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
                 if !status.success() {
                     return Err(PipelineError::FFmpeg {
-                        source: crate::error::FFmpegError::ExecutionError(
-                            format!("原始音频提取失败，片段 {}", clip._id),
-                        ),
+                        source: crate::error::FFmpegError::ExecutionError(format!(
+                            "原始音频提取失败，片段 {}",
+                            clip._id
+                        )),
                     });
                 }
             }
@@ -779,23 +797,30 @@ fn extract_original_audio_track(
     let concat_path_str = concat_list_path.to_string_lossy().to_string();
 
     let mut cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
-    cmd.arg("-f").arg("concat")
-        .arg("-safe").arg("0")
-        .arg("-i").arg(&concat_path_str)
-        .arg("-c").arg("copy")
+    cmd.arg("-f")
+        .arg("concat")
+        .arg("-safe")
+        .arg("0")
+        .arg("-i")
+        .arg(&concat_path_str)
+        .arg("-c")
+        .arg("copy")
         .arg("-y")
         .output(&output_path_str);
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
-    let iter = child.iter()
+    let iter = child
+        .iter()
         .map_err(|e| crate::error::FFmpegError::SpawnFailed(e.to_string()))?;
     for event in iter {
         if let ffmpeg_sidecar::event::FfmpegEvent::Error(e) = event {
             tracing::warn!("orig_audio concat (non-fatal): {}", e);
         }
     }
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| crate::error::FFmpegError::ExecutionError(e.to_string()))?;
     if !status.success() {
         return Err(PipelineError::FFmpeg {
@@ -836,12 +861,7 @@ fn detect_and_abort_overlaps(script: &[ScriptClip]) -> Result<(), SdeError> {
             return Err(SdeError::Validation {
                 details: format!(
                     "片段 {} 和 {} 时间戳重叠: {} 结束于 {:.3}s, {} 开始于 {:.3}s",
-                    current._id,
-                    next._id,
-                    current.timestamp,
-                    cur_end,
-                    next.timestamp,
-                    next_start
+                    current._id, next._id, current.timestamp, cur_end, next.timestamp, next_start
                 ),
             });
         }
@@ -895,13 +915,12 @@ pub async fn analyze_subtitle_plot(
     tokio::fs::create_dir_all(&task_dir).await?;
 
     let subtitle_path_clone = subtitle_path.to_path_buf();
-    let (segments, text, _encoding) = tokio::task::spawn_blocking(move || {
-        parse_subtitle_file(&subtitle_path_clone)
-    })
-    .await
-    .map_err(|e| SdeError::Io {
-        source: std::io::Error::new(std::io::ErrorKind::Other, e),
-    })??;
+    let (segments, text, _encoding) =
+        tokio::task::spawn_blocking(move || parse_subtitle_file(&subtitle_path_clone))
+            .await
+            .map_err(|e| SdeError::Io {
+                source: std::io::Error::new(std::io::ErrorKind::Other, e),
+            })??;
 
     let mut state = SdePipelineState::new(task_id, task_dir);
     state.subtitle_text = text;
@@ -993,7 +1012,11 @@ mod tests {
 
     #[test]
     fn test_detect_overlaps_single_clip() {
-        let clips = vec![make_clip(1, "00:00:00,000-00:00:05,000", OstType::NarrationOnly)];
+        let clips = vec![make_clip(
+            1,
+            "00:00:00,000-00:00:05,000",
+            OstType::NarrationOnly,
+        )];
         assert!(detect_and_abort_overlaps(&clips).is_ok());
     }
 

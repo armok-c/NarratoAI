@@ -2,12 +2,12 @@ pub mod defaults;
 pub mod types;
 pub mod watcher;
 
+use crate::config::types::AppConfig;
+use crate::config::watcher::ConfigWatcher;
+use crate::error::ConfigError;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
-use crate::config::types::AppConfig;
-use crate::error::ConfigError;
-use crate::config::watcher::ConfigWatcher;
 
 /// 配置管理器——持有当前配置并提供热加载能力
 pub struct ConfigManager {
@@ -25,11 +25,11 @@ impl ConfigManager {
             });
         }
 
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::IoError(e.to_string()))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
 
-        let config: AppConfig = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        let config: AppConfig =
+            toml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
@@ -58,7 +58,10 @@ impl ConfigManager {
 
     /// 获取配置快照（读锁）
     pub fn get(&self) -> AppConfig {
-        self.config.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.config
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// 返回 Arc clone 供其他模块使用
@@ -107,8 +110,7 @@ vision_llm_provider = "openai"
         let dir = TempDir::new().expect("创建临时目录失败");
         let path = dir.path().join("config.toml");
         std::fs::write(&path, toml_content).expect("写入临时文件失败");
-        let config_manager = ConfigManager::load(&path)
-            .expect("有效 TOML 文件应加载成功");
+        let config_manager = ConfigManager::load(&path).expect("有效 TOML 文件应加载成功");
         let config = config_manager.get();
         assert_eq!(config.app.project_version, "0.7.8");
         assert_eq!(config.app.vision_llm_provider, "openai");

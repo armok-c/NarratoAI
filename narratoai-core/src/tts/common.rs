@@ -14,10 +14,31 @@ impl ProxyConfig {
     /// 从可选的 ProxySection 引用创建 ProxyConfig
     pub fn from_proxy(proxy: Option<&crate::config::types::ProxySection>) -> Self {
         match proxy {
-            Some(p) => Self {
+            Some(p) if !p.http.trim().is_empty() || !p.https.trim().is_empty() => Self {
                 http: p.http.clone(),
                 https: p.https.clone(),
                 enabled: p.enabled,
+            },
+            _ => Self::from_env(),
+        }
+    }
+
+    /// 从 HTTPS_PROXY / HTTP_PROXY / ALL_PROXY 环境变量自动检测代理配置
+    pub fn from_env() -> Self {
+        let proxy = env_any(&[
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ]);
+
+        match proxy {
+            Some(value) => Self {
+                http: value.clone(),
+                https: value,
+                enabled: true,
             },
             None => Self {
                 http: String::new(),
@@ -47,6 +68,12 @@ impl ProxyConfig {
     }
 }
 
+fn env_any(keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| std::env::var(key).ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
 /// 构建 reqwest HTTP 客户端
 ///
 /// 使用 ProxyConfig 配置代理，不设置全局超时（各引擎在具体请求上设置 timeout）
@@ -54,9 +81,7 @@ pub fn build_client(proxy_config: &ProxyConfig) -> Result<reqwest::Client, TTSEr
     let builder = reqwest::Client::builder();
     let builder = proxy_config.apply_to_client(builder);
     builder.build().map_err(|e| {
-        TTSError::ConnectionFailed(format!(
-            "构建 HTTP 客户端失败（代理配置可能已丢失）: {}", e
-        ))
+        TTSError::ConnectionFailed(format!("构建 HTTP 客户端失败（代理配置可能已丢失）: {}", e))
     })
 }
 
@@ -109,18 +134,18 @@ pub async fn write_audio_bytes(path: &Path, data: &[u8]) -> Result<(), TTSError>
 /// 防止双引号或 XML 特殊字符破坏 SSML 结构。
 pub fn escape_xml_attr(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&apos;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// XML 文本内容转义（仅需转义 &, <, >）。
 /// 与 escape_xml_attr 不同，文本节点不需要转义 " 和 '。
 pub fn escape_xml_text(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// 解析 TTS 引擎语音名前缀
@@ -146,7 +171,53 @@ pub fn parse_engine_prefix<'a>(voice_name: &'a str, prefixes: &[&str]) -> &'a st
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::TempDir;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    const PROXY_ENV_KEYS: [&str; 6] = [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ];
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvGuard {
+        fn new(vars: &[(&'static str, &str)]) -> Self {
+            let saved = PROXY_ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+
+            for key in PROXY_ENV_KEYS {
+                std::env::remove_var(key);
+            }
+            for (key, value) in vars {
+                std::env::set_var(key, value);
+            }
+
+            Self { saved }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for key in PROXY_ENV_KEYS {
+                std::env::remove_var(key);
+            }
+            for (key, value) in &self.saved {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_parse_engine_prefix_matches_soulvoice() {
@@ -168,6 +239,9 @@ mod tests {
 
     #[test]
     fn test_proxy_config_from_none() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::new(&[]);
+
         let cfg = ProxyConfig::from_proxy(None);
         assert!(!cfg.enabled);
         assert!(cfg.http.is_empty());
@@ -176,6 +250,9 @@ mod tests {
 
     #[test]
     fn test_proxy_config_from_some() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::new(&[("HTTPS_PROXY", "http://env.example:7890")]);
+
         let section = crate::config::types::ProxySection {
             http: "http://127.0.0.1:7890".to_string(),
             https: "http://127.0.0.1:7890".to_string(),
@@ -185,6 +262,28 @@ mod tests {
         assert!(cfg.enabled);
         assert_eq!(cfg.http, "http://127.0.0.1:7890");
         assert_eq!(cfg.https, "http://127.0.0.1:7890");
+    }
+
+    #[test]
+    fn test_from_env_with_https_proxy() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::new(&[("HTTPS_PROXY", "http://127.0.0.1:7890")]);
+
+        let cfg = ProxyConfig::from_env();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.http, "http://127.0.0.1:7890");
+        assert_eq!(cfg.https, "http://127.0.0.1:7890");
+    }
+
+    #[test]
+    fn test_from_env_no_env_vars() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::new(&[]);
+
+        let cfg = ProxyConfig::from_env();
+        assert!(!cfg.enabled);
+        assert!(cfg.http.is_empty());
+        assert!(cfg.https.is_empty());
     }
 
     #[test]

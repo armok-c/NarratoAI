@@ -30,7 +30,11 @@ pub fn trange(start: &str, duration: &str) -> Option<Timerange> {
 ///
 /// 如果任一参数为负数、零（duration）、NaN 或 Inf，返回 None。
 pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange> {
-    if !start_secs.is_finite() || start_secs < 0.0 || !duration_secs.is_finite() || duration_secs <= 0.0 {
+    if !start_secs.is_finite()
+        || start_secs < 0.0
+        || !duration_secs.is_finite()
+        || duration_secs <= 0.0
+    {
         return None;
     }
     let start_us = (start_secs * SEC as f64).round() as i64;
@@ -38,7 +42,10 @@ pub fn trange_from_secs(start_secs: f64, duration_secs: f64) -> Option<Timerange
     if start_us < 0 || duration_us <= 0 {
         return None;
     }
-    Some(Timerange { start: start_us, duration: duration_us })
+    Some(Timerange {
+        start: start_us,
+        duration: duration_us,
+    })
 }
 
 /// 解析时间字符串为微秒——支持 "1.5s" 和纯数字

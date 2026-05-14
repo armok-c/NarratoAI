@@ -1,10 +1,12 @@
+use crate::config::types::AppConfig;
+use crate::error::ConfigError;
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, Config as NotifyConfig};
-use crate::config::types::AppConfig;
-use crate::error::ConfigError;
 
 /// ConfigWatcher 监听配置文件变更并自动重加载
 pub struct ConfigWatcher {
@@ -31,12 +33,16 @@ impl ConfigWatcher {
                     if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                         // 按文件名过滤：父目录监听可能收到不相关的事件
                         let is_target = file_name.as_ref().map_or(true, |name| {
-                            event.paths.iter().any(|p| p.file_name() == Some(name.as_os_str()))
+                            event
+                                .paths
+                                .iter()
+                                .any(|p| p.file_name() == Some(name.as_os_str()))
                         });
                         if is_target {
                             match Self::reload_file(&watched_path) {
                                 Ok(new_config) => {
-                                    let mut guard = config.write().unwrap_or_else(|e| e.into_inner());
+                                    let mut guard =
+                                        config.write().unwrap_or_else(|e| e.into_inner());
                                     *guard = new_config;
                                     tracing::info!("配置文件已热加载更新");
                                 }
@@ -67,9 +73,8 @@ impl ConfigWatcher {
     /// 在监听线程中重加载配置
     /// 注意（Pitfall 5 防护）：在写锁外解析新配置，获取写锁后仅做指针替换
     fn reload_file(path: &Path) -> Result<AppConfig, ConfigError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::IoError(e.to_string()))?;
-        toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ConfigError::IoError(e.to_string()))?;
+        toml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))
     }
 }

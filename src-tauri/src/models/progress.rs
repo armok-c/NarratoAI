@@ -9,14 +9,14 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../src/types/generated/")]
 pub struct ProgressPayload {
-    pub pipeline_type: String,     // "documentary" | "sde" | "sdp"
-    pub task_id: String,           // UUID v4
+    pub pipeline_type: String, // "documentary" | "sde" | "sdp"
+    pub task_id: String,       // UUID v4
     pub step_name: String,
     pub percent: f32,
     pub message: String,
     pub step_index: u32,
     pub total_steps: u32,
-    pub status: String,            // "running" | "success" | "error"
+    pub status: String, // "running" | "success" | "error"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

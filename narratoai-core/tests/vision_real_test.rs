@@ -43,8 +43,7 @@ fn get_config_path() -> std::path::PathBuf {
 fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .try_init();
 }
@@ -55,8 +54,14 @@ fn create_vision_provider() -> OpenAiCompatibleProvider {
     let config_manager = ConfigManager::load(&config_path).expect("配置文件加载失败");
     let config = config_manager.get();
 
-    assert!(!config.app.vision_openai_api_key.is_empty(), "config.toml 中 vision_openai_api_key 为空");
-    assert!(!config.app.vision_openai_model_name.is_empty(), "config.toml 中 vision_openai_model_name 为空");
+    assert!(
+        !config.app.vision_openai_api_key.is_empty(),
+        "config.toml 中 vision_openai_api_key 为空"
+    );
+    assert!(
+        !config.app.vision_openai_model_name.is_empty(),
+        "config.toml 中 vision_openai_model_name 为空"
+    );
 
     let proxy_http = if config.proxy.enabled && !config.proxy.http.is_empty() {
         Some(config.proxy.http.clone())
@@ -114,19 +119,23 @@ async fn test_frame_extraction() {
     cleanup_frame_dir(output_dir);
 
     // 先探测视频时长，设置间隔提取约 3 帧
-    let info = narratoai_core::ffmpeg::probe::probe_video(Path::new(VIDEO_PATH))
-        .expect("视频探测应成功");
+    let info =
+        narratoai_core::ffmpeg::probe::probe_video(Path::new(VIDEO_PATH)).expect("视频探测应成功");
     let interval = info.duration_secs / 4.0; // 提取约 3 帧
-    tracing::info!("视频时长: {:.1}s, 帧提取间隔: {:.1}s", info.duration_secs, interval);
+    tracing::info!(
+        "视频时长: {:.1}s, 帧提取间隔: {:.1}s",
+        info.duration_secs,
+        interval
+    );
 
     let start = Instant::now();
     let result = extract_frames(
         Path::new(VIDEO_PATH),
         output_dir,
         interval,
-        Some(15),  // quality=15 平衡大小和质量
-        None,       // no progress callback
-        None,       // no cancel token
+        Some(15), // quality=15 平衡大小和质量
+        None,     // no progress callback
+        None,     // no cancel token
     )
     .await;
 
@@ -173,15 +182,16 @@ async fn test_vision_analysis() {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| {
-            p.extension().map(|ext| ext == "jpg" || ext == "png").unwrap_or(false)
+            p.extension()
+                .map(|ext| ext == "jpg" || ext == "png")
+                .unwrap_or(false)
         })
         .collect();
     existing_frames.sort();
 
     if existing_frames.len() < 2 {
-        let info = narratoai_core::ffmpeg::probe::probe_video(
-            Path::new(VIDEO_PATH)
-        ).expect("视频探测应成功");
+        let info = narratoai_core::ffmpeg::probe::probe_video(Path::new(VIDEO_PATH))
+            .expect("视频探测应成功");
         let interval = info.duration_secs / 3.0; // 提取约 2 帧
         let result = extract_frames(
             Path::new(VIDEO_PATH),
@@ -197,7 +207,11 @@ async fn test_vision_analysis() {
         existing_frames.sort();
     }
 
-    assert!(existing_frames.len() >= 2, "需要至少 2 帧进行视觉分析，实际: {}", existing_frames.len());
+    assert!(
+        existing_frames.len() >= 2,
+        "需要至少 2 帧进行视觉分析，实际: {}",
+        existing_frames.len()
+    );
 
     // 仅取前 2 帧
     let test_frames: Vec<PathBuf> = existing_frames.into_iter().take(2).collect();
@@ -213,12 +227,12 @@ async fn test_vision_analysis() {
             &test_frames,
             prompt,
             Some(system_prompt),
-            Some(2),       // batch_size
-            Some(1),       // max_concurrency
-            None,          // response_format
-            Some(0.1),     // temperature
-            Some(100),     // max_tokens
-            None,          // cancel
+            Some(2),   // batch_size
+            Some(1),   // max_concurrency
+            None,      // response_format
+            Some(0.1), // temperature
+            Some(100), // max_tokens
+            None,      // cancel
         )
         .await;
 

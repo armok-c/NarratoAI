@@ -14,16 +14,16 @@ use crate::config::types::AudioSection;
 ///
 /// * `input` — 合并后的音频文件路径（如 merger_audio.mp3）
 /// * `config` — AudioSection 配置（target_lufs, sample_rate, channels 等）
-pub fn normalize_merged_audio(
-    input: &Path,
-    config: &AudioSection,
-) -> Result<PathBuf, AudioError> {
+pub fn normalize_merged_audio(input: &Path, config: &AudioSection) -> Result<PathBuf, AudioError> {
     if !config.enable_audio_normalization {
         tracing::info!("音频标准化已关闭，跳过");
         return Ok(input.to_path_buf());
     }
 
-    let output_dir = input.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let output_dir = input
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let temp = normalize_audio_for_mixing(
         input,
         output_dir,
@@ -89,10 +89,7 @@ pub fn resolve_volumes(
 mod tests {
     use super::*;
 
-    fn make_audio_section(
-        enable_normalization: bool,
-        enable_smart_volume: bool,
-    ) -> AudioSection {
+    fn make_audio_section(enable_normalization: bool, enable_smart_volume: bool) -> AudioSection {
         AudioSection {
             enable_audio_normalization: enable_normalization,
             enable_smart_volume,
@@ -137,9 +134,18 @@ mod tests {
         };
         let result = resolve_volumes(&req, "documentary", &config);
         // get_optimized_volumes("documentary") D-09: tts=1.0, original=0.5, bgm=0.2
-        assert!((result.tts_volume - 1.0).abs() < 0.01, "documentary 默认 tts 应为 1.0");
-        assert!((result.original_volume - 0.5).abs() < 0.01, "documentary original 应为 0.5");
-        assert!((result.bgm_volume - 0.2).abs() < 0.01, "documentary bgm 应为 0.2");
+        assert!(
+            (result.tts_volume - 1.0).abs() < 0.01,
+            "documentary 默认 tts 应为 1.0"
+        );
+        assert!(
+            (result.original_volume - 0.5).abs() < 0.01,
+            "documentary original 应为 0.5"
+        );
+        assert!(
+            (result.bgm_volume - 0.2).abs() < 0.01,
+            "documentary bgm 应为 0.2"
+        );
     }
 
     #[test]

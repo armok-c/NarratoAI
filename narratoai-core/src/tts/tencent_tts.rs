@@ -1,7 +1,7 @@
-use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
 use crate::config::types::TencentSection;
+use crate::error::TTSError;
 use crate::tts::common;
+use crate::tts::{TtsOutput, TtsProvider, WordBoundary};
 use async_trait::async_trait;
 use base64::Engine;
 use hmac::KeyInit;
@@ -30,15 +30,31 @@ pub(super) struct TencentTtsEngine {
 }
 
 impl TencentTtsEngine {
-    pub(super) fn new(config: TencentSection, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+    pub(super) fn new(
+        config: TencentSection,
+        proxy_config: &common::ProxyConfig,
+    ) -> Result<Self, TTSError> {
         let client = common::build_client(proxy_config)?;
-        Ok(Self { client, config, endpoint_override: None })
+        Ok(Self {
+            client,
+            config,
+            endpoint_override: None,
+        })
     }
 
     /// 实际执行一次 TTS 合成的内部方法
-    async fn synthesize_at_url(&self, text: &str, voice_name: &str, output_path: &Path, api_url: &str, rate: f64) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_at_url(
+        &self,
+        text: &str,
+        voice_name: &str,
+        output_path: &Path,
+        api_url: &str,
+        rate: f64,
+    ) -> Result<TtsOutput, TTSError> {
         if self.config.secret_id.is_empty() || self.config.secret_key.is_empty() {
-            return Err(TTSError::AuthenticationFailed("腾讯云 secret_id/secret_key 未配置".to_string()));
+            return Err(TTSError::AuthenticationFailed(
+                "腾讯云 secret_id/secret_key 未配置".to_string(),
+            ));
         }
 
         // 解析 voice_name: 去除 "tencent:" 前缀 = voice_type 数字
@@ -46,12 +62,14 @@ impl TencentTtsEngine {
         let voice_type_str = common::parse_engine_prefix(voice_name, &["tencent:"]);
         let voice_type: i64 = voice_type_str.parse().map_err(|_| {
             TTSError::SynthesisFailed(format!(
-                "腾讯云 voice_type 必须是正整数, 收到: '{}'", voice_type_str
+                "腾讯云 voice_type 必须是正整数, 收到: '{}'",
+                voice_type_str
             ))
         })?;
         if voice_type <= 0 {
             return Err(TTSError::SynthesisFailed(format!(
-                "腾讯云 voice_type 必须是正整数, 收到: '{}'", voice_type_str
+                "腾讯云 voice_type 必须是正整数, 收到: '{}'",
+                voice_type_str
             )));
         }
 
@@ -106,7 +124,8 @@ impl TencentTtsEngine {
         let canonical_query_string = "";
         let payload_hash = hex::encode(sha2::Sha256::digest(&request_body_bytes));
         let canonical_headers = format!(
-            "content-type:application/json; charset=utf-8\nhost:{}\n", host
+            "content-type:application/json; charset=utf-8\nhost:{}\n",
+            host
         );
         let signed_headers = "content-type;host";
         let canonical_request = format!(
@@ -122,13 +141,11 @@ impl TencentTtsEngine {
         // Step 2: 构建 StringToSign
         let algorithm = "TC3-HMAC-SHA256";
         let credential_scope = format!("{}/tts/tc3_request", date);
-        let hashed_canonical_request = hex::encode(sha2::Sha256::digest(canonical_request.as_bytes()));
+        let hashed_canonical_request =
+            hex::encode(sha2::Sha256::digest(canonical_request.as_bytes()));
         let string_to_sign = format!(
             "{}\n{}\n{}\n{}",
-            algorithm,
-            timestamp,
-            credential_scope,
-            hashed_canonical_request,
+            algorithm, timestamp, credential_scope, hashed_canonical_request,
         );
 
         // Step 3: 派生签名密钥
@@ -158,14 +175,12 @@ impl TencentTtsEngine {
         // Step 5: 构建 Authorization header
         let authorization = format!(
             "TC3-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
-            self.config.secret_id,
-            credential_scope,
-            signed_headers,
-            signature,
+            self.config.secret_id, credential_scope, signed_headers, signature,
         );
 
         // ===== 发送请求 =====
-        let response = self.client
+        let response = self
+            .client
             .post(api_url)
             .header("Authorization", &authorization)
             .header("Content-Type", "application/json; charset=utf-8")
@@ -184,12 +199,16 @@ impl TencentTtsEngine {
         if !status.is_success() {
             let body_text = response.text().await.unwrap_or_default();
             return Err(TTSError::SynthesisFailed(format!(
-                "Tencent API 返回 {}: {}", status.as_u16(), body_text
+                "Tencent API 返回 {}: {}",
+                status.as_u16(),
+                body_text
             )));
         }
 
         // ===== 解析响应 =====
-        let result: serde_json::Value = response.json().await
+        let result: serde_json::Value = response
+            .json()
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("Tencent 响应 JSON 解析失败: {}", e)))?;
 
         // 提取 Audio (base64) 和 Subtitles
@@ -198,10 +217,14 @@ impl TencentTtsEngine {
 
         // 检查错误
         if let Some(err_msg) = resp["Error"]["Message"].as_str() {
-            return Err(TTSError::SynthesisFailed(format!("腾讯云 API 错误: {}", err_msg)));
+            return Err(TTSError::SynthesisFailed(format!(
+                "腾讯云 API 错误: {}",
+                err_msg
+            )));
         }
 
-        let audio_base64 = resp["Audio"].as_str()
+        let audio_base64 = resp["Audio"]
+            .as_str()
             .ok_or_else(|| TTSError::SynthesisFailed("Tencent 响应中无 Audio 字段".to_string()))?;
 
         let audio_bytes = base64::engine::general_purpose::STANDARD
@@ -215,18 +238,32 @@ impl TencentTtsEngine {
         if let Some(subtitles) = resp["Subtitles"].as_array() {
             for sub in subtitles {
                 if let (Some(start_ms), Some(end_ms), Some(text_val)) = (
-                    sub["BeginTime"].as_i64().or_else(|| sub["BeginTime"].as_f64().map(|f| f as i64)),
-                    sub["EndTime"].as_i64().or_else(|| sub["EndTime"].as_f64().map(|f| f as i64)),
+                    sub["BeginTime"]
+                        .as_i64()
+                        .or_else(|| sub["BeginTime"].as_f64().map(|f| f as i64)),
+                    sub["EndTime"]
+                        .as_i64()
+                        .or_else(|| sub["EndTime"].as_f64().map(|f| f as i64)),
                     sub["Text"].as_str(),
                 ) {
                     if start_ms < 0 || end_ms < 0 {
                         tracing::warn!(
                             "Tencent subtitle has negative timestamp: start={}, end={}, text={}",
-                            start_ms, end_ms, text_val
+                            start_ms,
+                            end_ms,
+                            text_val
                         );
                     }
-                    let start_offset = if start_ms >= 0 { (start_ms as u64) * 10000 } else { 0 };
-                    let end_offset = if end_ms >= 0 { (end_ms as u64) * 10000 } else { 0 };
+                    let start_offset = if start_ms >= 0 {
+                        (start_ms as u64) * 10000
+                    } else {
+                        0
+                    };
+                    let end_offset = if end_ms >= 0 {
+                        (end_ms as u64) * 10000
+                    } else {
+                        0
+                    };
                     word_boundaries.push(WordBoundary {
                         start_offset,
                         end_offset,
@@ -246,12 +283,20 @@ impl TencentTtsEngine {
     }
 
     /// 使用生产 API URL 执行一次 TTS 合成
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path, rate: f64) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(
+        &self,
+        text: &str,
+        voice_name: &str,
+        output_path: &Path,
+        rate: f64,
+    ) -> Result<TtsOutput, TTSError> {
         if let Some(ref override_url) = self.endpoint_override {
-            self.synthesize_at_url(text, voice_name, output_path, override_url, rate).await
+            self.synthesize_at_url(text, voice_name, output_path, override_url, rate)
+                .await
         } else {
             const PRODUCTION_URL: &str = "https://tts.tencentcloudapi.com";
-            self.synthesize_at_url(text, voice_name, output_path, PRODUCTION_URL, rate).await
+            self.synthesize_at_url(text, voice_name, output_path, PRODUCTION_URL, rate)
+                .await
         }
     }
 }
@@ -272,7 +317,8 @@ impl TtsProvider for TencentTtsEngine {
         if voice_name.trim().is_empty() {
             return Err(TTSError::SynthesisFailed("voice_name 不能为空".to_string()));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
+        let result =
+            common::retry_loop(|| self.synthesize_once(text, voice_name, output_path, rate)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
@@ -283,9 +329,9 @@ impl TtsProvider for TencentTtsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
     use wiremock::matchers::method;
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use tempfile::TempDir;
 
     #[test]
     fn test_tencent_engine_new() {
@@ -331,7 +377,9 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("你好世界", "tencent:101001", &output_path, 1.0).await;
+        let result = engine
+            .synthesize_once("你好世界", "tencent:101001", &output_path, 1.0)
+            .await;
         assert!(result.is_ok(), "Tencent 成功: {:?}", result.err());
         let output = result.unwrap();
         assert!(output.audio_file_path.exists());
@@ -355,10 +403,14 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize("", "tencent:101001", 1.0, 0.0, &output_path).await;
+        let result = engine
+            .synthesize("", "tencent:101001", 1.0, 0.0, &output_path)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            TTSError::SynthesisFailed(msg) => assert!(msg.contains("不能为空"), "错误消息: {}", msg),
+            TTSError::SynthesisFailed(msg) => {
+                assert!(msg.contains("不能为空"), "错误消息: {}", msg)
+            }
             _ => panic!("应为 SynthesisFailed"),
         }
     }
@@ -388,10 +440,14 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test", "tencent:101001", &output_path, 1.0).await;
+        let result = engine
+            .synthesize_once("test", "tencent:101001", &output_path, 1.0)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            TTSError::SynthesisFailed(msg) => assert!(msg.contains("InvalidParameter"), "错误消息: {}", msg),
+            TTSError::SynthesisFailed(msg) => {
+                assert!(msg.contains("InvalidParameter"), "错误消息: {}", msg)
+            }
             _ => panic!("应为 SynthesisFailed"),
         }
     }
@@ -421,10 +477,14 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize_once("test", "tencent:101001", &output_path, 1.0).await;
+        let result = engine
+            .synthesize_once("test", "tencent:101001", &output_path, 1.0)
+            .await;
         let err = result.unwrap_err();
         match err {
-            TTSError::SynthesisFailed(ref msg) => assert!(msg.contains("Audio"), "错误消息: {}", msg),
+            TTSError::SynthesisFailed(ref msg) => {
+                assert!(msg.contains("Audio"), "错误消息: {}", msg)
+            }
             _ => panic!("应为 SynthesisFailed, got: {:?}", err),
         }
     }
@@ -442,13 +502,11 @@ mod tests {
         let secret_key = "TC3test-secret-key";
         let date = "2026-04-30";
 
-        let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes())
-            .expect("HMAC 初始化应成功");
+        let mut mac = HmacSha256::new_from_slice(secret_key.as_bytes()).expect("HMAC 初始化应成功");
         mac.update(date.as_bytes());
         let secret_date = mac.finalize().into_bytes();
 
-        let mut mac = HmacSha256::new_from_slice(&secret_date)
-            .expect("HMAC 初始化应成功");
+        let mut mac = HmacSha256::new_from_slice(&secret_date).expect("HMAC 初始化应成功");
         mac.update(b"tts");
         let _secret_service = mac.finalize().into_bytes();
 

@@ -2,8 +2,8 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use base64::Engine;
-use image::GenericImageView;  // required for .dimensions()
 use image::imageops::FilterType::Lanczos3;
+use image::GenericImageView; // required for .dimensions()
 
 use crate::error::LLMError;
 
@@ -15,9 +15,10 @@ pub fn image_to_base64_data_url(path: &Path) -> Result<String, LLMError> {
     const MAX_IMAGE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB 限制
 
     // 先打开文件，再通过已打开的文件句柄读取元数据，消除 metadata/open 之间的 TOCTOU 窗口
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| LLMError::General(format!("文件打开失败: {}", e)))?;
-    let metadata = file.metadata()
+    let mut file =
+        std::fs::File::open(path).map_err(|e| LLMError::General(format!("文件打开失败: {}", e)))?;
+    let metadata = file
+        .metadata()
         .map_err(|e| LLMError::General(format!("无法读取文件元数据: {}", e)))?;
     if metadata.len() > MAX_IMAGE_SIZE {
         return Err(LLMError::General(format!(

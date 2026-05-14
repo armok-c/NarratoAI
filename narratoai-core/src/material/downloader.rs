@@ -8,13 +8,12 @@ use std::sync::atomic::AtomicUsize;
 
 use uuid::Uuid;
 
-use md5::{Md5, Digest};
+use md5::{Digest, Md5};
 
 use crate::config::types::ProxySection;
 use crate::ffmpeg::probe::probe_audio;
 use crate::material::searcher::{
-    MaterialError, MaterialInfo, search_videos_pexels, search_videos_pixabay,
-    build_client,
+    build_client, search_videos_pexels, search_videos_pixabay, MaterialError, MaterialInfo,
 };
 
 // ---------------------------------------------------------------------------
@@ -49,8 +48,7 @@ pub fn save_video(
     proxy_section: &ProxySection,
 ) -> Result<PathBuf, MaterialError> {
     // 1. 创建保存目录
-    std::fs::create_dir_all(save_dir)
-        .map_err(|e| MaterialError::IoError(e.to_string()))?;
+    std::fs::create_dir_all(save_dir).map_err(|e| MaterialError::IoError(e.to_string()))?;
 
     // 2. 计算缓存 key
     let cache_key = compute_cache_key(video_url);
@@ -58,9 +56,7 @@ pub fn save_video(
 
     // 3. 缓存命中检查
     if video_path.exists() {
-        let file_size = std::fs::metadata(&video_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let file_size = std::fs::metadata(&video_path).map(|m| m.len()).unwrap_or(0);
         if file_size > 0 {
             tracing::info!("素材缓存命中: {}", video_path.display());
             return Ok(video_path);
@@ -85,24 +81,21 @@ pub fn save_video(
 
     // 5. 流式写入临时文件（唯一后缀防止并发冲突）
     let temp_path = save_dir.join(format!("{}.{}.tmp", cache_key, Uuid::new_v4()));
-    let mut file = std::fs::File::create(&temp_path)
-        .map_err(|e| MaterialError::IoError(e.to_string()))?;
+    let mut file =
+        std::fs::File::create(&temp_path).map_err(|e| MaterialError::IoError(e.to_string()))?;
     std::io::copy(&mut response, &mut file)
         .map_err(|e| MaterialError::DownloadFailed(format!("流式写入失败: {}", e)))?;
     drop(file);
 
     // 6. 原子重命名
-    std::fs::rename(&temp_path, &video_path)
-        .map_err(|e| MaterialError::IoError(e.to_string()))?;
+    std::fs::rename(&temp_path, &video_path).map_err(|e| MaterialError::IoError(e.to_string()))?;
 
     // 7. ffprobe 验证
     match probe_audio(&video_path) {
         Ok(duration) => {
             if duration <= 0.0 {
                 let _ = std::fs::remove_file(&video_path);
-                return Err(MaterialError::ValidationFailed(
-                    "下载的视频时长为 0".into(),
-                ));
+                return Err(MaterialError::ValidationFailed("下载的视频时长为 0".into()));
             }
         }
         Err(e) => {
@@ -144,9 +137,7 @@ pub fn download_videos(
 ) -> Result<Vec<PathBuf>, MaterialError> {
     // 路径遍历校验（防止 task_id 包含 ../ 导致写入预期目录之外）
     if task_id.contains('/') || task_id.contains('\\') || task_id.contains("..") {
-        return Err(MaterialError::IoError(
-            "task_id 包含非法路径字符".into(),
-        ));
+        return Err(MaterialError::IoError("task_id 包含非法路径字符".into()));
     }
 
     // 使用固定相对路径（与 Python 版行为一致）。库模式调用者应确保 CWD 正确。
@@ -154,8 +145,7 @@ pub fn download_videos(
 
     // 1. 收集所有搜索结果
     let mut all_items: Vec<MaterialInfo> = Vec::new();
-    let mut seen_urls: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for term in search_terms {
         let items = match source {
@@ -177,12 +167,7 @@ pub fn download_videos(
                 key_counter_pixabay,
                 proxy_section,
             )?,
-            _ => {
-                return Err(MaterialError::ApiRequest(format!(
-                    "未知素材源: {}",
-                    source
-                )))
-            }
+            _ => return Err(MaterialError::ApiRequest(format!("未知素材源: {}", source))),
         };
 
         for item in items {
@@ -230,11 +215,7 @@ mod tests {
     fn test_compute_cache_key() {
         // MD5("https://example.com/video.mp4") = 已知值
         let key = compute_cache_key("https://example.com/video.mp4");
-        assert!(
-            key.starts_with("vid-"),
-            "缓存 key 应以 vid- 开头: {}",
-            key
-        );
+        assert!(key.starts_with("vid-"), "缓存 key 应以 vid- 开头: {}", key);
         assert_eq!(key.len(), 36, "vid- + 32 hex chars = 36: {}", key);
     }
 

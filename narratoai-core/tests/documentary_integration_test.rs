@@ -3,9 +3,7 @@ mod common;
 use narratoai_core::documentary::subtitle::{
     generate_srt_from_word_boundaries, merge_srt_files, SubtitleSegment,
 };
-use narratoai_core::documentary::timestamp::{
-    parse_time_to_secs, parse_timestamp_range,
-};
+use narratoai_core::documentary::timestamp::{parse_time_to_secs, parse_timestamp_range};
 use narratoai_core::documentary::{DocumentaryRequest, PipelineError};
 
 use narratoai_core::tts::WordBoundary;
@@ -113,8 +111,8 @@ fn test_subtitle_merge_with_offsets() {
 
 #[test]
 fn test_progress_callback_receives_all_steps() {
-    use std::sync::{Arc, Mutex};
     use narratoai_core::documentary::ProgressCallback;
+    use std::sync::{Arc, Mutex};
 
     let records: Arc<Mutex<Vec<(String, f32, String)>>> = Arc::new(Mutex::new(Vec::new()));
     let records_clone = records.clone();

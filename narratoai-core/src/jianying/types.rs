@@ -312,10 +312,19 @@ mod tests {
         assert!(json.contains("enable_adjust"), "应包含 enable_adjust");
         assert!(json.contains("visible"), "应包含 visible");
         assert!(json.contains("\"id\":\"seg-id\""), "应包含 id");
-        assert!(json.contains("\"material_id\":\"mat-id\""), "应包含 material_id");
-        assert!(json.contains("\"target_timerange\""), "应包含 target_timerange");
+        assert!(
+            json.contains("\"material_id\":\"mat-id\""),
+            "应包含 material_id"
+        );
+        assert!(
+            json.contains("\"target_timerange\""),
+            "应包含 target_timerange"
+        );
         // 验证 MediaSegment 字段
-        assert!(json.contains("\"source_timerange\":null"), "应包含 source_timerange: null");
+        assert!(
+            json.contains("\"source_timerange\":null"),
+            "应包含 source_timerange: null"
+        );
         assert!(json.contains("\"speed\":1.0"), "应包含 speed: 1.0");
         assert!(json.contains("\"volume\":1.0"), "应包含 volume: 1.0");
     }
@@ -447,7 +456,10 @@ mod tests {
             type_field: "speed".to_string(),
         };
         let json = serde_json::to_string(&speed).expect("应序列化成功");
-        assert!(json.contains("\"curve_speed\":null"), "curve_speed 应为 null");
+        assert!(
+            json.contains("\"curve_speed\":null"),
+            "curve_speed 应为 null"
+        );
         assert!(json.contains("\"id\":\"speed-uuid-abc\""), "应包含 id");
         assert!(json.contains("\"mode\":0"), "应包含 mode: 0");
         assert!(json.contains("\"speed\":1.0"), "应包含 speed: 1.0");

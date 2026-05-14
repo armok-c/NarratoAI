@@ -1,20 +1,20 @@
+pub mod audio;
 pub mod config;
+pub mod documentary;
 pub mod error;
-pub mod text_utils;
-pub mod tts;
-pub mod llm;
 pub mod ffmpeg;
 pub mod jianying;
-pub mod script;
-pub mod prompt;
-pub mod visual;
-pub mod audio;
-pub mod youtube;
+pub mod llm;
 pub mod material;
-pub mod documentary;
+pub mod prompt;
+pub mod script;
 pub mod sde;
 pub mod sdp;
 pub mod subtitle;
+pub mod text_utils;
+pub mod tts;
+pub mod visual;
+pub mod youtube;
 
 /// 库版本号，编译时从 Cargo.toml 注入
 pub fn version() -> &'static str {

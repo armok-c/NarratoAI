@@ -1,2 +1,2 @@
-pub mod searcher;
 pub mod downloader;
+pub mod searcher;

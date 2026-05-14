@@ -31,11 +31,7 @@ mod tests {
         let err = result.unwrap_err();
         let script_err = ScriptError::from(err);
         let msg = script_err.to_string();
-        assert!(
-            msg.contains("JSON 解析失败"),
-            "消息应包含中文: {}",
-            msg
-        );
+        assert!(msg.contains("JSON 解析失败"), "消息应包含中文: {}", msg);
     }
 
     /// Test: ScriptError::Validation 中文消息
@@ -48,11 +44,7 @@ mod tests {
         }];
         let err = ScriptError::Validation(errors);
         let msg = err.to_string();
-        assert!(
-            msg.contains("脚本校验失败"),
-            "消息应包含中文: {}",
-            msg
-        );
+        assert!(msg.contains("脚本校验失败"), "消息应包含中文: {}", msg);
     }
 
     /// Test: ScriptError::Io 中文消息
@@ -61,11 +53,7 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err = ScriptError::from(io_err);
         let msg = err.to_string();
-        assert!(
-            msg.contains("文件操作失败"),
-            "消息应包含中文: {}",
-            msg
-        );
+        assert!(msg.contains("文件操作失败"), "消息应包含中文: {}", msg);
     }
 
     /// Test: ScriptError::IndexOutOfBounds 中文消息
@@ -73,11 +61,7 @@ mod tests {
     fn test_index_out_of_bounds_message_chinese() {
         let err = ScriptError::IndexOutOfBounds;
         let msg = err.to_string();
-        assert!(
-            msg.contains("索引越界"),
-            "消息应包含中文: {}",
-            msg
-        );
+        assert!(msg.contains("索引越界"), "消息应包含中文: {}", msg);
     }
 
     /// Test: ScriptError::InvalidTimestamp 中文消息
@@ -85,15 +69,7 @@ mod tests {
     fn test_invalid_timestamp_message_chinese() {
         let err = ScriptError::InvalidTimestamp("bad-ts".to_string());
         let msg = err.to_string();
-        assert!(
-            msg.contains("时间戳格式无效"),
-            "消息应包含中文: {}",
-            msg
-        );
-        assert!(
-            msg.contains("bad-ts"),
-            "消息应包含原始值: {}",
-            msg
-        );
+        assert!(msg.contains("时间戳格式无效"), "消息应包含中文: {}", msg);
+        assert!(msg.contains("bad-ts"), "消息应包含原始值: {}", msg);
     }
 }

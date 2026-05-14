@@ -1,16 +1,14 @@
 use std::path::PathBuf;
 
-use narratoai_core::script::types::{OstType, Script};
 use narratoai_core::script::edit;
+use narratoai_core::script::types::{OstType, Script};
 
 use crate::error::{validate_path, CommandError};
 use crate::models::progress::ScriptInfo;
 
 /// 从 JSON 文件加载脚本，自动校验
 #[tauri::command]
-pub async fn load_script(
-    path: PathBuf,
-) -> Result<Script, CommandError> {
+pub async fn load_script(path: PathBuf) -> Result<Script, CommandError> {
     validate_path(&path)?;
     if path.extension().map_or(true, |ext| ext != "json") {
         return Err(CommandError {
@@ -19,21 +17,19 @@ pub async fn load_script(
         });
     }
     let path_clone = path.clone();
-    let script = tokio::task::spawn_blocking(move || {
-        narratoai_core::script::load_script(&path_clone)
-    }).await.map_err(|e| CommandError {
-        code: "INTERNAL_ERROR".into(),
-        message: format!("任务执行失败: {}", e),
-    })??;
+    let script =
+        tokio::task::spawn_blocking(move || narratoai_core::script::load_script(&path_clone))
+            .await
+            .map_err(|e| CommandError {
+                code: "INTERNAL_ERROR".into(),
+                message: format!("任务执行失败: {}", e),
+            })??;
     Ok(script)
 }
 
 /// 将脚本保存为美化 JSON 文件
 #[tauri::command]
-pub async fn save_script(
-    script: Script,
-    path: PathBuf,
-) -> Result<(), CommandError> {
+pub async fn save_script(script: Script, path: PathBuf) -> Result<(), CommandError> {
     validate_path(&path)?;
     if path.extension().map_or(true, |ext| ext != "json") {
         return Err(CommandError {
@@ -42,29 +38,25 @@ pub async fn save_script(
         });
     }
     let path_clone = path.clone();
-    tokio::task::spawn_blocking(move || {
-        narratoai_core::script::save_script(&script, &path_clone)
-    }).await.map_err(|e| CommandError {
-        code: "INTERNAL_ERROR".into(),
-        message: format!("任务执行失败: {}", e),
-    })??;
+    tokio::task::spawn_blocking(move || narratoai_core::script::save_script(&script, &path_clone))
+        .await
+        .map_err(|e| CommandError {
+            code: "INTERNAL_ERROR".into(),
+            message: format!("任务执行失败: {}", e),
+        })??;
     Ok(())
 }
 
 /// 校验脚本——所有错误一次性返回
 #[tauri::command]
-pub async fn validate_script(
-    script: Script,
-) -> Result<(), CommandError> {
+pub async fn validate_script(script: Script) -> Result<(), CommandError> {
     narratoai_core::script::validate(&script)?;
     Ok(())
 }
 
 /// 获取脚本基本信息
 #[tauri::command]
-pub async fn get_script_info(
-    script: Script,
-) -> Result<ScriptInfo, CommandError> {
+pub async fn get_script_info(script: Script) -> Result<ScriptInfo, CommandError> {
     // 计算总时长（累加每个片段的实际持续时间），统计无法解析的片段数
     let mut total_duration_secs = 0.0;
     let mut unparseable_clips = 0;
@@ -76,11 +68,19 @@ pub async fn get_script_info(
             unparseable_clips += 1;
             continue;
         }
-        let Some(start_ts) = parts.get(0) else { unparseable_clips += 1; continue; };
-        let Some(end_ts) = parts.get(1) else { unparseable_clips += 1; continue; };
+        let Some(start_ts) = parts.get(0) else {
+            unparseable_clips += 1;
+            continue;
+        };
+        let Some(end_ts) = parts.get(1) else {
+            unparseable_clips += 1;
+            continue;
+        };
         let parse_time = |time_str: &str| -> Option<f64> {
             let time_parts: Vec<&str> = time_str.split(':').collect();
-            if time_parts.len() != 3 { return None; }
+            if time_parts.len() != 3 {
+                return None;
+            }
             let h: f64 = time_parts[0].parse().ok()?;
             let m: f64 = time_parts[1].parse().ok()?;
             let s: f64 = {
@@ -124,11 +124,7 @@ pub async fn update_narration(
 
 /// 设置指定片段的 OST 类型
 #[tauri::command]
-pub async fn set_ost(
-    script: Script,
-    index: usize,
-    ost: OstType,
-) -> Result<Script, CommandError> {
+pub async fn set_ost(script: Script, index: usize, ost: OstType) -> Result<Script, CommandError> {
     let new_script = edit::set_ost(&script, index, ost)?;
     Ok(new_script)
 }

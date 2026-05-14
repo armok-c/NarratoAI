@@ -425,12 +425,12 @@ fn decode_bytes(data: &[u8], encoding: &str) -> Result<String, SubtitleError> {
             details: format!("UTF-8 解码失败: {}", e),
         }),
         "utf-8-sig" => {
-            let stripped = if data.len() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF
-            {
-                &data[3..]
-            } else {
-                data
-            };
+            let stripped =
+                if data.len() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+                    &data[3..]
+                } else {
+                    data
+                };
             String::from_utf8(stripped.to_vec()).map_err(|e| SubtitleError::ParseSubtitle {
                 details: format!("UTF-8-SIG 解码失败: {}", e),
             })
@@ -572,11 +572,31 @@ mod tests {
     fn test_normalize_text_mixed() {
         let input = "\u{feff}00:00:01.000\r\nline1\r\n00:00:02.000\x00\rline2";
         let result = normalize_subtitle_text(input);
-        assert!(result.contains("00:00:01,000"), "should normalize dot to comma: {}", result);
-        assert!(result.contains("00:00:02,000"), "should normalize second timestamp: {}", result);
-        assert!(result.contains("line1"), "should preserve line1: {}", result);
-        assert!(result.contains("line2"), "should preserve line2: {}", result);
-        assert!(!result.contains('\u{feff}'), "should remove BOM: {:?}", result);
+        assert!(
+            result.contains("00:00:01,000"),
+            "should normalize dot to comma: {}",
+            result
+        );
+        assert!(
+            result.contains("00:00:02,000"),
+            "should normalize second timestamp: {}",
+            result
+        );
+        assert!(
+            result.contains("line1"),
+            "should preserve line1: {}",
+            result
+        );
+        assert!(
+            result.contains("line2"),
+            "should preserve line2: {}",
+            result
+        );
+        assert!(
+            !result.contains('\u{feff}'),
+            "should remove BOM: {:?}",
+            result
+        );
         assert!(!result.contains('\x00'), "should remove NUL: {:?}", result);
         let lines: Vec<&str> = result.lines().collect();
         assert!(lines.len() >= 3, "should have multiple lines: {:?}", lines);
@@ -742,7 +762,10 @@ mod tests {
         drop(file);
 
         let (_segments, _text, encoding) = parse_subtitle_file(&path).expect("parse");
-        assert!(encoding == "gbk" || encoding == "utf-8",
-            "Expected gbk or utf-8, got {}", encoding);
+        assert!(
+            encoding == "gbk" || encoding == "utf-8",
+            "Expected gbk or utf-8, got {}",
+            encoding
+        );
     }
 }

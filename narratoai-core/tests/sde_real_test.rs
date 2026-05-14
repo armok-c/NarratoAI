@@ -38,8 +38,7 @@ const TEST_OUTPUT_DIR: &str = "E:/GitLib/NarratoAI/test_output/sde";
 fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .try_init();
 }
@@ -91,10 +90,18 @@ async fn test_sde_full_pipeline() {
         max_retries: 1,
         timeout_secs: 120,
         proxy_http: proxy.as_ref().and_then(|p| {
-            if !p.http.is_empty() { Some(p.http.clone()) } else { None }
+            if !p.http.is_empty() {
+                Some(p.http.clone())
+            } else {
+                None
+            }
         }),
         proxy_https: proxy.as_ref().and_then(|p| {
-            if !p.https.is_empty() { Some(p.https.clone()) } else { None }
+            if !p.https.is_empty() {
+                Some(p.https.clone())
+            } else {
+                None
+            }
         }),
     })
     .expect("LLM Provider 创建失败");
@@ -137,7 +144,15 @@ async fn test_sde_full_pipeline() {
     let start = Instant::now();
 
     // ── 6. 运行流水线 ───────────────────────────────────────────
-    let result = run_sde(request, &config, proxy.as_ref(), &registry, &prompt_manager, None).await;
+    let result = run_sde(
+        request,
+        &config,
+        proxy.as_ref(),
+        &registry,
+        &prompt_manager,
+        None,
+    )
+    .await;
 
     let elapsed = start.elapsed();
     tracing::info!("SDE 流水线完成, 耗时 {:.2}s", elapsed.as_secs_f64());
@@ -150,12 +165,20 @@ async fn test_sde_full_pipeline() {
                 elapsed.as_secs_f64()
             );
 
-            assert!(output_path.exists(), "SDE 输出视频应存在: {:?}", output_path);
+            assert!(
+                output_path.exists(),
+                "SDE 输出视频应存在: {:?}",
+                output_path
+            );
 
             let file_size = std::fs::metadata(&output_path)
                 .map(|m| m.len())
                 .unwrap_or(0);
-            assert!(file_size > 100_000, "输出视频应 > 100KB, 实际: {} bytes", file_size);
+            assert!(
+                file_size > 100_000,
+                "输出视频应 > 100KB, 实际: {} bytes",
+                file_size
+            );
 
             tracing::info!(
                 "SDE 输出文件: {:?} ({} bytes, {:.1}s)",

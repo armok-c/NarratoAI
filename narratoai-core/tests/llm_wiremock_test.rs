@@ -5,11 +5,11 @@ use narratoai_core::llm::image_utils::image_to_base64_data_url;
 use narratoai_core::llm::openai_compatible::{OpenAiCompatibleProvider, ProviderConfig};
 use narratoai_core::llm::provider::LlmProvider;
 use narratoai_core::llm::registry::Registry;
-use narratoai_core::llm::types::LlmResponseFormat;
 use narratoai_core::llm::test_utils::{create_test_jpeg_path, write_test_jpeg};
+use narratoai_core::llm::types::LlmResponseFormat;
 use tempfile::TempDir;
+use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wiremock::matchers::{method, path, body_string_contains};
 
 use base64::Engine;
 
@@ -81,22 +81,20 @@ async fn test_build_vision_message_structure() {
     // Mock: expect POST /v1/chat/completions, return a simple response
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({
-                "id": "test-vision-id",
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": "test-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "content": "vision analysis result",
-                        "role": "assistant"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "test-vision-id",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "content": "vision analysis result",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }]
+        })))
         .expect(1) // 期望正好 1 次调用
         .mount(&mock_server)
         .await;
@@ -106,10 +104,24 @@ async fn test_build_vision_message_structure() {
     let img_path = create_test_jpeg_path(dir.path());
 
     let results = provider
-        .analyze_images(&[img_path], "describe this image", None, Some(10), Some(1), None, None, None, None)
+        .analyze_images(
+            &[img_path],
+            "describe this image",
+            None,
+            Some(10),
+            Some(1),
+            None,
+            None,
+            None,
+            None,
+        )
         .await;
 
-    assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());
+    assert!(
+        results.is_ok(),
+        "analyze_images 应成功: {:?}",
+        results.err()
+    );
     let results = results.unwrap();
     assert_eq!(results.len(), 1, "应为 1 个结果");
     assert_eq!(results[0], "vision analysis result");
@@ -124,29 +136,29 @@ async fn test_generate_text_success() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({
-                "id": "test-text-id",
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": "test-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "content": "Hello! How can I help you?",
-                        "role": "assistant"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "test-text-id",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "content": "Hello! How can I help you?",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }]
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
 
     let provider = create_test_provider(&mock_server.uri());
 
-    let result = provider.generate_text("Hello", None, None, None, None).await;
+    let result = provider
+        .generate_text("Hello", None, None, None, None)
+        .await;
     assert!(result.is_ok(), "generate_text 应成功: {:?}", result.err());
     assert_eq!(result.unwrap(), "Hello! How can I help you?");
 }
@@ -177,7 +189,11 @@ async fn test_generate_text_stream_token_extraction() {
     let stream = provider
         .generate_text_stream("test", None, None, None)
         .await;
-    assert!(stream.is_ok(), "generate_text_stream 应成功: {:?}", stream.err());
+    assert!(
+        stream.is_ok(),
+        "generate_text_stream 应成功: {:?}",
+        stream.err()
+    );
 
     let mut stream = stream.unwrap();
     use futures::StreamExt;
@@ -189,7 +205,11 @@ async fn test_generate_text_stream_token_extraction() {
         }
     }
 
-    assert_eq!(tokens.join(""), "Hello World", "流式 token 应拼接为完整文本");
+    assert_eq!(
+        tokens.join(""),
+        "Hello World",
+        "流式 token 应拼接为完整文本"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -203,14 +223,12 @@ async fn test_json_response_format_fallback() {
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
         .and(body_string_contains("response_format"))
-        .respond_with(ResponseTemplate::new(400).set_body_json(
-            serde_json::json!({
-                "error": {
-                    "message": "response_format is not supported",
-                    "type": "invalid_request_error"
-                }
-            }),
-        ))
+        .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+            "error": {
+                "message": "response_format is not supported",
+                "type": "invalid_request_error"
+            }
+        })))
         .expect(1) // 首次请求恰好 1 次
         .mount(&mock_server)
         .await;
@@ -218,22 +236,20 @@ async fn test_json_response_format_fallback() {
     // 回退重试请求（不含 response_format，prompt 含 JSON 指令）：返回成功
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({
-                "id": "retry-success-id",
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": "test-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "content": "{\"result\": \"success\"}",
-                        "role": "assistant"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "retry-success-id",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "content": "{\"result\": \"success\"}",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }]
+        })))
         .expect(1) // 回退重试恰好 1 次
         .mount(&mock_server)
         .await;
@@ -320,15 +336,9 @@ async fn test_openai_error_mapping() {
             .await;
 
         let provider = create_test_provider(&mock_server.uri());
-        let result = provider
-            .generate_text("test", None, None, None, None)
-            .await;
+        let result = provider.generate_text("test", None, None, None, None).await;
 
-        assert!(
-            result.is_err(),
-            "HTTP {} 应返回错误",
-            tc.status
-        );
+        assert!(result.is_err(), "HTTP {} 应返回错误", tc.status);
         let err = result.as_ref().unwrap_err();
         assert!(
             (tc.expected)(err),
@@ -350,22 +360,20 @@ async fn test_analyze_images_result_ordering() {
     // 使用单一固定响应，避免并发请求与 AtomicUsize 交互导致的竞态条件（CR-02）
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({
-                "id": "resp",
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": "test-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "content": "analysis result",
-                        "role": "assistant"
-                    },
-                    "finish_reason": "stop"
-                }]
-            }),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "resp",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "content": "analysis result",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }]
+        })))
         .expect(3)
         .mount(&mock_server)
         .await;
@@ -383,10 +391,24 @@ async fn test_analyze_images_result_ordering() {
     let images = vec![img1, img2_path, img3_path];
 
     let results = provider
-        .analyze_images(&images, "describe", None, Some(1), Some(2), None, None, None, None)
+        .analyze_images(
+            &images,
+            "describe",
+            None,
+            Some(1),
+            Some(2),
+            None,
+            None,
+            None,
+            None,
+        )
         .await;
 
-    assert!(results.is_ok(), "analyze_images 应成功: {:?}", results.err());
+    assert!(
+        results.is_ok(),
+        "analyze_images 应成功: {:?}",
+        results.err()
+    );
     let results = results.unwrap();
     assert_eq!(results.len(), 3, "应为 3 个结果");
     // 验证每个结果非空——在并发执行下顺序是不确定的
@@ -409,7 +431,11 @@ fn test_proxy_configuration_accepted() {
         proxy_http: Some("http://127.0.0.1:8888".to_string()),
         proxy_https: Some("http://127.0.0.1:8888".to_string()),
     });
-    assert!(provider.is_ok(), "有效代理 URL 应构造成功: {:?}", provider.err());
+    assert!(
+        provider.is_ok(),
+        "有效代理 URL 应构造成功: {:?}",
+        provider.err()
+    );
 }
 
 #[test]
@@ -454,4 +480,3 @@ fn create_test_provider(base_url: &str) -> OpenAiCompatibleProvider {
 // ---------------------------------------------------------------------------
 // (测试辅助函数由 narratoai_core::llm::test_utils 提供)
 // ---------------------------------------------------------------------------
-

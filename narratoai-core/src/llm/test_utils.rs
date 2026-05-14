@@ -5,7 +5,11 @@ use std::path::{Path, PathBuf};
 pub fn write_test_jpeg(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let mut img = image::DynamicImage::new_rgba8(32, 32);
     // fill with red pixels
-    for pixel in img.as_mut_rgba8().expect("test image must be RGBA8").pixels_mut() {
+    for pixel in img
+        .as_mut_rgba8()
+        .expect("test image must be RGBA8")
+        .pixels_mut()
+    {
         *pixel = image::Rgba([255u8, 0u8, 0u8, 255u8]);
     }
     img.save_with_format(path, image::ImageFormat::Jpeg)?;

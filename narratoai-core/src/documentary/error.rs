@@ -92,6 +92,29 @@ impl From<LLMError> for PipelineError {
     }
 }
 
+impl From<crate::visual::error::VisualError> for PipelineError {
+    fn from(source: crate::visual::error::VisualError) -> Self {
+        match source {
+            crate::visual::error::VisualError::FrameExtraction(details) => {
+                PipelineError::FrameExtraction { details }
+            }
+            crate::visual::error::VisualError::Analysis(details) => PipelineError::Llm {
+                source: LLMError::Validation(details),
+            },
+            crate::visual::error::VisualError::BatchPartial {
+                analyzed_count,
+                total_count,
+                errors,
+            } => PipelineError::Llm {
+                source: LLMError::Validation(format!(
+                    "视觉分析部分批次失败: 已分析 {}/{} 批次，{}",
+                    analyzed_count, total_count, errors
+                )),
+            },
+        }
+    }
+}
+
 impl From<crate::audio::normalizer::AudioError> for PipelineError {
     fn from(source: crate::audio::normalizer::AudioError) -> Self {
         PipelineError::AudioNormalization {

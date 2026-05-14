@@ -34,10 +34,7 @@ pub fn generate_srt_from_word_boundaries(
         let end_str = secs_to_srt_time(end_secs);
         blocks.push(format!(
             "{}\n{} --> {}\n{}\n",
-            seq,
-            start_str,
-            end_str,
-            wb.text
+            seq, start_str, end_str, wb.text
         ));
         seq += 1;
     }
@@ -85,7 +82,8 @@ fn parse_srt_blocks(content: &str) -> Vec<(f64, f64, String)> {
         // Parse timestamp line (second line)
         if let Some(ts_line) = lines.next() {
             if let Some((start, end)) = parse_srt_timestamp_line(ts_line.trim()) {
-                let text_lines: Vec<&str> = lines.map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+                let text_lines: Vec<&str> =
+                    lines.map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
                 if !text_lines.is_empty() {
                     blocks.push((start, end, text_lines.join("\n")));
                 }

@@ -73,25 +73,43 @@ impl SdeRequest {
             return Err(format!("视频文件不存在: {}", self.video_path.display()));
         }
         if self.voice_rate <= 0.0 || self.voice_rate > 5.0 {
-            return Err(format!("voice_rate 超出有效范围 (0, 5]: {}", self.voice_rate));
+            return Err(format!(
+                "voice_rate 超出有效范围 (0, 5]: {}",
+                self.voice_rate
+            ));
         }
         if !(-10.0..=10.0).contains(&self.voice_pitch) {
-            return Err(format!("voice_pitch 超出有效范围 [-10, 10]: {}", self.voice_pitch));
+            return Err(format!(
+                "voice_pitch 超出有效范围 [-10, 10]: {}",
+                self.voice_pitch
+            ));
         }
         if self.tts_volume <= 0.0 || self.tts_volume > 10.0 {
-            return Err(format!("tts_volume 超出有效范围 (0, 10]: {}", self.tts_volume));
+            return Err(format!(
+                "tts_volume 超出有效范围 (0, 10]: {}",
+                self.tts_volume
+            ));
         }
         if !(0.0..=10.0).contains(&self.original_volume) {
-            return Err(format!("original_volume 超出有效范围 [0, 10]: {}", self.original_volume));
+            return Err(format!(
+                "original_volume 超出有效范围 [0, 10]: {}",
+                self.original_volume
+            ));
         }
         if !(0.0..=10.0).contains(&self.bgm_volume) {
-            return Err(format!("bgm_volume 超出有效范围 [0, 10]: {}", self.bgm_volume));
+            return Err(format!(
+                "bgm_volume 超出有效范围 [0, 10]: {}",
+                self.bgm_volume
+            ));
         }
         if self.threads == 0 {
             return Err("threads 必须大于 0".to_string());
         }
         if self.temperature < 0.0 || self.temperature > 2.0 {
-            return Err(format!("temperature 超出有效范围 [0, 2]: {}", self.temperature));
+            return Err(format!(
+                "temperature 超出有效范围 [0, 2]: {}",
+                self.temperature
+            ));
         }
         if self.subtitle_font_size == 0 || self.subtitle_font_size > 200 {
             return Err(format!(
@@ -202,7 +220,11 @@ mod tests {
     fn test_sde_request_validate_empty_path() {
         let req = SdeRequest::default();
         let err = req.validate().unwrap_err();
-        assert!(err.contains("subtitle_path"), "应提示 subtitle_path 为空: {}", err);
+        assert!(
+            err.contains("subtitle_path"),
+            "应提示 subtitle_path 为空: {}",
+            err
+        );
     }
 
     #[test]

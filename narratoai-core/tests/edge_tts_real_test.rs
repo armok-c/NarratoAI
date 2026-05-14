@@ -14,24 +14,21 @@ async fn test_edge_tts_real_connection() {
     // 初始化日志（仅在测试失败时显示）
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .try_init();
 
     // ── 1. 加载配置 ──────────────────────────────────────────────
-    let config_path_str =
-        std::env::var("NARRATAI_CONFIG").unwrap_or_else(|_| {
-            let base = std::env::current_dir()
-                .unwrap_or_else(|_| Path::new(".").to_path_buf());
-            // 如果 CWD 已经是项目根，直接追加
-            if base.join("config.toml").exists() {
-                base.join("config.toml").to_string_lossy().to_string()
-            } else {
-                // 备选：硬编码路径（CWD 可能是 narratoai-core/）
-                "E:/GitLib/NarratoAI/config.toml".to_string()
-            }
-        });
+    let config_path_str = std::env::var("NARRATAI_CONFIG").unwrap_or_else(|_| {
+        let base = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        // 如果 CWD 已经是项目根，直接追加
+        if base.join("config.toml").exists() {
+            base.join("config.toml").to_string_lossy().to_string()
+        } else {
+            // 备选：硬编码路径（CWD 可能是 narratoai-core/）
+            "E:/GitLib/NarratoAI/config.toml".to_string()
+        }
+    });
     let config_path = Path::new(&config_path_str);
 
     assert!(
@@ -40,8 +37,8 @@ async fn test_edge_tts_real_connection() {
         config_path.display()
     );
 
-    let config_manager = narratoai_core::config::ConfigManager::load(config_path)
-        .expect("配置文件加载失败");
+    let config_manager =
+        narratoai_core::config::ConfigManager::load(config_path).expect("配置文件加载失败");
 
     let config = config_manager.get();
     tracing::info!("配置加载成功: {}", config_path.display());
@@ -52,8 +49,7 @@ async fn test_edge_tts_real_connection() {
     // ── 2. 准备输出目录 ──────────────────────────────────────────
     let output_dir = Path::new("E:/GitLib/NarratoAI/test_output/tts");
     if !output_dir.exists() {
-        std::fs::create_dir_all(output_dir)
-            .expect("创建输出目录失败");
+        std::fs::create_dir_all(output_dir).expect("创建输出目录失败");
     }
     let output_path = output_dir.join("edge_tts_test.mp3");
 
@@ -119,10 +115,7 @@ async fn test_edge_tts_real_connection() {
             );
 
             // 验证词边界非空
-            assert!(
-                !output.word_boundaries.is_empty(),
-                "应收到词边界数据"
-            );
+            assert!(!output.word_boundaries.is_empty(), "应收到词边界数据");
 
             tracing::info!(
                 "输出文件: {} ({} bytes, {:.2}s)",

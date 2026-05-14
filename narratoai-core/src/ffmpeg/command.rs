@@ -94,15 +94,14 @@ pub async fn clip_video(
                 if cancel.is_cancelled() {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err(FFmpegError::Timeout(
-                        "FFmpeg clip_video cancelled".into(),
-                    ));
+                    return Err(FFmpegError::Timeout("FFmpeg clip_video cancelled".into()));
                 }
                 match event {
                     FfmpegEvent::Progress(p) => {
                         if let Some(ref cb) = progress {
                             let secs = parse_time_to_secs(&p.time);
-                            let fraction = secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
+                            let fraction =
+                                secs.map(|s| if duration > 0.0 { s / duration } else { 0.0 });
                             cb(fraction, "视频裁剪中");
                         }
                     }
@@ -174,10 +173,7 @@ mod tests {
 
         let result = clip_video(&input, &output, 0.0, 10.0, None).await;
 
-        assert!(
-            result.is_err(),
-            "不存在的输入文件应该返回 Err"
-        );
+        assert!(result.is_err(), "不存在的输入文件应该返回 Err");
     }
 
     /// 验证 spawn_blocking 不阻塞 tokio runtime

@@ -39,10 +39,7 @@ fn test_get_video_formats() {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            !stderr.is_empty(),
-            "yt-dlp 失败时 stderr 应包含错误信息"
-        );
+        assert!(!stderr.is_empty(), "yt-dlp 失败时 stderr 应包含错误信息");
         eprintln!("yt-dlp 命令失败（可能网络问题）: {stderr}");
         return;
     }
@@ -58,9 +55,7 @@ fn test_get_video_formats() {
         }
     };
 
-    let formats = info
-        .get("formats")
-        .and_then(|f| f.as_array());
+    let formats = info.get("formats").and_then(|f| f.as_array());
 
     match formats {
         Some(formats) => {

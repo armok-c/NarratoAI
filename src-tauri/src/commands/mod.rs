@@ -1,14 +1,14 @@
+pub mod config;
+pub mod export;
 pub mod pipeline;
 pub mod script;
-pub mod export;
 pub mod system;
-pub mod config;
 
+pub use config::*;
+pub use export::*;
 pub use pipeline::*;
 pub use script::*;
-pub use export::*;
 pub use system::*;
-pub use config::*;
 
 /// 集中注册所有 Tauri 命令（D-05）
 ///

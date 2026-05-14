@@ -8,14 +8,6 @@ use tauri::State;
 
 use crate::error::CommandError;
 
-const EDGE_VOICE_LIST_URL: &str =
-    "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list";
-const EDGE_USER_AGENT: &str = concat!(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ",
-    "AppleWebKit/537.36 (KHTML, like Gecko) ",
-    "Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
-);
-
 #[tauri::command]
 pub fn get_config(config_manager: State<'_, ConfigManager>) -> Result<Value, CommandError> {
     let config = config_manager.get();
@@ -61,8 +53,12 @@ pub async fn save_config(
     let merged_config: AppConfig = serde_json::from_value(merged_value.clone())
         .map_err(|e| command_error("CONFIG_PARSE_ERROR", format!("配置更新格式错误: {}", e)))?;
 
-    let toml_value = toml::Value::try_from(merged_value)
-        .map_err(|e| command_error("CONFIG_SERIALIZE_ERROR", format!("配置转换 TOML 失败: {}", e)))?;
+    let toml_value = toml::Value::try_from(merged_value).map_err(|e| {
+        command_error(
+            "CONFIG_SERIALIZE_ERROR",
+            format!("配置转换 TOML 失败: {}", e),
+        )
+    })?;
     let toml_content = toml::to_string_pretty(&toml_value)
         .map_err(|e| command_error("CONFIG_SERIALIZE_ERROR", format!("配置序列化失败: {}", e)))?;
 
@@ -84,10 +80,7 @@ pub async fn test_llm_connection(
     api_key: String,
     base_url: String,
 ) -> Result<String, CommandError> {
-    let endpoint = format!(
-        "{}/v1/chat/completions",
-        base_url.trim_end_matches('/')
-    );
+    let endpoint = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -123,46 +116,39 @@ pub async fn get_edge_tts_voices(
     config_manager: State<'_, ConfigManager>,
 ) -> Result<Value, CommandError> {
     let config = config_manager.get();
-    let proxy_config = ProxyConfig::from_proxy(Some(&config.proxy));
-    let builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
-    let client = proxy_config
-        .apply_to_client(builder)
-        .build()
-        .map_err(|e| command_error("TTS_ERROR", format!("构建 Edge-TTS 客户端失败: {}", e)))?;
-
-    let response = client
-        .get(EDGE_VOICE_LIST_URL)
-        .header("User-Agent", EDGE_USER_AGENT)
-        .send()
+    narratoai_core::tts::get_edge_tts_voices(Some(&config.proxy))
         .await
-        .map_err(|e| command_error("TTS_ERROR", format!("获取 Edge-TTS 音色失败: {}", e)))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(command_error(
-            "TTS_ERROR",
-            format!("获取 Edge-TTS 音色失败: HTTP {} {}", status, body),
-        ));
-    }
-
-    response
-        .json::<Value>()
-        .await
-        .map_err(|e| command_error("TTS_ERROR", format!("解析 Edge-TTS 音色失败: {}", e)))
+        .map_err(|e| command_error("TTS_ERROR", e.to_string()))
 }
 
 #[tauri::command]
-pub fn get_system_proxy() -> Result<Value, CommandError> {
+pub fn get_system_proxy(config_manager: State<'_, ConfigManager>) -> Result<Value, CommandError> {
+    let config = config_manager.get();
     let env_https = env_any(&["HTTPS_PROXY", "https_proxy"]);
     let env_http = env_any(&["HTTP_PROXY", "http_proxy"]);
     let env_all = env_any(&["ALL_PROXY", "all_proxy"]);
-    let https = env_https.clone().or_else(|| env_all.clone()).unwrap_or_default();
-    let http = env_http.clone().or_else(|| env_all.clone()).unwrap_or_default();
+    let has_config_proxy =
+        !config.proxy.http.trim().is_empty() || !config.proxy.https.trim().is_empty();
+    let proxy_config = ProxyConfig::from_proxy(Some(&config.proxy));
+
+    let source = if has_config_proxy {
+        "config"
+    } else if proxy_config.enabled {
+        "env"
+    } else {
+        "none"
+    };
 
     Ok(json!({
-        "https": https,
-        "http": http,
+        "enabled": proxy_config.enabled,
+        "https": proxy_config.https,
+        "http": proxy_config.http,
+        "source": source,
+        "config": {
+            "enabled": config.proxy.enabled,
+            "https": config.proxy.https,
+            "http": config.proxy.http,
+        },
         "env_https": env_https,
         "env_http": env_http,
         "env_all": env_all
@@ -173,26 +159,71 @@ fn config_to_json(config: &AppConfig, mask_secrets: bool) -> Result<Value, Comma
     let mut value = serde_json::to_value(config)
         .map_err(|e| command_error("CONFIG_SERIALIZE_ERROR", format!("配置序列化失败: {}", e)))?;
 
-    set_secret(&mut value, &["app", "vision_openai_api_key"], &config.app.vision_openai_api_key, mask_secrets)?;
-    set_secret(&mut value, &["app", "text_openai_api_key"], &config.app.text_openai_api_key, mask_secrets)?;
-    set_secret(&mut value, &["azure", "speech_key"], &config.azure.speech_key, mask_secrets)?;
-    set_secret(&mut value, &["tencent", "secret_id"], &config.tencent.secret_id, mask_secrets)?;
-    set_secret(&mut value, &["tencent", "secret_key"], &config.tencent.secret_key, mask_secrets)?;
-    set_secret(&mut value, &["soulvoice", "api_key"], &config.soulvoice.api_key, mask_secrets)?;
-    set_secret(&mut value, &["tts_qwen", "api_key"], &config.tts_qwen.api_key, mask_secrets)?;
-    set_secret(&mut value, &["doubaotts", "ak"], &config.doubaotts.ak, mask_secrets)?;
-    set_secret(&mut value, &["doubaotts", "sk"], &config.doubaotts.sk, mask_secrets)?;
-    set_secret(&mut value, &["doubaotts", "token"], &config.doubaotts.token, mask_secrets)?;
+    set_secret(
+        &mut value,
+        &["app", "vision_openai_api_key"],
+        &config.app.vision_openai_api_key,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["app", "text_openai_api_key"],
+        &config.app.text_openai_api_key,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["azure", "speech_key"],
+        &config.azure.speech_key,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["tencent", "secret_id"],
+        &config.tencent.secret_id,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["tencent", "secret_key"],
+        &config.tencent.secret_key,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["soulvoice", "api_key"],
+        &config.soulvoice.api_key,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["tts_qwen", "api_key"],
+        &config.tts_qwen.api_key,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["doubaotts", "ak"],
+        &config.doubaotts.ak,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["doubaotts", "sk"],
+        &config.doubaotts.sk,
+        mask_secrets,
+    )?;
+    set_secret(
+        &mut value,
+        &["doubaotts", "token"],
+        &config.doubaotts.token,
+        mask_secrets,
+    )?;
 
     Ok(value)
 }
 
-fn set_secret(
-    root: &mut Value,
-    path: &[&str],
-    raw: &str,
-    mask: bool,
-) -> Result<(), CommandError> {
+fn set_secret(root: &mut Value, path: &[&str], raw: &str, mask: bool) -> Result<(), CommandError> {
     let value = if mask {
         Value::String(mask_secret(raw))
     } else {
@@ -207,7 +238,9 @@ fn set_path(root: &mut Value, path: &[&str], value: Value) -> Result<(), Command
         current = current
             .as_object_mut()
             .and_then(|obj| obj.get_mut(*key))
-            .ok_or_else(|| command_error("CONFIG_SERIALIZE_ERROR", format!("缺少配置段: {}", key)))?;
+            .ok_or_else(|| {
+                command_error("CONFIG_SERIALIZE_ERROR", format!("缺少配置段: {}", key))
+            })?;
     }
 
     let last = path[path.len() - 1];

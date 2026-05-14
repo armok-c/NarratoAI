@@ -43,11 +43,7 @@ fn make_clip(
     });
     ScriptClip {
         _id: id,
-        timestamp: format!(
-            "00:00:{:02},000-00:00:{:02},000",
-            id * 5,
-            id * 5 + 5
-        ),
+        timestamp: format!("00:00:{:02},000-00:00:{:02},000", id * 5, id * 5 + 5),
         picture: format!("测试画面{}", id),
         narration: format!("测试解说{}", id),
         ost,
@@ -95,7 +91,10 @@ fn export_ost1_clips(clips: Vec<ScriptClip>, dir: &TempDir) -> (PathBuf, serde_j
         height: 1080,
     };
     let content_path = export_draft(&req).expect("OST=1 导出应成功");
-    let draft_dir = content_path.parent().expect("draft_content.json 应有父目录").to_path_buf();
+    let draft_dir = content_path
+        .parent()
+        .expect("draft_content.json 应有父目录")
+        .to_path_buf();
     let json = load_draft_content(&draft_dir);
     (draft_dir, json)
 }
@@ -162,13 +161,17 @@ fn test_ost_narration_only_timeline() {
     // 视频轨道应有 3 个 segments
     let video_track = &tracks[0];
     assert_eq!(video_track["type"], "video");
-    let video_segs = video_track["segments"].as_array().expect("video segments 应为数组");
+    let video_segs = video_track["segments"]
+        .as_array()
+        .expect("video segments 应为数组");
     assert_eq!(video_segs.len(), 3, "视频轨道应有 3 个 segments");
 
     // 音频轨道应有 3 个 segments
     let audio_track = &tracks[1];
     assert_eq!(audio_track["type"], "audio");
-    let audio_segs = audio_track["segments"].as_array().expect("audio segments 应为数组");
+    let audio_segs = audio_track["segments"]
+        .as_array()
+        .expect("audio segments 应为数组");
     assert_eq!(audio_segs.len(), 3, "音频轨道应有 3 个 segments");
 
     // 验证每个音频 segment 的 target_timerange.duration <= 对应视频 duration
@@ -199,8 +202,24 @@ fn test_ost_original_sound_video_only() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("clip1.mp4"), None, None, dir.path()),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("clip2.mp4"), None, None, dir.path()),
+        make_clip(
+            1,
+            OstType::OriginalSound,
+            5.0,
+            Some("clip1.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
+        make_clip(
+            2,
+            OstType::OriginalSound,
+            4.0,
+            Some("clip2.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
     ];
 
     let (draft_dir, json) = export_ost1_clips(clips, &dir);
@@ -211,13 +230,17 @@ fn test_ost_original_sound_video_only() {
     // 视频轨道应有 2 个 segments
     let video_track = &tracks[0];
     assert_eq!(video_track["type"], "video");
-    let video_segs = video_track["segments"].as_array().expect("video segments 应为数组");
+    let video_segs = video_track["segments"]
+        .as_array()
+        .expect("video segments 应为数组");
     assert_eq!(video_segs.len(), 2, "视频轨道应有 2 个 segments");
 
     // 音频轨道应为空
     let audio_track = &tracks[1];
     assert_eq!(audio_track["type"], "audio");
-    let audio_segs = audio_track["segments"].as_array().expect("audio segments 应为数组");
+    let audio_segs = audio_track["segments"]
+        .as_array()
+        .expect("audio segments 应为数组");
     assert!(
         audio_segs.is_empty(),
         "OST=1 不应生成音频段，实际有 {} 个",
@@ -251,7 +274,15 @@ fn test_ost_mixed_timeline() {
             dir.path(),
         ),
         // OST=1（OriginalSound）——无音频
-        make_clip(2, OstType::OriginalSound, 4.0, Some("clip2.mp4"), None, None, dir.path()),
+        make_clip(
+            2,
+            OstType::OriginalSound,
+            4.0,
+            Some("clip2.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
         // OST=2（Mixed）——有音频
         make_clip(
             3,
@@ -282,11 +313,15 @@ fn test_ost_mixed_timeline() {
     let tracks = json["tracks"].as_array().expect("tracks 应为数组");
 
     // 视频轨道应有 3 个 segments
-    let video_segs = tracks[0]["segments"].as_array().expect("video segments 应为数组");
+    let video_segs = tracks[0]["segments"]
+        .as_array()
+        .expect("video segments 应为数组");
     assert_eq!(video_segs.len(), 3, "视频轨道应有 3 个 segments");
 
     // 音频轨道应有 2 个 segments（OST=0 和 OST=2）
-    let audio_segs = tracks[1]["segments"].as_array().expect("audio segments 应为数组");
+    let audio_segs = tracks[1]["segments"]
+        .as_array()
+        .expect("audio segments 应为数组");
     assert_eq!(
         audio_segs.len(),
         2,
@@ -304,23 +339,23 @@ fn test_ost_mixed_timeline() {
 fn test_video_fallback_source_range() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
-    let clips = vec![
-        make_clip(
-            1,
-            OstType::OriginalSound,
-            5.0,
-            None,       // 无视频文件
-            None,
-            Some("00:00:10,000-00:00:15,000"), // 有 source_time_range
-            dir.path(),
-        ),
-    ];
+    let clips = vec![make_clip(
+        1,
+        OstType::OriginalSound,
+        5.0,
+        None, // 无视频文件
+        None,
+        Some("00:00:10,000-00:00:15,000"), // 有 source_time_range
+        dir.path(),
+    )];
 
     let (_draft_dir, json) = export_ost1_clips(clips, &dir);
 
     let tracks = json["tracks"].as_array().expect("tracks 应为数组");
     let video_track = &tracks[0];
-    let video_segs = video_track["segments"].as_array().expect("video segments 应为数组");
+    let video_segs = video_track["segments"]
+        .as_array()
+        .expect("video segments 应为数组");
     assert_eq!(video_segs.len(), 1, "应有 1 个视频 segment");
 
     let seg = &video_segs[0];
@@ -352,7 +387,9 @@ fn test_video_fallback_source_range() {
     );
 
     // 视频素材的 path 应包含原始视频文件名
-    let materials = json["materials"]["videos"].as_array().expect("videos 应为数组");
+    let materials = json["materials"]["videos"]
+        .as_array()
+        .expect("videos 应为数组");
     assert_eq!(materials.len(), 1, "应有 1 个视频素材");
     let mat_path = materials[0]["path"].as_str().expect("path 应为字符串");
     assert!(
@@ -371,9 +408,15 @@ fn test_video_fallback_source_range() {
 fn test_draft_content_structure() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
-    let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path()),
-    ];
+    let clips = vec![make_clip(
+        1,
+        OstType::OriginalSound,
+        5.0,
+        Some("v.mp4"),
+        None,
+        None,
+        dir.path(),
+    )];
 
     let (_, json) = export_ost1_clips(clips, &dir);
 
@@ -414,8 +457,24 @@ fn test_materials_contain_all_types() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None, dir.path()),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None, dir.path()),
+        make_clip(
+            1,
+            OstType::OriginalSound,
+            5.0,
+            Some("v1.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
+        make_clip(
+            2,
+            OstType::OriginalSound,
+            4.0,
+            Some("v2.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -431,12 +490,7 @@ fn test_materials_contain_all_types() {
         .expect("materials.speeds 应为数组");
 
     // 有 2 个视频片段，应有 2 个视频素材
-    assert_eq!(
-        videos.len(),
-        2,
-        "应有 2 个视频素材，实际: {}",
-        videos.len()
-    );
+    assert_eq!(videos.len(), 2, "应有 2 个视频素材，实际: {}", videos.len());
 
     // OST=1 不生成音频素材
     assert!(
@@ -458,11 +512,7 @@ fn test_materials_contain_all_types() {
         .iter()
         .map(|v| v["id"].as_str().expect("id 应为字符串"))
         .collect();
-    assert_eq!(
-        video_ids.len(),
-        2,
-        "应有 2 个视频素材 ID"
-    );
+    assert_eq!(video_ids.len(), 2, "应有 2 个视频素材 ID");
 
     // id 应各不相同
     assert_ne!(video_ids[0], video_ids[1], "视频素材 ID 应各不相同");
@@ -489,8 +539,24 @@ fn test_id_reference_consistency() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None, dir.path()),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None, dir.path()),
+        make_clip(
+            1,
+            OstType::OriginalSound,
+            5.0,
+            Some("v1.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
+        make_clip(
+            2,
+            OstType::OriginalSound,
+            4.0,
+            Some("v2.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -560,9 +626,33 @@ fn test_timeline_continuity() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
     let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v1.mp4"), None, None, dir.path()),
-        make_clip(2, OstType::OriginalSound, 4.0, Some("v2.mp4"), None, None, dir.path()),
-        make_clip(3, OstType::OriginalSound, 3.5, Some("v3.mp4"), None, None, dir.path()),
+        make_clip(
+            1,
+            OstType::OriginalSound,
+            5.0,
+            Some("v1.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
+        make_clip(
+            2,
+            OstType::OriginalSound,
+            4.0,
+            Some("v2.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
+        make_clip(
+            3,
+            OstType::OriginalSound,
+            3.5,
+            Some("v3.mp4"),
+            None,
+            None,
+            dir.path(),
+        ),
     ];
 
     let (_, json) = export_ost1_clips(clips, &dir);
@@ -611,11 +701,13 @@ fn test_timeline_continuity() {
 
     // 验证 start 累加关系
     assert_eq!(
-        second_start, first_start + durations[0],
+        second_start,
+        first_start + durations[0],
         "第二段 start 应等于第一段 start + duration"
     );
     assert_eq!(
-        third_start, second_start + durations[1],
+        third_start,
+        second_start + durations[1],
         "第三段 start 应等于第二段 start + duration"
     );
 }
@@ -629,7 +721,15 @@ fn test_timeline_continuity() {
 fn test_export_missing_duration() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
-    let mut clip = make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path());
+    let mut clip = make_clip(
+        1,
+        OstType::OriginalSound,
+        5.0,
+        Some("v.mp4"),
+        None,
+        None,
+        dir.path(),
+    );
     clip.duration = None; // 清除 duration
 
     let video_origin = dir.path().join("original.mp4");
@@ -712,9 +812,15 @@ fn test_export_empty_script() {
 fn test_draft_name_auto_generate() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
-    let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path()),
-    ];
+    let clips = vec![make_clip(
+        1,
+        OstType::OriginalSound,
+        5.0,
+        Some("v.mp4"),
+        None,
+        None,
+        dir.path(),
+    )];
 
     let video_origin = dir.path().join("original.mp4");
     std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
@@ -734,9 +840,7 @@ fn test_draft_name_auto_generate() {
     // 验证草稿目录名以 NarratoAI_ 开头
     // export_draft 返回 draft_content.json 的路径，需要取父目录名
     let draft_content_path = result.unwrap();
-    let draft_dir = draft_content_path
-        .parent()
-        .expect("应有父目录");
+    let draft_dir = draft_content_path.parent().expect("应有父目录");
     let draft_dir_name = draft_dir
         .file_name()
         .expect("草稿目录应有名称")
@@ -757,9 +861,15 @@ fn test_draft_name_auto_generate() {
 fn test_draft_meta_info_json() {
     let dir = TempDir::new().expect("创建临时目录失败");
 
-    let clips = vec![
-        make_clip(1, OstType::OriginalSound, 5.0, Some("v.mp4"), None, None, dir.path()),
-    ];
+    let clips = vec![make_clip(
+        1,
+        OstType::OriginalSound,
+        5.0,
+        Some("v.mp4"),
+        None,
+        None,
+        dir.path(),
+    )];
 
     let video_origin = dir.path().join("original.mp4");
     std::fs::write(&video_origin, b"").expect("创建原始视频文件失败");
@@ -779,13 +889,8 @@ fn test_draft_meta_info_json() {
     let meta = load_draft_meta(draft_dir);
 
     // draft_id 应为非空字符串
-    let draft_id = meta["draft_id"]
-        .as_str()
-        .expect("draft_id 应为字符串");
-    assert!(
-        !draft_id.is_empty(),
-        "draft_id 不应为空"
-    );
+    let draft_id = meta["draft_id"].as_str().expect("draft_id 应为字符串");
+    assert!(!draft_id.is_empty(), "draft_id 不应为空");
 
     // draft_id 应为 32 位 hex（UUID 去掉连字符）
     assert_eq!(
@@ -801,11 +906,6 @@ fn test_draft_meta_info_json() {
     );
 
     // draft_name 应为 "TestMetaInfo"
-    let draft_name = meta["draft_name"]
-        .as_str()
-        .expect("draft_name 应为字符串");
-    assert_eq!(
-        draft_name, "TestMetaInfo",
-        "draft_name 应为 TestMetaInfo"
-    );
+    let draft_name = meta["draft_name"].as_str().expect("draft_name 应为字符串");
+    assert_eq!(draft_name, "TestMetaInfo", "draft_name 应为 TestMetaInfo");
 }

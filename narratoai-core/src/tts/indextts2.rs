@@ -1,7 +1,7 @@
-use crate::error::TTSError;
-use crate::tts::{TtsOutput, TtsProvider};
 use crate::config::types::IndexTTS2Section;
+use crate::error::TTSError;
 use crate::tts::common;
+use crate::tts::{TtsOutput, TtsProvider};
 use async_trait::async_trait;
 use reqwest::multipart;
 use std::path::Path;
@@ -22,38 +22,55 @@ pub(super) struct IndexTts2Engine {
 }
 
 impl IndexTts2Engine {
-    pub(super) fn new(config: IndexTTS2Section, proxy_config: &common::ProxyConfig) -> Result<Self, TTSError> {
+    pub(super) fn new(
+        config: IndexTTS2Section,
+        proxy_config: &common::ProxyConfig,
+    ) -> Result<Self, TTSError> {
         let client = common::build_client(proxy_config)?;
         Ok(Self { client, config })
     }
 
-    async fn synthesize_once(&self, text: &str, voice_name: &str, output_path: &Path) -> Result<TtsOutput, TTSError> {
+    async fn synthesize_once(
+        &self,
+        text: &str,
+        voice_name: &str,
+        output_path: &Path,
+    ) -> Result<TtsOutput, TTSError> {
         // 解析 voice_name: 去除 "indextts2:" 前缀 = 参考音频路径
         // Python 版 parse_indextts2_voice — voice.py:2151
         let ref_audio_path_str = common::parse_engine_prefix(voice_name, &["indextts2:"]);
 
         // 如果 voice_name 不包含前缀，使用配置中的默认 reference_audio
-        let ref_audio_path = if ref_audio_path_str == voice_name && !self.config.reference_audio.is_empty() {
-            Path::new(&self.config.reference_audio)
-        } else {
-            Path::new(ref_audio_path_str)
-        };
+        let ref_audio_path =
+            if ref_audio_path_str == voice_name && !self.config.reference_audio.is_empty() {
+                Path::new(&self.config.reference_audio)
+            } else {
+                Path::new(ref_audio_path_str)
+            };
 
         // 验证参考音频文件存在且是文件（提供清晰的错误信息）
         match tokio::fs::metadata(ref_audio_path).await {
-            Ok(meta) if meta.is_file() => {},
-            Ok(_) => return Err(TTSError::SynthesisFailed(format!(
-                "参考音频路径不是文件: {}", ref_audio_path.display()
-            ))),
-            Err(e) => return Err(TTSError::SynthesisFailed(format!(
-                "无法访问参考音频文件 '{}': {}", ref_audio_path.display(), e
-            ))),
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => {
+                return Err(TTSError::SynthesisFailed(format!(
+                    "参考音频路径不是文件: {}",
+                    ref_audio_path.display()
+                )))
+            }
+            Err(e) => {
+                return Err(TTSError::SynthesisFailed(format!(
+                    "无法访问参考音频文件 '{}': {}",
+                    ref_audio_path.display(),
+                    e
+                )))
+            }
         }
 
         // 读取参考音频到内存（重试安全：每次重新读取，不持有文件句柄）
         // 对齐 Python 版: files={'prompt_audio': open(reference_audio_path, 'rb')}
         // Rust 版使用 Part::bytes() 避免路径编码问题 (Pitfall 4)
-        let reference_audio_bytes = tokio::fs::read(ref_audio_path).await
+        let reference_audio_bytes = tokio::fs::read(ref_audio_path)
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("读取参考音频失败: {}", e)))?;
 
         let api_url = if self.config.api_url.is_empty() {
@@ -66,10 +83,13 @@ impl IndexTts2Engine {
         // 对齐 Python 版 data 字典 (voice.py:2197-2206):
         //   {'text': text, 'infer_mode': infer_mode, 'temperature': ..., 'top_p': ...}
         let form = multipart::Form::new()
-            .part("prompt_audio", multipart::Part::bytes(reference_audio_bytes)
-                .file_name("reference.wav")
-                .mime_str("audio/wav")
-                .map_err(|e| TTSError::SynthesisFailed(format!("MIME 设置失败: {}", e)))?)
+            .part(
+                "prompt_audio",
+                multipart::Part::bytes(reference_audio_bytes)
+                    .file_name("reference.wav")
+                    .mime_str("audio/wav")
+                    .map_err(|e| TTSError::SynthesisFailed(format!("MIME 设置失败: {}", e)))?,
+            )
             .text("text", text.trim().to_string())
             .text("infer_mode", self.config.infer_mode.clone())
             .text("temperature", self.config.temperature.to_string())
@@ -77,10 +97,14 @@ impl IndexTts2Engine {
             .text("top_k", self.config.top_k.to_string())
             .text("do_sample", self.config.do_sample.to_string())
             .text("num_beams", self.config.num_beams.to_string())
-            .text("repetition_penalty", self.config.repetition_penalty.to_string());
+            .text(
+                "repetition_penalty",
+                self.config.repetition_penalty.to_string(),
+            );
 
         // 超时 120s — IndexTTS2 推理时间可能较长 (Python 版 timeout=120)
-        let response = self.client
+        let response = self
+            .client
             .post(api_url)
             .multipart(form)
             .timeout(Duration::from_secs(120))
@@ -92,11 +116,15 @@ impl IndexTts2Engine {
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(TTSError::SynthesisFailed(format!(
-                "IndexTTS2 API 返回 {}: {}", status.as_u16(), body
+                "IndexTTS2 API 返回 {}: {}",
+                status.as_u16(),
+                body
             )));
         }
 
-        let audio_bytes = response.bytes().await
+        let audio_bytes = response
+            .bytes()
+            .await
             .map_err(|e| TTSError::SynthesisFailed(format!("IndexTTS2 读取响应失败: {}", e)))?;
 
         common::write_audio_bytes(output_path, &audio_bytes).await?;
@@ -133,7 +161,8 @@ impl TtsProvider for IndexTts2Engine {
                 "IndexTTS2 需要参考音频路径（在 voice_name 中或 indextts2.reference_audio 配置中提供）".to_string()
             ));
         }
-        let result = common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
+        let result =
+            common::retry_loop(|| self.synthesize_once(text, voice_name, output_path)).await;
         if result.is_err() {
             let _ = tokio::fs::remove_file(output_path).await;
         }
@@ -144,9 +173,9 @@ impl TtsProvider for IndexTts2Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use tempfile::TempDir;
 
     #[test]
     fn test_indextts2_engine_new() {
@@ -173,7 +202,9 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/tts"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"fake audio data from indextts2"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(b"fake audio data from indextts2"),
+            )
             .mount(&mock_server)
             .await;
 
@@ -198,7 +229,9 @@ mod tests {
         let output_path = dir.path().join("output.mp3");
 
         let ref_path_str = format!("indextts2:{}", ref_audio_path.to_str().unwrap());
-        let result = engine.synthesize_once("test text", &ref_path_str, &output_path).await;
+        let result = engine
+            .synthesize_once("test text", &ref_path_str, &output_path)
+            .await;
         assert!(result.is_ok(), "IndexTTS2 成功: {:?}", result.err());
         let output = result.unwrap();
         assert!(output.audio_file_path.exists());
@@ -226,7 +259,9 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let output_path = dir.path().join("output.mp3");
 
-        let result = engine.synthesize("", "indextts2:/path/to/ref.wav", 1.0, 0.0, &output_path).await;
+        let result = engine
+            .synthesize("", "indextts2:/path/to/ref.wav", 1.0, 0.0, &output_path)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::SynthesisFailed(msg) => assert!(msg.contains("不能为空")),
@@ -253,7 +288,9 @@ mod tests {
         let output_path = dir.path().join("output.mp3");
 
         // Voice name without prefix and config has no reference_audio
-        let result = engine.synthesize("test text", "voice_without_prefix", 1.0, 0.0, &output_path).await;
+        let result = engine
+            .synthesize("test text", "voice_without_prefix", 1.0, 0.0, &output_path)
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TTSError::SynthesisFailed(msg) => assert!(msg.contains("需要参考音频路径")),

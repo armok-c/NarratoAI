@@ -156,14 +156,13 @@ pub async fn generate_sdp_script(
 ) -> Result<crate::script::types::Script, SdpError> {
     // ---- 1. 解析字幕文件 ----
     let subtitle_path_owned = subtitle_path.to_path_buf();
-    let (segments, normalized_text, _encoding) = tokio::task::spawn_blocking(move || {
-        parse_subtitle_file(&subtitle_path_owned)
-    })
-    .await
-    .map_err(|e| SdpError::Io {
-        source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-    })?
-    .map_err(SdpError::from)?;
+    let (segments, normalized_text, _encoding) =
+        tokio::task::spawn_blocking(move || parse_subtitle_file(&subtitle_path_owned))
+            .await
+            .map_err(|e| SdpError::Io {
+                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            })?
+            .map_err(SdpError::from)?;
 
     // ---- 2. 提取纯对话文本（去除结构信息） ----
     let subtitle_plain = segments
@@ -219,11 +218,10 @@ pub async fn generate_sdp_script(
 
     // ---- 6. 修复 + 解析 SubtitleAnalysis JSON ----
     let analysis_repaired = crate::sde::script_gen::repair_json(&analysis_raw);
-    let analysis: SubtitleAnalysis = serde_json::from_str(&analysis_repaired).map_err(|e| {
-        SdpError::JsonRepair {
+    let analysis: SubtitleAnalysis =
+        serde_json::from_str(&analysis_repaired).map_err(|e| SdpError::JsonRepair {
             details: format!("解析 subtitle_analysis JSON 失败: {}", e),
-        }
-    })?;
+        })?;
 
     // ---- 7. 保存中间产物 ----
     let analysis_path = task_dir.join("subtitle_analysis.json");
@@ -282,11 +280,10 @@ pub async fn generate_sdp_script(
     let extraction_path = task_dir.join("plot_extraction_raw.json");
     tokio::fs::write(&extraction_path, &extraction_repaired).await?;
 
-    let points_data: PlotPointsData = serde_json::from_str(&extraction_repaired).map_err(|e| {
-        SdpError::JsonRepair {
+    let points_data: PlotPointsData =
+        serde_json::from_str(&extraction_repaired).map_err(|e| SdpError::JsonRepair {
             details: format!("解析 plot_extraction JSON 失败: {}", e),
-        }
-    })?;
+        })?;
 
     // ---- 12. merge_script ----
     let script = merge_script(&points_data.plot_points, task_dir)?;
@@ -362,11 +359,7 @@ mod tests {
     fn make_sample_point(seq: i64) -> PlotPoint {
         PlotPoint {
             sequence: seq,
-            timestamp: format!(
-                "00:00:{:02},000-00:00:{:02},000",
-                seq * 5,
-                seq * 5 + 5
-            ),
+            timestamp: format!("00:00:{:02},000-00:00:{:02},000", seq * 5, seq * 5 + 5),
             title: format!("情节 {}", seq),
             narrative_function: None,
             picture: format!("画面描述 {}", seq),
@@ -422,10 +415,7 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let _clips = merge_script(&points, dir.path()).expect("merge should succeed");
         let script_path = dir.path().join("merged_subtitle.json");
-        assert!(
-            script_path.exists(),
-            "merged_subtitle.json should be saved"
-        );
+        assert!(script_path.exists(), "merged_subtitle.json should be saved");
         let content = std::fs::read_to_string(&script_path).expect("should read saved file");
         assert!(
             content.contains("播放原生_"),

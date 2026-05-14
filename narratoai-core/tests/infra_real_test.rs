@@ -31,7 +31,11 @@ fn test_video_file_exists_and_readable() {
     assert!(path.is_file(), "视频文件应是文件，不是目录");
 
     let metadata = std::fs::metadata(path).expect("读取视频文件元数据失败");
-    assert!(metadata.len() > 1_000_000, "视频文件应大于 1MB，实际: {} bytes", metadata.len());
+    assert!(
+        metadata.len() > 1_000_000,
+        "视频文件应大于 1MB，实际: {} bytes",
+        metadata.len()
+    );
     eprintln!("视频文件大小: {} MB", metadata.len() as f64 / 1_048_576.0);
 }
 
@@ -43,7 +47,11 @@ fn test_subtitle_file_exists_and_readable() {
     assert!(path.is_file(), "字幕文件应是文件，不是目录");
 
     let metadata = std::fs::metadata(path).expect("读取字幕文件元数据失败");
-    assert!(metadata.len() > 100, "字幕文件应大于 100 bytes，实际: {} bytes", metadata.len());
+    assert!(
+        metadata.len() > 100,
+        "字幕文件应大于 100 bytes，实际: {} bytes",
+        metadata.len()
+    );
     eprintln!("字幕文件大小: {} bytes", metadata.len());
 }
 
@@ -151,7 +159,9 @@ async fn test_ffmpeg_clip_video_segment() {
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(narratoai_core::error::FFmpegError::SpawnFailed(e.to_string()));
+                return Err(narratoai_core::error::FFmpegError::SpawnFailed(
+                    e.to_string(),
+                ));
             }
         };
 
@@ -181,6 +191,10 @@ async fn test_ffmpeg_clip_video_segment() {
     let file_size = std::fs::metadata(&output_path)
         .expect("读取输出文件元数据失败")
         .len();
-    assert!(file_size > 10_000, "裁剪输出应大于 10KB，实际: {} bytes", file_size);
+    assert!(
+        file_size > 10_000,
+        "裁剪输出应大于 10KB，实际: {} bytes",
+        file_size
+    );
     eprintln!("裁剪输出: {:?} ({} bytes)", output_path, file_size);
 }

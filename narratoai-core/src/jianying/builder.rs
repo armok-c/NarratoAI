@@ -61,11 +61,7 @@ impl ExportRequest {
 
 /// 校验草稿名称——拒绝路径分隔符、遍历序列和空字符
 fn validate_draft_name(name: &str) -> Result<(), JianYingError> {
-    if name.contains('/')
-        || name.contains('\\')
-        || name.contains("..")
-        || name.contains('\0')
-    {
+    if name.contains('/') || name.contains('\\') || name.contains("..") || name.contains('\0') {
         return Err(JianYingError::Validation {
             details: format!("草稿名称包含非法字符: {}", name),
         });
@@ -158,7 +154,11 @@ impl ScriptFile {
     /// 添加视频 segment 到指定名称的轨道
     ///
     /// 如果轨道名称不存在，回滚已添加的素材并返回 Validation 错误。
-    pub fn add_video_segment(&mut self, seg: VideoSegment, track_name: &str) -> Result<(), JianYingError> {
+    pub fn add_video_segment(
+        &mut self,
+        seg: VideoSegment,
+        track_name: &str,
+    ) -> Result<(), JianYingError> {
         // 收集素材
         self.video_materials.push(seg.material_json());
         self.speed_materials.push(seg.speed_json());
@@ -180,7 +180,11 @@ impl ScriptFile {
     /// 添加音频 segment 到指定名称的轨道
     ///
     /// 如果轨道名称不存在，回滚已添加的素材并返回 Validation 错误。
-    pub fn add_audio_segment(&mut self, seg: AudioSegment, track_name: &str) -> Result<(), JianYingError> {
+    pub fn add_audio_segment(
+        &mut self,
+        seg: AudioSegment,
+        track_name: &str,
+    ) -> Result<(), JianYingError> {
         // 收集素材
         self.audio_materials.push(seg.material_json());
         self.speed_materials.push(seg.speed_json());
@@ -229,9 +233,7 @@ impl ScriptFile {
         let tracks_json: Vec<serde_json::Value> = self
             .tracks
             .iter()
-            .map(|t| {
-                serde_json::to_value(t.to_json()?).map_err(JianYingError::JsonSerialize)
-            })
+            .map(|t| serde_json::to_value(t.to_json()?).map_err(JianYingError::JsonSerialize))
             .collect::<Result<Vec<_>, _>>()?;
         content["tracks"] = serde_json::json!(tracks_json);
 
@@ -244,7 +246,11 @@ impl ScriptFile {
 
     /// 计算时间线总时长（微秒）——扫描所有轨道中所有 segment 的 target_timerange
     fn calculate_total_duration(&self) -> i64 {
-        self.tracks.iter().map(|t| t.max_end_time()).max().unwrap_or(0)
+        self.tracks
+            .iter()
+            .map(|t| t.max_end_time())
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -297,22 +303,26 @@ fn build_timeline(req: &ExportRequest, script_file: &mut ScriptFile) -> Result<(
                 details: format!("第 {} 段时长必须为正数，实际: {}", i + 1, duration),
             });
         }
-        let target = trange_from_secs(current_time_secs, duration)
-            .ok_or_else(|| JianYingError::Validation {
+        let target = trange_from_secs(current_time_secs, duration).ok_or_else(|| {
+            JianYingError::Validation {
                 details: format!("第 {} 段构造时间范围失败（duration 不应为负数）", i + 1),
-            })?;
+            }
+        })?;
 
         // 视频片段（per D-09 智能回退）
         if let Some(ref video_path) = clip.video {
-            let video_seg =
-                VideoSegment::new(video_path, target.clone(), req.width, req.height)?;
+            let video_seg = VideoSegment::new(video_path, target.clone(), req.width, req.height)?;
             script_file.add_video_segment(video_seg, "视频轨道")?;
         } else {
             let source_start = parse_source_start_time(clip, i)?;
-            let source = trange_from_secs(source_start, duration)
-                .ok_or_else(|| JianYingError::Validation {
-                    details: format!("第 {} 段构造 source 时间范围失败（duration 不应为负数）", i + 1),
-                })?;
+            let source = trange_from_secs(source_start, duration).ok_or_else(|| {
+                JianYingError::Validation {
+                    details: format!(
+                        "第 {} 段构造 source 时间范围失败（duration 不应为负数）",
+                        i + 1
+                    ),
+                }
+            })?;
             let video_seg = VideoSegment::with_source_timerange(
                 &req.video_origin_path,
                 target.clone(),
@@ -332,7 +342,10 @@ fn build_timeline(req: &ExportRequest, script_file: &mut ScriptFile) -> Result<(
                     let safe_duration = duration.min(audio_duration); // per D-10
                     let audio_target = trange_from_secs(current_time_secs, safe_duration)
                         .ok_or_else(|| JianYingError::Validation {
-                            details: format!("第 {} 段构造音频时间范围失败（duration 不应为负数）", i + 1),
+                            details: format!(
+                                "第 {} 段构造音频时间范围失败（duration 不应为负数）",
+                                i + 1
+                            ),
                         })?;
                     let audio_seg = AudioSegment::new(audio_path, audio_target)?;
                     script_file.add_audio_segment(audio_seg, "音频轨道")?;
@@ -383,12 +396,13 @@ fn validate_export_request(req: &ExportRequest) -> Result<(), JianYingError> {
 
 /// 解析 source_time_range 获取起始秒数（格式: "HH:MM:SS,mmm-HH:MM:SS,mmm"）
 fn parse_source_start_time(clip: &ScriptClip, index: usize) -> Result<f64, JianYingError> {
-    let range = clip.source_time_range.as_ref().ok_or_else(|| {
-        JianYingError::MissingField {
+    let range = clip
+        .source_time_range
+        .as_ref()
+        .ok_or_else(|| JianYingError::MissingField {
             field: "source_time_range".to_string(),
             clip_index: index,
-        }
-    })?;
+        })?;
     parse_timestamp_start(range).ok_or_else(|| JianYingError::Validation {
         details: format!("第 {} 段 source_time_range 格式无效: {}", index + 1, range),
     })
@@ -618,15 +632,11 @@ mod tests {
 
         // 读取并验证
         let content = std::fs::read_to_string(&content_path).expect("应能读取文件");
-        let json: serde_json::Value =
-            serde_json::from_str(&content).expect("应为有效 JSON");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("应为有效 JSON");
 
         // canvas_config
         assert_eq!(json["canvas_config"]["width"], 1920, "width 应为 1920");
-        assert_eq!(
-            json["canvas_config"]["height"], 1080,
-            "height 应为 1080"
-        );
+        assert_eq!(json["canvas_config"]["height"], 1080, "height 应为 1080");
 
         // fps
         assert_eq!(json["fps"], 30.0, "fps 应为 30.0");
@@ -663,8 +673,7 @@ mod tests {
 
         let meta_path = folder.draft_dir().join("draft_meta_info.json");
         let content = std::fs::read_to_string(&meta_path).expect("应能读取 meta 文件");
-        let json: serde_json::Value =
-            serde_json::from_str(&content).expect("应为有效 JSON");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("应为有效 JSON");
 
         // draft_id 应为非空字符串
         let draft_id = json["draft_id"].as_str().expect("draft_id 应为字符串");
@@ -682,13 +691,12 @@ mod tests {
     fn test_script_file_new_empty() {
         let dir = TempDir::new().expect("创建临时目录失败");
         let draft_path = dir.path().to_path_buf();
-        let (folder, sf) = DraftFolder::create_draft(&draft_path, "TestEmpty", 1920, 1080)
-            .expect("应成功创建");
+        let (folder, sf) =
+            DraftFolder::create_draft(&draft_path, "TestEmpty", 1920, 1080).expect("应成功创建");
         let content_path = sf.save(&folder).expect("应成功保存");
 
         let content = std::fs::read_to_string(&content_path).expect("应能读取");
-        let json: serde_json::Value =
-            serde_json::from_str(&content).expect("应为有效 JSON");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("应为有效 JSON");
         let tracks = json["tracks"].as_array().expect("tracks 应为数组");
         assert!(tracks.is_empty(), "新 ScriptFile 应有空的 tracks");
     }
@@ -699,16 +707,14 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let draft_path = dir.path().to_path_buf();
         let (folder, mut sf) =
-            DraftFolder::create_draft(&draft_path, "TestTracks", 1920, 1080)
-                .expect("应成功创建");
+            DraftFolder::create_draft(&draft_path, "TestTracks", 1920, 1080).expect("应成功创建");
 
         sf.add_track(TrackType::Video, "视频轨道");
         sf.add_track(TrackType::Audio, "音频轨道");
 
         let content_path = sf.save(&folder).expect("应成功保存");
         let content = std::fs::read_to_string(&content_path).expect("应能读取");
-        let json: serde_json::Value =
-            serde_json::from_str(&content).expect("应为有效 JSON");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("应为有效 JSON");
 
         let tracks = json["tracks"].as_array().expect("tracks 应为数组");
         assert_eq!(tracks.len(), 2, "应有 2 个轨道");
@@ -722,8 +728,7 @@ mod tests {
         let dir = TempDir::new().expect("创建临时目录失败");
         let draft_path = dir.path().to_path_buf();
         let (folder, mut sf) =
-            DraftFolder::create_draft(&draft_path, "TestParse", 1280, 720)
-                .expect("应成功创建");
+            DraftFolder::create_draft(&draft_path, "TestParse", 1280, 720).expect("应成功创建");
 
         sf.add_track(TrackType::Video, "视频轨道");
 
@@ -731,8 +736,7 @@ mod tests {
         let content = std::fs::read_to_string(&content_path).expect("应能读取");
 
         // 应能被 serde_json 解析
-        let json: serde_json::Value =
-            serde_json::from_str(&content).expect("应为有效 JSON");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("应为有效 JSON");
         assert!(json.is_object(), "应为 JSON 对象");
 
         // canvas_config 应反映传入的分辨率
@@ -761,11 +765,7 @@ mod tests {
         let result = parse_timestamp_start("00:01:30,000-00:02:00,000");
         assert!(result.is_some(), "应解析成功");
         let secs = result.unwrap();
-        assert!(
-            (secs - 90.0).abs() < 0.001,
-            "应为 90.0 秒，实际: {}",
-            secs
-        );
+        assert!((secs - 90.0).abs() < 0.001, "应为 90.0 秒，实际: {}", secs);
     }
 
     /// Test: parse_timestamp_start 无效格式返回 None
@@ -782,11 +782,7 @@ mod tests {
         let result = parse_timestamp_start("00:00:07-00:00:15");
         assert!(result.is_some(), "无逗号毫秒的范围格式应解析成功");
         let secs = result.unwrap();
-        assert!(
-            (secs - 7.0).abs() < 0.001,
-            "应为 7.0 秒，实际: {}",
-            secs
-        );
+        assert!((secs - 7.0).abs() < 0.001, "应为 7.0 秒，实际: {}", secs);
     }
 
     /// Test: parse_timestamp_start 单一时间戳（不含 `-`）返回 None
@@ -808,26 +804,11 @@ mod tests {
             validate_draft_name("../../etc/cron.d").is_err(),
             "路径遍历应被拒绝"
         );
-        assert!(
-            validate_draft_name("foo\\bar").is_err(),
-            "反斜杠应被拒绝"
-        );
-        assert!(
-            validate_draft_name("foo/bar").is_err(),
-            "正斜杠应被拒绝"
-        );
-        assert!(
-            validate_draft_name("foo\0bar").is_err(),
-            "空字符应被拒绝"
-        );
-        assert!(
-            validate_draft_name("..").is_err(),
-            "双点应被拒绝"
-        );
-        assert!(
-            validate_draft_name("正常名称").is_ok(),
-            "合法名称应通过"
-        );
+        assert!(validate_draft_name("foo\\bar").is_err(), "反斜杠应被拒绝");
+        assert!(validate_draft_name("foo/bar").is_err(), "正斜杠应被拒绝");
+        assert!(validate_draft_name("foo\0bar").is_err(), "空字符应被拒绝");
+        assert!(validate_draft_name("..").is_err(), "双点应被拒绝");
+        assert!(validate_draft_name("正常名称").is_ok(), "合法名称应通过");
         assert!(
             validate_draft_name("my-draft-2024").is_ok(),
             "正常名称应通过"

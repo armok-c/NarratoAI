@@ -59,12 +59,12 @@ pub async fn sdp_step_clip(
         // 计算片段时长：从 timestamp 中解析起止秒数
         let ts_parts: Vec<&str> = clip.timestamp.splitn(2, '-').collect();
         if ts_parts.len() == 2 {
-            let start_secs = parse_srt_timestamp(ts_parts[0])
-                .map_err(|e| SdpError::ParseSubtitle {
+            let start_secs =
+                parse_srt_timestamp(ts_parts[0]).map_err(|e| SdpError::ParseSubtitle {
                     details: format!("片段 {} 开始时间戳解析失败: {}", clip._id, e),
                 })?;
-            let end_secs = parse_srt_timestamp(ts_parts[1])
-                .map_err(|e| SdpError::ParseSubtitle {
+            let end_secs =
+                parse_srt_timestamp(ts_parts[1]).map_err(|e| SdpError::ParseSubtitle {
                     details: format!("片段 {} 结束时间戳解析失败: {}", clip._id, e),
                 })?;
             if end_secs < start_secs {
@@ -112,8 +112,8 @@ pub async fn sdp_step_clip(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sde::types::SubtitleSegment;
     use crate::script::types::{OstType, ScriptClip};
+    use crate::sde::types::SubtitleSegment;
 
     fn make_segment(index: usize, start: f64, end: f64, text: &str) -> SubtitleSegment {
         SubtitleSegment {
@@ -148,9 +148,7 @@ mod tests {
         ];
 
         // 测试 find_precise_range 校正
-        if let Some((precise_start, precise_end)) =
-            find_precise_range(&clip.timestamp, &segments)
-        {
+        if let Some((precise_start, precise_end)) = find_precise_range(&clip.timestamp, &segments) {
             let start_str = secs_to_srt_time(precise_start);
             let end_str = secs_to_srt_time(precise_end);
             clip.timestamp = format!("{}-{}", start_str, end_str);
@@ -192,9 +190,6 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            clip.timestamp, original,
-            "未匹配时应保留原始时间戳"
-        );
+        assert_eq!(clip.timestamp, original, "未匹配时应保留原始时间戳");
     }
 }

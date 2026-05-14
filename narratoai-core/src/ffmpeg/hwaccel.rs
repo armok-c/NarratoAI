@@ -134,7 +134,10 @@ pub fn detect_hw_encoders() -> Result<Vec<String>, FFmpegError> {
     {
         Ok(o) => o,
         Err(e) => {
-            tracing::warn!("FFmpeg binary not found or failed to start: {} — 返回空编码器列表", e);
+            tracing::warn!(
+                "FFmpeg binary not found or failed to start: {} — 返回空编码器列表",
+                e
+            );
             return Ok(Vec::new());
         }
     };
@@ -226,7 +229,9 @@ mod tests {
         let encoders = result.unwrap();
         if !encoders.is_empty() {
             assert!(
-                encoders.iter().any(|e| e.contains("264") || e.contains("265")),
+                encoders
+                    .iter()
+                    .any(|e| e.contains("264") || e.contains("265")),
                 "编码器名称应包含 264 或 265，实际: {:?}",
                 encoders
             );

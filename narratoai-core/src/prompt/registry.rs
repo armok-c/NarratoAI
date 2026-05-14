@@ -201,19 +201,24 @@ impl PromptRegistry {
                     let fallback = names_map.get(name).and_then(|m| {
                         let mut versions: Vec<&String> = m.keys().collect();
                         versions.sort_by(|a, b| {
-                            let a_num: u64 = a.trim_start_matches('v').split('.').next()
-                                .and_then(|s| s.parse().ok()).unwrap_or(u64::MAX);
-                            let b_num: u64 = b.trim_start_matches('v').split('.').next()
-                                .and_then(|s| s.parse().ok()).unwrap_or(u64::MAX);
+                            let a_num: u64 = a
+                                .trim_start_matches('v')
+                                .split('.')
+                                .next()
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(u64::MAX);
+                            let b_num: u64 = b
+                                .trim_start_matches('v')
+                                .split('.')
+                                .next()
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(u64::MAX);
                             a_num.cmp(&b_num)
                         });
                         versions.into_iter().next().cloned()
                     });
                     if let Some(ref v) = fallback {
-                        tracing::warn!(
-                            "没有默认版本: {}.{}, 使用 {}",
-                            category, name, v
-                        );
+                        tracing::warn!("没有默认版本: {}.{}, 使用 {}", category, name, v);
                     }
                     fallback
                 });
@@ -237,16 +242,9 @@ impl Default for PromptRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prompt::types::{
-        ModelType, OutputFormat, ParameterDef, PromptMetadata,
-    };
+    use crate::prompt::types::{ModelType, OutputFormat, ParameterDef, PromptMetadata};
 
-    fn make_test_prompt(
-        category: &str,
-        name: &str,
-        version: &str,
-        content: &str,
-    ) -> Prompt {
+    fn make_test_prompt(category: &str, name: &str, version: &str, content: &str) -> Prompt {
         Prompt {
             metadata: PromptMetadata {
                 name: name.to_string(),

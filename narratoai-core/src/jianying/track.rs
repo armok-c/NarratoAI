@@ -82,8 +82,12 @@ impl Track {
             .segments
             .iter()
             .map(|seg| match seg {
-                SegmentOutput::Video(v) => serde_json::to_value(v).map_err(JianYingError::JsonSerialize),
-                SegmentOutput::Audio(a) => serde_json::to_value(a).map_err(JianYingError::JsonSerialize),
+                SegmentOutput::Video(v) => {
+                    serde_json::to_value(v).map_err(JianYingError::JsonSerialize)
+                }
+                SegmentOutput::Audio(a) => {
+                    serde_json::to_value(a).map_err(JianYingError::JsonSerialize)
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -110,10 +114,18 @@ impl Track {
 
     /// 计算轨道内所有 segment 的最大结束时间（微秒）
     pub fn max_end_time(&self) -> i64 {
-        self.segments.iter().map(|seg| match seg {
-            SegmentOutput::Video(v) => v.base.target_timerange.start + v.base.target_timerange.duration,
-            SegmentOutput::Audio(a) => a.base.target_timerange.start + a.base.target_timerange.duration,
-        }).max().unwrap_or(0)
+        self.segments
+            .iter()
+            .map(|seg| match seg {
+                SegmentOutput::Video(v) => {
+                    v.base.target_timerange.start + v.base.target_timerange.duration
+                }
+                SegmentOutput::Audio(a) => {
+                    a.base.target_timerange.start + a.base.target_timerange.duration
+                }
+            })
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -155,13 +167,23 @@ mod tests {
         let mut track = Track::new(TrackType::Video, "视频轨道");
 
         let (_dir1, path1) = make_temp_file("video1.mp4");
-        let seg1 = VideoSegment::new(&path1, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
-            .expect("应成功创建");
+        let seg1 = VideoSegment::new(
+            &path1,
+            super::super::time::trange("0s", "5s").expect("应解析时间范围"),
+            1920,
+            1080,
+        )
+        .expect("应成功创建");
         track.add_video_segment(seg1).expect("应成功添加视频片段");
 
         let (_dir2, path2) = make_temp_file("video2.mp4");
-        let seg2 = VideoSegment::new(&path2, super::super::time::trange("5s", "3s").expect("应解析时间范围"), 1920, 1080)
-            .expect("应成功创建");
+        let seg2 = VideoSegment::new(
+            &path2,
+            super::super::time::trange("5s", "3s").expect("应解析时间范围"),
+            1920,
+            1080,
+        )
+        .expect("应成功创建");
         track.add_video_segment(seg2).expect("应成功添加视频片段");
 
         let json = track.to_json().expect("Track 应序列化成功");
@@ -172,10 +194,16 @@ mod tests {
     #[test]
     fn test_track_type_matches_json() {
         let video_track = Track::new(TrackType::Video, "视频轨道");
-        assert_eq!(video_track.to_json().expect("应序列化成功").type_field, "video");
+        assert_eq!(
+            video_track.to_json().expect("应序列化成功").type_field,
+            "video"
+        );
 
         let audio_track = Track::new(TrackType::Audio, "音频轨道");
-        assert_eq!(audio_track.to_json().expect("应序列化成功").type_field, "audio");
+        assert_eq!(
+            audio_track.to_json().expect("应序列化成功").type_field,
+            "audio"
+        );
     }
 
     /// Test 12: add_video_segment 拒绝 Audio 类型轨道
@@ -183,8 +211,13 @@ mod tests {
     fn test_track_rejects_video_segment_on_audio_track() {
         let mut track = Track::new(TrackType::Audio, "音频轨道");
         let (_dir, path) = make_temp_file("video.mp4");
-        let seg = VideoSegment::new(&path, super::super::time::trange("0s", "5s").expect("应解析时间范围"), 1920, 1080)
-            .expect("应成功创建");
+        let seg = VideoSegment::new(
+            &path,
+            super::super::time::trange("0s", "5s").expect("应解析时间范围"),
+            1920,
+            1080,
+        )
+        .expect("应成功创建");
         let result = track.add_video_segment(seg);
         assert!(result.is_err(), "向音频轨道添加视频片段应返回错误");
     }
@@ -194,8 +227,11 @@ mod tests {
     fn test_track_rejects_audio_segment_on_video_track() {
         let mut track = Track::new(TrackType::Video, "视频轨道");
         let (_dir, path) = make_temp_file("audio.mp3");
-        let seg = AudioSegment::new(&path, super::super::time::trange("0s", "3s").expect("应解析时间范围"))
-            .expect("应成功创建");
+        let seg = AudioSegment::new(
+            &path,
+            super::super::time::trange("0s", "3s").expect("应解析时间范围"),
+        )
+        .expect("应成功创建");
         let result = track.add_audio_segment(seg);
         assert!(result.is_err(), "向视频轨道添加音频片段应返回错误");
     }

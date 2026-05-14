@@ -52,15 +52,11 @@ fn validate_json(output: &str) -> Result<(), PromptError> {
         return Err(PromptError::Validation("JSON 输出为空".into()));
     }
 
-    let value: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|e| {
-            PromptError::Validation(format!("JSON 格式无效: {}", e))
-        })?;
+    let value: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| PromptError::Validation(format!("JSON 格式无效: {}", e)))?;
 
     if !value.is_object() && !value.is_array() {
-        return Err(PromptError::Validation(
-            "JSON 顶层应为对象或数组".into(),
-        ));
+        return Err(PromptError::Validation("JSON 顶层应为对象或数组".into()));
     }
 
     Ok(())
@@ -82,8 +78,7 @@ fn validate_narration_script(output: &str) -> Result<(), PromptError> {
     if char_count < MIN_NARRATION_CHARS {
         return Err(PromptError::Validation(format!(
             "解说文案过短: {} 字符（需要 >= {}）",
-            char_count,
-            MIN_NARRATION_CHARS
+            char_count, MIN_NARRATION_CHARS
         )));
     }
 
@@ -117,8 +112,7 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
     if char_count < MIN_PLOT_ANALYSIS_CHARS {
         return Err(PromptError::Validation(format!(
             "剧情分析内容不足: {} 字符（需要 >= {}）",
-            char_count,
-            MIN_PLOT_ANALYSIS_CHARS
+            char_count, MIN_PLOT_ANALYSIS_CHARS
         )));
     }
 
@@ -129,9 +123,7 @@ fn validate_plot_analysis(output: &str) -> Result<(), PromptError> {
             || ('\u{F900}'..='\u{FAFF}').contains(&c)
     });
     if !has_chinese {
-        return Err(PromptError::Validation(
-            "剧情分析应包含中文内容".into(),
-        ));
+        return Err(PromptError::Validation("剧情分析应包含中文内容".into()));
     }
 
     Ok(())

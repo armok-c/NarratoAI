@@ -173,7 +173,9 @@ mod tests {
 
     #[test]
     fn test_config_error_not_found_message_chinese() {
-        let err = ConfigError::NotFound { path: "/test/path".into() };
+        let err = ConfigError::NotFound {
+            path: "/test/path".into(),
+        };
         let msg = err.to_string();
         assert!(msg.contains("配置文件不存在"), "消息应包含中文: {}", msg);
     }
@@ -189,7 +191,11 @@ mod tests {
     fn test_ffmpeg_error_spawn_failed_message_chinese() {
         let err = FFmpegError::SpawnFailed("test".into());
         let msg = err.to_string();
-        assert!(msg.contains("FFmpeg 进程启动失败"), "消息应包含中文: {}", msg);
+        assert!(
+            msg.contains("FFmpeg 进程启动失败"),
+            "消息应包含中文: {}",
+            msg
+        );
     }
 
     #[test]
@@ -203,7 +209,11 @@ mod tests {
     fn test_ffmpeg_error_output_parse_message_chinese() {
         let err = FFmpegError::OutputParseError("bad output".into());
         let msg = err.to_string();
-        assert!(msg.contains("FFmpeg 输出解析错误"), "消息应包含中文: {}", msg);
+        assert!(
+            msg.contains("FFmpeg 输出解析错误"),
+            "消息应包含中文: {}",
+            msg
+        );
     }
 
     #[test]
@@ -217,12 +227,18 @@ mod tests {
     fn test_ffmpeg_error_binary_not_found_message_chinese() {
         let err = FFmpegError::BinaryNotFound;
         let msg = err.to_string();
-        assert!(msg.contains("未找到 FFmpeg 二进制文件"), "消息应包含中文: {}", msg);
+        assert!(
+            msg.contains("未找到 FFmpeg 二进制文件"),
+            "消息应包含中文: {}",
+            msg
+        );
     }
 
     #[test]
     fn test_tts_error_unknown_engine_message_chinese() {
-        let err = TTSError::UnknownEngine { engine: "test".to_string() };
+        let err = TTSError::UnknownEngine {
+            engine: "test".to_string(),
+        };
         let msg = err.to_string();
         assert!(msg.contains("未知 TTS 引擎"), "消息应包含中文: {}", msg);
     }
@@ -266,7 +282,11 @@ mod tests {
     fn test_llm_error_provider_not_found_message_chinese() {
         let err = LLMError::ProviderNotFound("unknown_provider".into());
         let msg = err.to_string();
-        assert!(msg.contains("未找到大模型供应商"), "消息应包含中文: {}", msg);
+        assert!(
+            msg.contains("未找到大模型供应商"),
+            "消息应包含中文: {}",
+            msg
+        );
     }
 
     #[test]
@@ -315,6 +335,10 @@ mod tests {
     fn test_llm_error_content_filter_message_chinese() {
         let err = LLMError::ContentFilter("blocked content".into());
         let msg = err.to_string();
-        assert!(msg.contains("内容被安全过滤器阻止"), "消息应包含中文: {}", msg);
+        assert!(
+            msg.contains("内容被安全过滤器阻止"),
+            "消息应包含中文: {}",
+            msg
+        );
     }
 }

@@ -51,12 +51,12 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 
 ### Tech Debt (TDET)
 
-- [ ] **TDET-01**: Edge-TTS 代理隧道实现（HTTP CONNECT + 平台代理自动检测）
+- [x] **TDET-01**: Edge-TTS 代理隧道实现（HTTP CONNECT + 平台代理自动检测）
 - [ ] **TDET-02**: Tauri State 读锁优化（extract before .await，缩短锁持有时间）
 - [ ] **TDET-03**: 集成测试桩替换为真实测试（assert!(true) → 实际断言）
 - [ ] **TDET-04**: YouTube/Pexels Tauri 命令暴露 + 前端 UI 集成
 - [ ] **TDET-05**: ConfigManager 热加载激活（TOML 文件监视器 + 前端通知）
-- [ ] **TDET-06**: VisualAnalyzer 门面调用补齐（统一 API 入口）
+- [x] **TDET-06**: VisualAnalyzer 门面调用补齐（统一 API 入口）
 - [x] **TDET-07**: FFmpeg Tauri sidecar 内置打包（externalBin + shell:allow-execute 权限）
 
 ## Out of Scope
@@ -104,12 +104,12 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 | PIPE-04 | Phase 17 | Pending |
 | PIPE-05 | Phase 17 | Pending |
 | PIPE-06 | Phase 17 | Pending |
-| TDET-01 | Phase 16 | Pending |
+| TDET-01 | Phase 16 | Complete |
 | TDET-02 | Phase 18 | Pending |
 | TDET-03 | Phase 14 | Pending |
 | TDET-04 | Phase 18 | Pending |
 | TDET-05 | Phase 18 | Pending |
-| TDET-06 | Phase 16 | Pending |
+| TDET-06 | Phase 16 | Complete |
 | TDET-07 | Phase 16 | Complete |
 
 **Coverage:**
@@ -119,4 +119,4 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 — traceability updated with Phase 14-18 mappings*
+*Last updated: 2026-05-14 — traceability updated through Phase 16 Plan 16-02*

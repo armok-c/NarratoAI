@@ -116,12 +116,15 @@ async fn get_video_formats(
 
     if let Some(proxy) = proxy_url {
         if !proxy.is_empty() {
-            if !proxy.starts_with("http://") && !proxy.starts_with("https://")
-                && !proxy.starts_with("socks5://") && !proxy.starts_with("socks5h://")
+            if !proxy.starts_with("http://")
+                && !proxy.starts_with("https://")
+                && !proxy.starts_with("socks5://")
+                && !proxy.starts_with("socks5h://")
             {
-                return Err(YoutubeError::InvalidUrl(
-                    format!("代理 URL 协议无效: {}（支持 http/https/socks5）", proxy),
-                ));
+                return Err(YoutubeError::InvalidUrl(format!(
+                    "代理 URL 协议无效: {}（支持 http/https/socks5）",
+                    proxy
+                )));
             }
             cmd.args(["--proxy", proxy]);
         }
@@ -252,7 +255,9 @@ pub async fn download_video(
     let output_template = match rename {
         Some(name) => {
             if name.contains('/') || name.contains('\\') || name.contains("..") {
-                return Err(YoutubeError::InvalidUrl("rename 参数包含非法路径字符".into()));
+                return Err(YoutubeError::InvalidUrl(
+                    "rename 参数包含非法路径字符".into(),
+                ));
             }
             name.to_string()
         }
@@ -276,12 +281,15 @@ pub async fn download_video(
 
     if let Some(proxy) = proxy_url {
         if !proxy.is_empty() {
-            if !proxy.starts_with("http://") && !proxy.starts_with("https://")
-                && !proxy.starts_with("socks5://") && !proxy.starts_with("socks5h://")
+            if !proxy.starts_with("http://")
+                && !proxy.starts_with("https://")
+                && !proxy.starts_with("socks5://")
+                && !proxy.starts_with("socks5h://")
             {
-                return Err(YoutubeError::InvalidUrl(
-                    format!("代理 URL 协议无效: {}（支持 http/https/socks5）", proxy),
-                ));
+                return Err(YoutubeError::InvalidUrl(format!(
+                    "代理 URL 协议无效: {}（支持 http/https/socks5）",
+                    proxy
+                )));
             }
             cmd.args(["--proxy", proxy]);
         }

@@ -45,11 +45,11 @@ fn generate_sine_wave(
     // fmt chunk
     buffer.extend_from_slice(b"fmt ");
     buffer.extend_from_slice(&16u32.to_le_bytes()); // chunk size
-    buffer.extend_from_slice(&1u16.to_le_bytes());  // PCM = 1
-    buffer.extend_from_slice(&1u16.to_le_bytes());  // mono
+    buffer.extend_from_slice(&1u16.to_le_bytes()); // PCM = 1
+    buffer.extend_from_slice(&1u16.to_le_bytes()); // mono
     buffer.extend_from_slice(&sample_rate.to_le_bytes());
     buffer.extend_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate
-    buffer.extend_from_slice(&2u16.to_le_bytes());  // block align
+    buffer.extend_from_slice(&2u16.to_le_bytes()); // block align
     buffer.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
 
     // data chunk
@@ -108,17 +108,16 @@ fn test_normalize_to_minus_14_lufs() {
     let normalized = normalize_audio_for_mixing(
         &wav_path,
         &output_dir,
-        -14.0,        // target_lufs
-        -1.0,         // max_peak
+        -14.0, // target_lufs
+        -1.0,  // max_peak
         sample_rate,
-        1,            // channels (mono)
+        1, // channels (mono)
     )
     .expect("标准化应成功");
     assert!(normalized.exists(), "标准化文件应存在");
 
     // Step 3: 用 ffprobe loudnorm 分析标准化后的音频
-    let loudnorm = analyze_lufs(&normalized)
-        .expect("ffprobe loudnorm 分析应成功");
+    let loudnorm = analyze_lufs(&normalized).expect("ffprobe loudnorm 分析应成功");
 
     // Step 4: 验证 integrated LUFS ≈ -14.0（±2 LUFS 容差）
     let integrated_lufs = loudnorm.measured_I();
@@ -135,7 +134,10 @@ fn test_normalize_to_minus_14_lufs() {
     assert!(
         diff <= tolerance,
         "integrated_lufs ({:.1}) 应接近 {} (±{} LUFS)，偏差 {:.1} 超出容差",
-        integrated_lufs, expected, tolerance, diff
+        integrated_lufs,
+        expected,
+        tolerance,
+        diff
     );
 
     // 验证 normalize_audio_for_mixing 返回值正确（非空路径）

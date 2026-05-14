@@ -18,7 +18,10 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
         }
     };
     let (time_part, millis) = match normalized.find(',') {
-        Some(pos) => (normalized[..pos].to_string(), normalized[pos + 1..].to_string()),
+        Some(pos) => (
+            normalized[..pos].to_string(),
+            normalized[pos + 1..].to_string(),
+        ),
         None => (normalized, String::new()),
     };
 
@@ -29,21 +32,15 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
         });
     }
 
-    let h: u32 = parts[0]
-        .parse()
-        .map_err(|_| SubtitleError::ParseSubtitle {
-            details: format!("小时解析失败: {}", parts[0]),
-        })?;
-    let m: u32 = parts[1]
-        .parse()
-        .map_err(|_| SubtitleError::ParseSubtitle {
-            details: format!("分钟解析失败: {}", parts[1]),
-        })?;
-    let s: u32 = parts[2]
-        .parse()
-        .map_err(|_| SubtitleError::ParseSubtitle {
-            details: format!("秒解析失败: {}", parts[2]),
-        })?;
+    let h: u32 = parts[0].parse().map_err(|_| SubtitleError::ParseSubtitle {
+        details: format!("小时解析失败: {}", parts[0]),
+    })?;
+    let m: u32 = parts[1].parse().map_err(|_| SubtitleError::ParseSubtitle {
+        details: format!("分钟解析失败: {}", parts[1]),
+    })?;
+    let s: u32 = parts[2].parse().map_err(|_| SubtitleError::ParseSubtitle {
+        details: format!("秒解析失败: {}", parts[2]),
+    })?;
 
     if m > 59 {
         return Err(SubtitleError::ParseSubtitle {
@@ -60,9 +57,11 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
         0.0
     } else {
         let padded = format!("{:0<3}", millis);
-        let ms_val: u32 = padded[..3].parse().map_err(|_| SubtitleError::ParseSubtitle {
-            details: format!("毫秒解析失败: {}", millis),
-        })?;
+        let ms_val: u32 = padded[..3]
+            .parse()
+            .map_err(|_| SubtitleError::ParseSubtitle {
+                details: format!("毫秒解析失败: {}", millis),
+            })?;
         ms_val as f64 / 1000.0
     };
     let total = h as f64 * 3600.0 + m as f64 * 60.0 + s as f64 + ms;
@@ -80,10 +79,7 @@ pub fn parse_srt_timestamp(input: &str) -> Result<f64, SubtitleError> {
 /// `llm_timestamp` 格式: "HH:MM:SS,mmm-HH:MM:SS,mmm"
 /// 查找与 LLM 范围重叠的字幕段落（±1 秒容差）。
 /// 返回匹配段落中第一个的 start_secs 和最后一个的 end_secs。
-pub fn find_precise_range(
-    llm_timestamp: &str,
-    segments: &[SubtitleSegment],
-) -> Option<(f64, f64)> {
+pub fn find_precise_range(llm_timestamp: &str, segments: &[SubtitleSegment]) -> Option<(f64, f64)> {
     let parts: Vec<&str> = llm_timestamp.splitn(2, '-').collect();
     if parts.len() != 2 {
         return None;

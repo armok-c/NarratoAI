@@ -16,48 +16,48 @@ fn builtin_filters() -> &'static HashMap<&'static str, FilterFn> {
     BUILTIN_FILTERS.get_or_init(|| {
         let mut m: HashMap<&'static str, FilterFn> = HashMap::new();
 
-    // upper——转换为大写
-    m.insert("upper", |s: &str| s.to_uppercase());
+        // upper——转换为大写
+        m.insert("upper", |s: &str| s.to_uppercase());
 
-    // lower——转换为小写
-    m.insert("lower", |s: &str| s.to_lowercase());
+        // lower——转换为小写
+        m.insert("lower", |s: &str| s.to_lowercase());
 
-    // title——单词首字母大写（对 ASCII 字母生效）
-    m.insert("title", |s: &str| {
-        let mut out = String::with_capacity(s.len());
-        let mut new_word = true;
-        for c in s.chars() {
-            if c.is_whitespace() {
-                out.push(c);
-                new_word = true;
-            } else if new_word {
-                out.extend(c.to_uppercase());
-                new_word = false;
-            } else {
-                out.push(c);
+        // title——单词首字母大写（对 ASCII 字母生效）
+        m.insert("title", |s: &str| {
+            let mut out = String::with_capacity(s.len());
+            let mut new_word = true;
+            for c in s.chars() {
+                if c.is_whitespace() {
+                    out.push(c);
+                    new_word = true;
+                } else if new_word {
+                    out.extend(c.to_uppercase());
+                    new_word = false;
+                } else {
+                    out.push(c);
+                }
             }
-        }
-        out
-    });
+            out
+        });
 
-    // strip——去除首尾空白
-    m.insert("strip", |s: &str| s.trim().to_string());
+        // strip——去除首尾空白
+        m.insert("strip", |s: &str| s.trim().to_string());
 
-    // truncate——截断（长度 <= 100 字符返回原串，否则截断前 97 字符 + "..."）
-    m.insert("truncate", |s: &str| {
-        let char_count = s.chars().count();
-        if char_count <= 100 {
-            s.to_string()
-        } else {
-            let truncated: String = s.chars().take(97).collect();
-            format!("{}...", truncated)
-        }
-    });
+        // truncate——截断（长度 <= 100 字符返回原串，否则截断前 97 字符 + "..."）
+        m.insert("truncate", |s: &str| {
+            let char_count = s.chars().count();
+            if char_count <= 100 {
+                s.to_string()
+            } else {
+                let truncated: String = s.chars().take(97).collect();
+                format!("{}...", truncated)
+            }
+        });
 
-    // json——JSON 转义字符串
-    m.insert("json", |s: &str| {
-        serde_json::to_string(s).expect("serializing &str to JSON string cannot fail")
-    });
+        // json——JSON 转义字符串
+        m.insert("json", |s: &str| {
+            serde_json::to_string(s).expect("serializing &str to JSON string cannot fail")
+        });
 
         m
     })
@@ -92,10 +92,7 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
     // 第 1 步：校验变量全部存在
     let mut missing: HashSet<String> = HashSet::new();
     for caps in re.captures_iter(template) {
-        let name = caps
-            .get(1)
-            .map(|m| m.as_str())
-            .unwrap_or("");
+        let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         if !name.is_empty() && !vars.contains_key(name) {
             missing.insert(name.to_string());
         }
@@ -114,7 +111,8 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
         if let Some(filter_name) = caps.get(2).map(|m| m.as_str()) {
             if !filter_name.is_empty() && !filters.contains_key(filter_name) {
                 return Err(PromptError::TemplateRender(format!(
-                    "未知过滤器: {}", filter_name
+                    "未知过滤器: {}",
+                    filter_name
                 )));
             }
         }
@@ -127,7 +125,8 @@ pub fn render(template: &str, vars: &HashMap<&str, &str>) -> Result<String, Prom
 
         match caps.get(2).map(|m| m.as_str()) {
             Some(filter_name) if !filter_name.is_empty() => {
-                let filter_fn = filters.get(filter_name)
+                let filter_fn = filters
+                    .get(filter_name)
                     .expect("filter passed validation but not found");
                 filter_fn(value)
             }
@@ -235,7 +234,10 @@ mod tests {
         let result = render(template, &vars).expect("渲染应成功");
         assert!(result.ends_with("..."), "应包含省略号");
         assert_eq!(result.chars().count(), 100);
-        assert_eq!(result.chars().take(97).collect::<String>(), long_text.chars().take(97).collect::<String>());
+        assert_eq!(
+            result.chars().take(97).collect::<String>(),
+            long_text.chars().take(97).collect::<String>()
+        );
     }
 
     /// 中文截断测试——验证多字节 UTF-8 字符不会 panic

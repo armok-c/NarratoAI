@@ -156,10 +156,7 @@ pub struct AudioSegment {
 
 impl AudioSegment {
     /// 创建音频片段
-    pub fn new(
-        path: &std::path::Path,
-        target: Timerange,
-    ) -> Result<Self, JianYingError> {
+    pub fn new(path: &std::path::Path, target: Timerange) -> Result<Self, JianYingError> {
         Ok(Self {
             material: AudioMaterial::new(path, target.duration)?,
             speed: Speed::new(),
@@ -276,9 +273,8 @@ mod tests {
         let (_dir, path) = make_video("original.mp4");
         let target = trange("0s", "5s").expect("应解析时间范围");
         let source = trange("10s", "5s").expect("应解析时间范围");
-        let seg =
-            VideoSegment::with_source_timerange(&path, target, source, 1920, 1080)
-                .expect("应成功创建");
+        let seg = VideoSegment::with_source_timerange(&path, target, source, 1920, 1080)
+            .expect("应成功创建");
         let json = seg.to_json();
 
         // source_timerange 应被设置
@@ -288,10 +284,7 @@ mod tests {
         );
         let src_tr = json.base.source_timerange.unwrap();
         assert_eq!(src_tr.start, 10_000_000, "source start 应为 10000000");
-        assert_eq!(
-            src_tr.duration, 5_000_000,
-            "source duration 应为 5000000"
-        );
+        assert_eq!(src_tr.duration, 5_000_000, "source duration 应为 5000000");
     }
 
     /// Test 5: AudioSegment::new 的 JSON 包含 clip=null, hdr_settings=null
@@ -328,7 +321,10 @@ mod tests {
         let vjson = vseg.to_json();
         let speed_id = vseg.speed_id();
         assert!(
-            vjson.base.extra_material_refs.contains(&speed_id.to_string()),
+            vjson
+                .base
+                .extra_material_refs
+                .contains(&speed_id.to_string()),
             "VideoSegment extra_material_refs 应包含 Speed ID"
         );
 
@@ -339,7 +335,10 @@ mod tests {
         let ajson = aseg.to_json();
         let audio_speed_id = aseg.speed_id();
         assert!(
-            ajson.base.extra_material_refs.contains(&audio_speed_id.to_string()),
+            ajson
+                .base
+                .extra_material_refs
+                .contains(&audio_speed_id.to_string()),
             "AudioSegment extra_material_refs 应包含 Speed ID"
         );
     }

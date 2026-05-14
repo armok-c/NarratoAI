@@ -1,9 +1,9 @@
-use std::path::PathBuf;
-use std::pin::Pin;
-use futures::stream::Stream;
-use tokio_util::sync::CancellationToken;
 use crate::error::LLMError;
 use crate::llm::types::LlmResponseFormat;
+use futures::stream::Stream;
+use std::path::PathBuf;
+use std::pin::Pin;
+use tokio_util::sync::CancellationToken;
 
 /// LLM Provider 统一 trait
 ///

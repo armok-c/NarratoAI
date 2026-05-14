@@ -31,7 +31,10 @@ pub async fn merge_audio_files(
     // Input 0: silent base
     input_args.extend(["-f", "lavfi", "-i"].iter().map(|s| s.to_string()));
     // Use colon separator for lavfi filter options (comma is filter separator in FFmpeg 6+)
-    input_args.push(format!("anullsrc=r=44100:cl=stereo:duration={}", duration_str));
+    input_args.push(format!(
+        "anullsrc=r=44100:cl=stereo:duration={}",
+        duration_str
+    ));
 
     mix_inputs.push("[0:a]".to_string());
 
@@ -44,14 +47,14 @@ pub async fn merge_audio_files(
             continue;
         }
 
-        let tts = tts_results.get(&clip._id).ok_or_else(|| {
-            PipelineError::AudioMerge {
+        let tts = tts_results
+            .get(&clip._id)
+            .ok_or_else(|| PipelineError::AudioMerge {
                 details: format!(
                     "OST={:?} 片段 {} 缺少 TTS 结果，无法合并音频",
                     clip.ost, clip._id
                 ),
-            }
-        })?;
+            })?;
         let delay_ms = (cumulative_offset * 1000.0).round() as u64;
         let input_idx = mix_inputs.len();
 
@@ -147,10 +150,11 @@ pub async fn merge_subtitle_files(
         if clip.ost != OstType::OriginalSound {
             if let Some(tts) = tts_results.get(&clip._id) {
                 if !tts.word_boundaries.is_empty() {
-                    let srt_content = crate::documentary::subtitle::generate_srt_from_word_boundaries(
-                        &tts.word_boundaries,
-                        0.0, // offset applied via SubtitleSegment during merge
-                    );
+                    let srt_content =
+                        crate::documentary::subtitle::generate_srt_from_word_boundaries(
+                            &tts.word_boundaries,
+                            0.0, // offset applied via SubtitleSegment during merge
+                        );
                     segments.push(SubtitleSegment {
                         srt_content,
                         offset_secs: cumulative_offset,
@@ -204,7 +208,8 @@ pub fn calculate_clip_duration(clip: &ScriptClip, tts_results: &HashMap<i64, Tts
     }
 
     // timestamp range
-    if let Ok((start, end)) = crate::documentary::timestamp::parse_timestamp_range(&clip.timestamp) {
+    if let Ok((start, end)) = crate::documentary::timestamp::parse_timestamp_range(&clip.timestamp)
+    {
         let dur = end - start;
         if dur > 0.0 {
             return dur;

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use serde::de;
+use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use ts_rs::TS;
 
@@ -192,11 +192,16 @@ mod tests {
         ] {
             // 序列化
             let serialized = serde_json::to_string(&variant).expect("应序列化成功");
-            assert_eq!(serialized, value.to_string(), "OstType {:?} 应序列化为 {}", variant, value);
+            assert_eq!(
+                serialized,
+                value.to_string(),
+                "OstType {:?} 应序列化为 {}",
+                variant,
+                value
+            );
 
             // 反序列化
-            let deserialized: OstType =
-                serde_json::from_str(&serialized).expect("应反序列化成功");
+            let deserialized: OstType = serde_json::from_str(&serialized).expect("应反序列化成功");
             assert_eq!(deserialized, variant, "应还原为 {:?}", variant);
         }
     }
@@ -276,10 +281,7 @@ mod tests {
             json.contains("这是一段关于宁静的解说"),
             "中文 narration 应原样输出"
         );
-        assert!(
-            !json.contains("\\u"),
-            "不应包含 Unicode 转义序列"
-        );
+        assert!(!json.contains("\\u"), "不应包含 Unicode 转义序列");
     }
 
     /// Test 7: ValidationError Display 输出中文格式
@@ -291,21 +293,9 @@ mod tests {
             message: "时间戳格式无效".to_string(),
         };
         let msg = err.to_string();
-        assert!(
-            msg.contains("第 3 段"),
-            "应包含中文段号: {}",
-            msg
-        );
-        assert!(
-            msg.contains("timestamp"),
-            "应包含字段名: {}",
-            msg
-        );
-        assert!(
-            msg.contains("时间戳格式无效"),
-            "应包含中文消息: {}",
-            msg
-        );
+        assert!(msg.contains("第 3 段"), "应包含中文段号: {}", msg);
+        assert!(msg.contains("timestamp"), "应包含字段名: {}", msg);
+        assert!(msg.contains("时间戳格式无效"), "应包含中文消息: {}", msg);
     }
 
     /// Test 8: _id 为浮点数（如 LLM 生成的 1.0）应正确反序列化为整数 1

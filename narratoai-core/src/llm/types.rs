@@ -10,4 +10,3 @@ pub enum LlmResponseFormat {
     /// JSON 格式（触发 D-19 response_format=json_object 回退逻辑）
     Json,
 }
-

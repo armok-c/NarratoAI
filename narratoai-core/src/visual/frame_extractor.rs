@@ -47,9 +47,10 @@ pub async fn extract_frames(
 ) -> Result<(usize, Vec<PathBuf>), VisualError> {
     let quality_val = quality.unwrap_or(5);
     if !(2..=31).contains(&quality_val) {
-        return Err(VisualError::FrameExtraction(
-            format!("JPEG quality 值 ({}) 超出有效范围 2-31", quality_val)
-        ));
+        return Err(VisualError::FrameExtraction(format!(
+            "JPEG quality 值 ({}) 超出有效范围 2-31",
+            quality_val
+        )));
     }
 
     if interval_seconds.is_nan() || interval_seconds <= 0.0 {
@@ -57,9 +58,10 @@ pub async fn extract_frames(
     }
 
     if interval_seconds > 86400.0 {
-        return Err(VisualError::FrameExtraction(
-            format!("帧提取间隔过大: {}s (最大 86400s/1天)", interval_seconds)
-        ));
+        return Err(VisualError::FrameExtraction(format!(
+            "帧提取间隔过大: {}s (最大 86400s/1天)",
+            interval_seconds
+        )));
     }
 
     // Create output dir if not exists
@@ -244,7 +246,8 @@ async fn extract_frames_fallback(
         let total_frames = (duration / interval_seconds).ceil() as usize;
         if total_frames > MAX_TOTAL_FRAMES {
             return Err(VisualError::FrameExtraction(format!(
-                "视频帧数过多: {} (最大 {})", total_frames, MAX_TOTAL_FRAMES
+                "视频帧数过多: {} (最大 {})",
+                total_frames, MAX_TOTAL_FRAMES
             )));
         }
         if total_frames == 0 {
@@ -290,7 +293,12 @@ async fn extract_frames_fallback(
         }
 
         if extracted_count == 0 && !errors.is_empty() {
-            let detail = errors.iter().take(5).cloned().collect::<Vec<_>>().join("; ");
+            let detail = errors
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
             return Err(VisualError::FrameExtraction(format!(
                 "所有帧提取均失败 ({} 个错误): {}",
                 errors.len(),
@@ -327,22 +335,25 @@ fn extract_single_frame(
     if cancel.is_cancelled() {
         return Err(VisualError::FrameExtraction("帧提取被取消".into()));
     }
-    let level1_ok = run_ffmpeg_with_cancel(&[
-        "-hwaccel",
-        "auto",
-        "-ss",
-        &timestamp,
-        "-i",
-        video_path,
-        "-vframes",
-        "1",
-        "-q:v",
-        &quality.to_string(),
-        "-pix_fmt",
-        "yuv420p",
-        "-y",
-        output_str,
-    ], cancel);
+    let level1_ok = run_ffmpeg_with_cancel(
+        &[
+            "-hwaccel",
+            "auto",
+            "-ss",
+            &timestamp,
+            "-i",
+            video_path,
+            "-vframes",
+            "1",
+            "-q:v",
+            &quality.to_string(),
+            "-pix_fmt",
+            "yuv420p",
+            "-y",
+            output_str,
+        ],
+        cancel,
+    );
     if level1_ok && file_is_valid(output_path) {
         return Ok(());
     }
@@ -351,22 +362,25 @@ fn extract_single_frame(
     if cancel.is_cancelled() {
         return Err(VisualError::FrameExtraction("帧提取被取消".into()));
     }
-    let level2_ok = run_ffmpeg_with_cancel(&[
-        "-ss",
-        &timestamp,
-        "-i",
-        video_path,
-        "-vframes",
-        "1",
-        "-q:v",
-        &quality.to_string(),
-        "-pix_fmt",
-        "yuv420p",
-        "-avoid_negative_ts",
-        "make_zero",
-        "-y",
-        output_str,
-    ], cancel);
+    let level2_ok = run_ffmpeg_with_cancel(
+        &[
+            "-ss",
+            &timestamp,
+            "-i",
+            video_path,
+            "-vframes",
+            "1",
+            "-q:v",
+            &quality.to_string(),
+            "-pix_fmt",
+            "yuv420p",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-y",
+            output_str,
+        ],
+        cancel,
+    );
     if level2_ok && file_is_valid(output_path) {
         return Ok(());
     }
@@ -379,20 +393,13 @@ fn extract_single_frame(
     let png_str = png_path
         .to_str()
         .ok_or_else(|| VisualError::FrameExtraction("PNG 输出路径无效".into()))?;
-    let level3_ok = run_ffmpeg_with_cancel(&[
-        "-ss",
-        &timestamp,
-        "-i",
-        video_path,
-        "-vframes",
-        "1",
-        "-pix_fmt",
-        "yuv420p",
-        "-f",
-        "image2",
-        "-y",
-        png_str,
-    ], cancel);
+    let level3_ok = run_ffmpeg_with_cancel(
+        &[
+            "-ss", &timestamp, "-i", video_path, "-vframes", "1", "-pix_fmt", "yuv420p", "-f",
+            "image2", "-y", png_str,
+        ],
+        cancel,
+    );
     if level3_ok && file_is_valid(&png_path) {
         match convert_image_to_jpeg(&png_path, output_path, quality) {
             Ok(_) => {
@@ -417,20 +424,13 @@ fn extract_single_frame(
     let bmp_str = bmp_path
         .to_str()
         .ok_or_else(|| VisualError::FrameExtraction("BMP 输出路径无效".into()))?;
-    let level4_ok = run_ffmpeg_with_cancel(&[
-        "-ss",
-        &timestamp,
-        "-i",
-        video_path,
-        "-vframes",
-        "1",
-        "-f",
-        "image2",
-        "-pix_fmt",
-        "rgb24",
-        "-y",
-        bmp_str,
-    ], cancel);
+    let level4_ok = run_ffmpeg_with_cancel(
+        &[
+            "-ss", &timestamp, "-i", video_path, "-vframes", "1", "-f", "image2", "-pix_fmt",
+            "rgb24", "-y", bmp_str,
+        ],
+        cancel,
+    );
     if level4_ok && file_is_valid(&bmp_path) {
         match convert_image_to_jpeg(&bmp_path, output_path, quality) {
             Ok(_) => {
@@ -461,10 +461,7 @@ fn extract_single_frame(
 /// 将 `fastframe_XXXXXX.jpg` 重命名为 `keyframe_XXXXXX_HHMMSSmmm.jpg`（D-24）
 ///
 /// 如果 output_dir 没有 fastframe_ 文件则返回 Ok(0)。
-fn rename_fast_path_frames(
-    output_dir: &Path,
-    interval_seconds: f64,
-) -> Result<usize, VisualError> {
+fn rename_fast_path_frames(output_dir: &Path, interval_seconds: f64) -> Result<usize, VisualError> {
     let mut entries: Vec<PathBuf> = Vec::new();
     iterate_dir_files(output_dir, "fastframe_", ".jpg", true, |path| {
         if let Ok(meta) = path.metadata() {
@@ -486,16 +483,12 @@ fn rename_fast_path_frames(
 
     let mut renamed_count = 0;
     for path in &entries {
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Extract frame number from "fastframe_XXXXXX.jpg"
-        let frame_number = parse_frame_number_from_name(file_name)
-            .ok_or_else(|| {
-                VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", file_name))
-            })?;
+        let frame_number = parse_frame_number_from_name(file_name).ok_or_else(|| {
+            VisualError::FrameExtraction(format!("无法从文件名解析帧序号: {}", file_name))
+        })?;
 
         let total_secs = frame_number as f64 * interval_seconds;
         let timestamp = seconds_to_hhmmssmmm(total_secs);
@@ -504,10 +497,7 @@ fn rename_fast_path_frames(
         let new_path = output_dir.join(&new_name);
 
         std::fs::rename(path, &new_path).map_err(|e| {
-            VisualError::FrameExtraction(format!(
-                "重命名失败 {} -> {}: {}",
-                file_name, new_name, e
-            ))
+            VisualError::FrameExtraction(format!("重命名失败 {} -> {}: {}", file_name, new_name, e))
         })?;
         renamed_count += 1;
     }
@@ -518,7 +508,10 @@ fn rename_fast_path_frames(
 /// 将秒数转换为 HHMMSSmmm 格式字符串（9 位数字）
 pub(crate) fn seconds_to_hhmmssmmm(total_secs: f64) -> String {
     debug_assert!(!total_secs.is_nan(), "seconds_to_hhmmssmmm called with NaN");
-    debug_assert!(total_secs >= 0.0, "seconds_to_hhmmssmmm called with negative value");
+    debug_assert!(
+        total_secs >= 0.0,
+        "seconds_to_hhmmssmmm called with negative value"
+    );
     let total_secs = total_secs.max(0.0);
     let total_millis = (total_secs * 1000.0).round() as u64;
     let hours = total_millis / 3_600_000;
@@ -553,9 +546,7 @@ fn get_video_duration(video_path: &str) -> Result<f64, VisualError> {
             video_path,
         ])
         .output()
-        .map_err(|e| {
-            VisualError::FrameExtraction(format!("ffprobe 执行失败: {}", e))
-        })?;
+        .map_err(|e| VisualError::FrameExtraction(format!("ffprobe 执行失败: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -660,13 +651,19 @@ fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
         Ok(status) => {
             if !status.success() {
                 use std::io::Read;
-                let stderr = child.stderr.take()
+                let stderr = child
+                    .stderr
+                    .take()
                     .and_then(|mut s| {
                         let mut buf = String::new();
                         s.read_to_string(&mut buf).ok().map(|_| buf)
                     })
                     .unwrap_or_default();
-                tracing::warn!("FFmpeg failed (exit={:?}): {}", status.code(), stderr.trim());
+                tracing::warn!(
+                    "FFmpeg failed (exit={:?}): {}",
+                    status.code(),
+                    stderr.trim()
+                );
             }
             status.success()
         }
@@ -681,21 +678,22 @@ fn run_ffmpeg_with_cancel(args: &[&str], cancel: &CancellationToken) -> bool {
 ///
 /// `ffmpeg_quality` 是 FFmpeg 的 `-q:v` 值（范围 2-31，越小质量越高），
 /// 此函数将其映射到 image crate 的 JPEG quality（范围 1-100，越高越好）。
-fn convert_image_to_jpeg(input: &Path, output: &Path, ffmpeg_quality: u32) -> Result<(), VisualError> {
-    let img = image::open(input).map_err(|e| {
-        VisualError::FrameExtraction(format!("图片解码失败: {}", e))
-    })?;
+fn convert_image_to_jpeg(
+    input: &Path,
+    output: &Path,
+    ffmpeg_quality: u32,
+) -> Result<(), VisualError> {
+    let img = image::open(input)
+        .map_err(|e| VisualError::FrameExtraction(format!("图片解码失败: {}", e)))?;
 
     // Map FFmpeg quality (2-31, lower=better) to image crate quality (1-100, higher=better)
     let image_quality = ((31 - ffmpeg_quality.clamp(2, 31)) as f32 / 29.0 * 99.0 + 1.0) as u8;
 
-    let file = std::fs::File::create(output).map_err(|e| {
-        VisualError::FrameExtraction(format!("创建输出文件失败: {}", e))
-    })?;
+    let file = std::fs::File::create(output)
+        .map_err(|e| VisualError::FrameExtraction(format!("创建输出文件失败: {}", e)))?;
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, image_quality);
-    img.write_with_encoder(encoder).map_err(|e| {
-        VisualError::FrameExtraction(format!("JPEG 编码失败: {}", e))
-    })
+    img.write_with_encoder(encoder)
+        .map_err(|e| VisualError::FrameExtraction(format!("JPEG 编码失败: {}", e)))
 }
 
 /// 从 fast frame 文件名解析帧序号
@@ -732,8 +730,11 @@ mod tests {
 
         // Verify all renamed files exist with correct naming pattern
         for i in 0..3 {
-            let expected_name =
-                format!("keyframe_{:06}_{}.jpg", i, seconds_to_hhmmssmmm(i as f64 * 3.0));
+            let expected_name = format!(
+                "keyframe_{:06}_{}.jpg",
+                i,
+                seconds_to_hhmmssmmm(i as f64 * 3.0)
+            );
             assert!(
                 temp_dir.join(&expected_name).exists(),
                 "应存在文件: {}",
@@ -808,10 +809,22 @@ mod tests {
     /// 验证 parse_frame_number_from_name 正确解析帧序号
     #[test]
     fn test_parse_frame_number() {
-        assert_eq!(parse_frame_number_from_name("fastframe_000000.jpg"), Some(0));
-        assert_eq!(parse_frame_number_from_name("fastframe_000001.jpg"), Some(1));
-        assert_eq!(parse_frame_number_from_name("fastframe_000120.jpg"), Some(120));
-        assert_eq!(parse_frame_number_from_name("fastframe_999999.jpg"), Some(999999));
+        assert_eq!(
+            parse_frame_number_from_name("fastframe_000000.jpg"),
+            Some(0)
+        );
+        assert_eq!(
+            parse_frame_number_from_name("fastframe_000001.jpg"),
+            Some(1)
+        );
+        assert_eq!(
+            parse_frame_number_from_name("fastframe_000120.jpg"),
+            Some(120)
+        );
+        assert_eq!(
+            parse_frame_number_from_name("fastframe_999999.jpg"),
+            Some(999999)
+        );
         // Invalid names
         assert_eq!(parse_frame_number_from_name("fastframe_abc.jpg"), None);
         assert_eq!(parse_frame_number_from_name("other_000000.jpg"), None);

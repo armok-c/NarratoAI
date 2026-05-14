@@ -29,11 +29,7 @@ mod tests {
     fn test_frame_extraction_error_message_chinese() {
         let err = VisualError::FrameExtraction("FFmpeg 返回错误".to_string());
         let msg = err.to_string();
-        assert!(
-            msg.contains("帧提取失败"),
-            "消息应包含中文: {}",
-            msg
-        );
+        assert!(msg.contains("帧提取失败"), "消息应包含中文: {}", msg);
     }
 
     /// Test: VisualError::Analysis 中文消息
@@ -41,11 +37,7 @@ mod tests {
     fn test_analysis_error_message_chinese() {
         let err = VisualError::Analysis("JSON 解析超时".to_string());
         let msg = err.to_string();
-        assert!(
-            msg.contains("视觉分析失败"),
-            "消息应包含中文: {}",
-            msg
-        );
+        assert!(msg.contains("视觉分析失败"), "消息应包含中文: {}", msg);
     }
 
     /// Test: VisualError::BatchPartial 中文消息
@@ -57,20 +49,8 @@ mod tests {
             errors: "批次 2 失败".to_string(),
         };
         let msg = err.to_string();
-        assert!(
-            msg.contains("部分批次失败"),
-            "消息应包含中文: {}",
-            msg
-        );
-        assert!(
-            msg.contains("3/5"),
-            "消息应包含分析计数: {}",
-            msg
-        );
-        assert!(
-            msg.contains("批次 2 失败"),
-            "消息应包含错误详情: {}",
-            msg
-        );
+        assert!(msg.contains("部分批次失败"), "消息应包含中文: {}", msg);
+        assert!(msg.contains("3/5"), "消息应包含分析计数: {}", msg);
+        assert!(msg.contains("批次 2 失败"), "消息应包含错误详情: {}", msg);
     }
 }

@@ -6,9 +6,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use serde::Deserialize;
 use reqwest::blocking::Client;
 use reqwest::Proxy;
+use serde::Deserialize;
 use thiserror::Error;
 
 // ---------------------------------------------------------------------------
@@ -232,7 +232,10 @@ pub fn search_videos_pexels(
         ));
     }
     if !response.status().is_success() {
-        return Err(MaterialError::ApiRequest(format!("HTTP {}", response.status())));
+        return Err(MaterialError::ApiRequest(format!(
+            "HTTP {}",
+            response.status()
+        )));
     }
 
     let body: PexelsSearchResponse = response
@@ -244,7 +247,9 @@ pub fn search_videos_pexels(
         .into_iter()
         .filter(|v| v.duration >= minimum_duration)
         .filter_map(|v| {
-            let best = v.video_files.into_iter()
+            let best = v
+                .video_files
+                .into_iter()
                 .filter(|f| f.width >= target_width && f.height >= target_height)
                 .max_by_key(|f| f.width * f.height)?;
             Some(MaterialInfo {
@@ -290,7 +295,10 @@ pub fn search_videos_pixabay(
         .map_err(|e| MaterialError::ApiRequest(e.to_string()))?;
 
     if !response.status().is_success() {
-        return Err(MaterialError::ApiRequest(format!("HTTP {}", response.status())));
+        return Err(MaterialError::ApiRequest(format!(
+            "HTTP {}",
+            response.status()
+        )));
     }
 
     let body: PixabaySearchResponse = response
@@ -360,11 +368,7 @@ mod tests {
 
     #[test]
     fn test_get_api_key_rotation() {
-        let keys = vec![
-            "key1".to_string(),
-            "key2".to_string(),
-            "key3".to_string(),
-        ];
+        let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
         let counter = AtomicUsize::new(0);
 
         assert_eq!(get_api_key(&keys, &counter).unwrap(), "key1");
