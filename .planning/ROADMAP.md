@@ -147,6 +147,6 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
 | 14. Foundation — Frontend Scaffold | v2.0 | 5/5 | Gap closure complete | - |
 | 15. Layout Shell + 3-Mode UX | v2.0 | 0/5 | Planned | - |
-| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 5/5 | Complete   | 2026-05-14 |
+| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 5/5 | Complete    | 2026-05-14 |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
 | 18. Remaining Tech Debt + Polish | v2.0 | 0/0 | Not started | - |

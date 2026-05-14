@@ -29,16 +29,16 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 
 - [ ] **MODE-01**: ModeStore — 当前工作模式状态管理，模式切换时重置 pipeline 状态
 - [ ] **MODE-02**: ModeSelector — 设置卡片内下拉切换（纪录片解说 / 短剧解说 / 短剧混剪）
-- [ ] **MODE-03**: 设置面板动态可见性 — Documentary 显示 Vision LLM，SDP 隐藏 TTS 面板
+- [x] **MODE-03**: 设置面板动态可见性 — Documentary 显示 Vision LLM，SDP 隐藏 TTS 面板
 
 ### Configuration Panels (CONF)
 
-- [ ] **CONF-01**: LLM/Mode 面板 — 双模型配置（Vision + Text），Provider/Model/API Key/Base URL
-- [ ] **CONF-02**: TTS 面板 — 7 引擎选择 + 各引擎参数配置，Edge-TTS voice 列表加载
-- [ ] **CONF-03**: BGM 面板 — BGM 文件夹选择、随机/指定模式切换
-- [ ] **CONF-04**: Export 面板 — 输出目录选择、导出格式选项
-- [ ] **CONF-05**: 模式专用面板 — Documentary（帧间隔/视觉批处理）、SDE（剧名/温度）、SDP（自定义片段数）
-- [ ] **CONF-06**: Local Draft 模式 — 未保存编辑暂存，仅显式保存或启动时持久化到后端
+- [x] **CONF-01**: LLM/Mode 面板 — 双模型配置（Vision + Text），Provider/Model/API Key/Base URL
+- [x] **CONF-02**: TTS 面板 — 7 引擎选择 + 各引擎参数配置，Edge-TTS voice 列表加载
+- [x] **CONF-03**: BGM 面板 — BGM 文件夹选择、随机/指定模式切换
+- [x] **CONF-04**: Export 面板 — 输出目录选择、导出格式选项
+- [x] **CONF-05**: 模式专用面板 — Documentary（帧间隔/视觉批处理）、SDE（剧名/温度）、SDP（自定义片段数）
+- [x] **CONF-06**: Local Draft 模式 — 未保存编辑暂存，仅显式保存或启动时持久化到后端
 
 ### Pipeline UI (PIPE)
 
@@ -91,13 +91,13 @@ Requirements for v2.0: Tauri + Vue 3 Frontend + v1.0 Tech Debt Cleanup.
 | LOUT-06 | Phase 15 | Pending |
 | MODE-01 | Phase 15 | Pending |
 | MODE-02 | Phase 15 | Pending |
-| MODE-03 | Phase 15 | Pending |
-| CONF-01 | Phase 16 | Pending |
-| CONF-02 | Phase 16 | Pending |
-| CONF-03 | Phase 16 | Pending |
-| CONF-04 | Phase 16 | Pending |
-| CONF-05 | Phase 16 | Pending |
-| CONF-06 | Phase 16 | Pending |
+| MODE-03 | Phase 15 | Complete |
+| CONF-01 | Phase 16 | Complete |
+| CONF-02 | Phase 16 | Complete |
+| CONF-03 | Phase 16 | Complete |
+| CONF-04 | Phase 16 | Complete |
+| CONF-05 | Phase 16 | Complete |
+| CONF-06 | Phase 16 | Complete |
 | PIPE-01 | Phase 17 | Pending |
 | PIPE-02 | Phase 17 | Pending |
 | PIPE-03 | Phase 17 | Pending |
