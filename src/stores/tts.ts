@@ -174,6 +174,10 @@ export const useTtsStore = defineStore('tts', () => {
     }
   }
 
+  function markClean() {
+    dirty.value = false
+  }
+
   function resetPanel() {
     engine.value = 'edge_tts'
     engineConfigs.value = { ...defaultEngineConfigs }
@@ -191,6 +195,7 @@ export const useTtsStore = defineStore('tts', () => {
     updateConfig,
     loadConfig,
     loadVoices,
+    markClean,
     resetPanel,
   }
 })

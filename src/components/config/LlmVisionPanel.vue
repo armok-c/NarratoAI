@@ -5,6 +5,7 @@
     collapsible
     :default-expanded="true"
     :loading="loading"
+    :badge-count="badgeCount"
   >
     <template #header-actions>
       <v-btn variant="text" size="small" @click="handleReset">重置</v-btn>
@@ -66,6 +67,8 @@ import { ref, computed } from 'vue'
 import { useLlmStore } from '@/stores/llm'
 import { PROVIDER_OPTIONS, getProviderPreset } from '@/components/config/ProviderPresets'
 import SettingSection from '@/components/SettingSection.vue'
+
+const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount: 0 })
 
 const store = useLlmStore()
 const { visionConfig, loading, testing } = store

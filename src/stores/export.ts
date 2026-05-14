@@ -23,6 +23,10 @@ export const useExportStore = defineStore('export', () => {
     dirty.value = false
   }
 
+  function markClean() {
+    dirty.value = false
+  }
+
   function resetPanel() {
     outputDir.value = ''
     format.value = 'mp4'
@@ -36,6 +40,7 @@ export const useExportStore = defineStore('export', () => {
     setOutputDir,
     setFormat,
     loadConfig,
+    markClean,
     resetPanel,
   }
 })
