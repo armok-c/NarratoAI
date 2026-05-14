@@ -41,6 +41,7 @@ task.md
 
 # Rust build artifacts
 target/
+src-tauri/binaries/
 
 .claude/*
 .serena/*
