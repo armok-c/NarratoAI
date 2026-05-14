@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useModeStore } from '@/stores/mode'
 import SettingSection from '@/components/SettingSection.vue'
 
@@ -109,4 +109,13 @@ const panelTitle = computed(() => {
 function handleReset() {
   store.resetParams()
 }
+
+// NaN 保护：v-model.number 在空输入时产生 NaN
+watch(params, (p) => {
+  for (const [key, value] of Object.entries(p)) {
+    if (typeof value === 'number' && isNaN(value)) {
+      ;(p as Record<string, unknown>)[key] = 0
+    }
+  }
+}, { deep: true })
 </script>

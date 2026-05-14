@@ -34,7 +34,7 @@
 
       <v-select
         v-if="store.mode === 'specified'"
-        v-model="selectedFile"
+        v-model="store.selectedFile"
         :items="store.audioFiles"
         label="选择音频文件"
         variant="outlined"
@@ -47,7 +47,6 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useBgmStore } from '@/stores/bgm'
 import SettingSection from '@/components/SettingSection.vue'
 
@@ -55,7 +54,6 @@ const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount:
 
 const store = useBgmStore()
 const { loading } = store
-const selectedFile = ref('')
 
 async function selectBgmFolder() {
   try {
@@ -65,8 +63,8 @@ async function selectBgmFolder() {
     if (selected) {
       store.setFolder(selected)
     }
-  } catch {
-    // 非 Tauri 环境降级
+  } catch (err) {
+    console.warn('[BgmPanel] 无法打开文件夹选择对话框:', err)
   }
 }
 </script>

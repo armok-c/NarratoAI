@@ -10,10 +10,12 @@ export const useExportStore = defineStore('export', () => {
 
   function setOutputDir(p: string) {
     outputDir.value = p
+    dirty.value = true
   }
 
   function setFormat(f: string) {
     format.value = f
+    dirty.value = true
   }
 
   async function loadConfig(_config: AppConfig) {

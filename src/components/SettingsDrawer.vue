@@ -188,6 +188,7 @@ import { useLlmStore } from '@/stores/llm'
 import { useTtsStore } from '@/stores/tts'
 import { useBgmStore } from '@/stores/bgm'
 import { useExportStore } from '@/stores/export'
+import { useProxyStore } from '@/stores/proxy'
 import { saveDraft, clearDraft, saveToBackend, collectAllConfig } from '@/composables/useConfig'
 import LlmVisionPanel from '@/components/config/LlmVisionPanel.vue'
 import LlmTextPanel from '@/components/config/LlmTextPanel.vue'
@@ -211,7 +212,7 @@ const emit = defineEmits<{
 // ============================================================
 const { theme, toggleTheme } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
-const versionText = ref('v0.1.0')
+const versionText = ref('v0.7.8')
 
 // ============================================================
 // Stores
@@ -221,6 +222,7 @@ const llmStore = useLlmStore()
 const ttsStore = useTtsStore()
 const bgmStore = useBgmStore()
 const exportStore = useExportStore()
+const proxyStore = useProxyStore()
 
 // ============================================================
 // Save state
@@ -229,7 +231,7 @@ const isSaving = ref(false)
 const panelErrors = ref<Record<string, string[]>>({})
 
 const hasUnsavedChanges = computed(() =>
-  llmStore.dirty || ttsStore.dirty || bgmStore.dirty || exportStore.dirty
+  llmStore.dirty || ttsStore.dirty || bgmStore.dirty || exportStore.dirty || proxyStore.dirty
 )
 
 // ============================================================
@@ -404,6 +406,7 @@ async function handleSave() {
     ttsStore.markClean()
     bgmStore.markClean()
     exportStore.markClean()
+    proxyStore.markClean()
 
     showSnackbar('设置已保存', 'success', 3000)
   } catch (err: any) {
@@ -446,6 +449,7 @@ async function confirmOverwrite() {
     ttsStore.markClean()
     bgmStore.markClean()
     exportStore.markClean()
+    proxyStore.markClean()
     showSnackbar('设置已保存', 'success', 3000)
   } catch (err: any) {
     showSnackbar(`配置保存失败: ${err?.message || err}`, 'error', 5000)
@@ -466,6 +470,7 @@ function handleResetAll() {
   ttsStore.resetPanel()
   bgmStore.resetPanel()
   exportStore.resetPanel()
+  proxyStore.resetPanel()
   modeStore.resetParams()
 }
 
@@ -484,7 +489,7 @@ onMounted(async () => {
     const { getVersion } = await import('@tauri-apps/api/app')
     versionText.value = 'v' + (await getVersion())
   } catch {
-    versionText.value = 'v0.1.0'
+    versionText.value = 'v0.7.8'
   }
 })
 </script>

@@ -8,15 +8,22 @@ export const useBgmStore = defineStore('bgm', () => {
   const folder = ref<string>('')
   const mode = ref<BgmMode>('random')
   const audioFiles = ref<string[]>([])
+  const selectedFile = ref<string>('')
   const loading = ref(false)
   const dirty = ref(false)
 
   function setFolder(p: string) {
     folder.value = p
+    dirty.value = true
   }
 
   function setMode(m: BgmMode) {
     mode.value = m
+    dirty.value = true
+  }
+
+  function setSelectedFile(f: string) {
+    selectedFile.value = f
   }
 
   async function loadConfig(_config: AppConfig) {
@@ -35,16 +42,19 @@ export const useBgmStore = defineStore('bgm', () => {
     folder.value = ''
     mode.value = 'random'
     audioFiles.value = []
+    selectedFile.value = ''
   }
 
   return {
     folder,
     mode,
     audioFiles,
+    selectedFile,
     loading,
     dirty,
     setFolder,
     setMode,
+    setSelectedFile,
     loadConfig,
     markClean,
     resetPanel,

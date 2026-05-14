@@ -13,10 +13,12 @@ export const useLlmStore = defineStore('llm', () => {
 
   function updateVisionConfig(c: Partial<LLMConfig>) {
     visionConfig.value = { ...visionConfig.value, ...c }
+    dirty.value = true
   }
 
   function updateTextConfig(c: Partial<LLMConfig>) {
     textConfig.value = { ...textConfig.value, ...c }
+    dirty.value = true
   }
 
   async function loadConfig(config: AppConfig) {

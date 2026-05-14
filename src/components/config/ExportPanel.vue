@@ -53,8 +53,8 @@ async function selectExportDir() {
     if (selected) {
       store.setOutputDir(selected)
     }
-  } catch {
-    // 非 Tauri 环境降级
+  } catch (err) {
+    console.warn('[ExportPanel] 无法打开文件夹选择对话框:', err)
   }
 }
 </script>

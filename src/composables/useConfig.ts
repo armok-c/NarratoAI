@@ -5,6 +5,7 @@ import { useTtsStore } from '@/stores/tts'
 import { useBgmStore } from '@/stores/bgm'
 import { useExportStore } from '@/stores/export'
 import { useModeStore } from '@/stores/mode'
+import { useProxyStore } from '@/stores/proxy'
 import { ref } from 'vue'
 
 // ============================================================
@@ -15,7 +16,7 @@ export interface SettingsDraft {
   llmVision?: { provider: string; model: string; apiKey: string; baseUrl: string }
   llmText?: { provider: string; model: string; apiKey: string; baseUrl: string }
   tts?: { engine: string; engineConfigs: Record<string, unknown> }
-  bgm?: { folder: string; mode: string }
+  bgm?: { folder: string; mode: string; selectedFile: string }
   export?: { outputDir: string; format: string }
   modeParams?: Record<string, unknown>
   networkProxy?: { enabled: boolean; http: string; https: string }
@@ -49,6 +50,7 @@ export function saveDraft(): void {
     const bgm = useBgmStore()
     const exp = useExportStore()
     const mode = useModeStore()
+    const proxy = useProxyStore()
 
     const draft: SettingsDraft = {
       llmVision: { ...llm.visionConfig },
@@ -57,12 +59,10 @@ export function saveDraft(): void {
         engine: tts.engine,
         engineConfigs: JSON.parse(JSON.stringify(tts.engineConfigs)),
       },
-      bgm: { folder: bgm.folder, mode: bgm.mode },
+      bgm: { folder: bgm.folder, mode: bgm.mode, selectedFile: bgm.selectedFile },
       export: { outputDir: exp.outputDir, format: exp.format },
       modeParams: { ...mode.params },
-      networkProxy: _lastConfig?.proxy
-        ? { ..._lastConfig.proxy }
-        : undefined,
+      networkProxy: { enabled: proxy.enabled, http: proxy.http, https: proxy.https },
       updatedAt: new Date().toISOString(),
     }
 
@@ -92,6 +92,7 @@ export function restoreDraft(): boolean {
     const bgm = useBgmStore()
     const exp = useExportStore()
     const mode = useModeStore()
+    const proxy = useProxyStore()
 
     if (draft.llmVision) {
       llm.visionConfig = { ...llm.visionConfig, ...draft.llmVision }
@@ -110,6 +111,9 @@ export function restoreDraft(): boolean {
     if (draft.bgm) {
       bgm.folder = draft.bgm.folder
       bgm.mode = draft.bgm.mode as 'random' | 'specified'
+      if (draft.bgm.selectedFile) {
+        bgm.selectedFile = draft.bgm.selectedFile
+      }
     }
     if (draft.export) {
       exp.outputDir = draft.export.outputDir
@@ -118,12 +122,18 @@ export function restoreDraft(): boolean {
     if (draft.modeParams) {
       mode.params = { ...mode.params, ...draft.modeParams } as typeof mode.params
     }
+    if (draft.networkProxy) {
+      proxy.enabled = draft.networkProxy.enabled
+      proxy.http = draft.networkProxy.http
+      proxy.https = draft.networkProxy.https
+    }
 
     // 标记所有 stores 为 dirty
     llm.dirty = true
     tts.dirty = true
     bgm.dirty = true
     exp.dirty = true
+    proxy.dirty = true
 
     draftStatus.value = { hasDraft: true, updatedAt: draft.updatedAt }
     return true
@@ -147,10 +157,12 @@ export function clearDraft(): void {
   const tts = useTtsStore()
   const bgm = useBgmStore()
   const exp = useExportStore()
+  const proxy = useProxyStore()
   llm.dirty = false
   tts.dirty = false
   bgm.dirty = false
   exp.dirty = false
+  proxy.dirty = false
   draftStatus.value = { hasDraft: false, updatedAt: null }
 }
 
@@ -183,6 +195,7 @@ export async function loadFromBackend(): Promise<AppConfig | null> {
     const bgmStore = useBgmStore()
     const exportStore = useExportStore()
     const modeStore = useModeStore()
+    const proxyStore = useProxyStore()
 
     await Promise.all([
       llmStore.loadConfig(config),
@@ -190,6 +203,7 @@ export async function loadFromBackend(): Promise<AppConfig | null> {
       bgmStore.loadConfig(config),
       exportStore.loadConfig(config),
       modeStore.loadConfig(config),
+      proxyStore.loadConfig(config),
     ])
 
     return config
@@ -232,56 +246,64 @@ export function collectChangedFields(): Record<string, unknown> {
 
   if (ttsStore.dirty) {
     changes.tts_engine = ttsStore.engine
-    // Edge-TTS
-    const edge = ttsStore.engineConfigs.edge_tts
-    changes.edge_voice_name = edge.voiceName
-    changes.edge_volume = edge.volume
-    changes.edge_rate = edge.rate
-    changes.edge_pitch = edge.pitch
-    // Azure
-    const azure = ttsStore.engineConfigs.azure_speech
-    changes.azure_voice_name = azure.voiceName
-    changes.azure_volume = azure.volume
-    changes.azure_rate = azure.rate
-    changes.azure_pitch = azure.pitch
-    changes.azure_speech_key = azure.speechKey
-    changes.azure_speech_region = azure.speechRegion
-    // Tencent
-    const tencent = ttsStore.engineConfigs.tencent_tts
-    changes.tencent_secret_id = tencent.secretId
-    changes.tencent_secret_key = tencent.secretKey
-    changes.tencent_region = tencent.region
-    // SoulVoice
-    const soul = ttsStore.engineConfigs.soulvoice
-    changes.soulvoice_api_key = soul.apiKey
-    changes.soulvoice_voice_uri = soul.voiceUri
-    changes.soulvoice_api_url = soul.apiUrl
-    changes.soulvoice_model = soul.model
-    // Qwen
-    const qwen = ttsStore.engineConfigs.tts_qwen
-    changes.tts_qwen_api_key = qwen.apiKey
-    changes.tts_qwen_api_url = qwen.apiUrl
-    changes.tts_qwen_model_name = qwen.modelName
-    // IndexTTS2
-    const idx = ttsStore.engineConfigs.indextts2
-    changes.indextts2_api_url = idx.apiUrl
-    changes.indextts2_reference_audio = idx.referenceAudio
-    changes.indextts2_infer_mode = idx.inferMode
-    changes.indextts2_temperature = idx.temperature
-    changes.indextts2_top_p = idx.topP
-    changes.indextts2_top_k = idx.topK
-    changes.indextts2_do_sample = idx.doSample
-    changes.indextts2_num_beams = idx.numBeams
-    // Doubao
-    const db = ttsStore.engineConfigs.doubaotts
-    changes.doubaotts_ak = db.ak
-    changes.doubaotts_sk = db.sk
-    changes.doubaotts_appid = db.appid
-    changes.doubaotts_token = db.token
-    changes.doubaotts_cluster = db.cluster
-    changes.doubaotts_api_url = db.apiUrl
-    changes.doubaotts_volume = db.volume
-    changes.doubaotts_pitch = db.pitch
+
+    const activeEngine = ttsStore.engine
+    const cfg = ttsStore.engineConfigs
+
+    // 只发送当前选中引擎的配置字段，避免覆盖其他引擎的凭据
+    switch (activeEngine) {
+      case 'edge_tts':
+        changes.edge_voice_name = cfg.edge_tts.voiceName
+        changes.edge_volume = cfg.edge_tts.volume
+        changes.edge_rate = cfg.edge_tts.rate
+        changes.edge_pitch = cfg.edge_tts.pitch
+        break
+      case 'azure_speech':
+        changes.azure_voice_name = cfg.azure_speech.voiceName
+        changes.azure_volume = cfg.azure_speech.volume
+        changes.azure_rate = cfg.azure_speech.rate
+        changes.azure_pitch = cfg.azure_speech.pitch
+        changes.azure_speech_key = cfg.azure_speech.speechKey
+        changes.azure_speech_region = cfg.azure_speech.speechRegion
+        break
+      case 'tencent_tts':
+        changes.tencent_secret_id = cfg.tencent_tts.secretId
+        changes.tencent_secret_key = cfg.tencent_tts.secretKey
+        changes.tencent_region = cfg.tencent_tts.region
+        break
+      case 'soulvoice':
+        changes.soulvoice_api_key = cfg.soulvoice.apiKey
+        changes.soulvoice_voice_uri = cfg.soulvoice.voiceUri
+        changes.soulvoice_api_url = cfg.soulvoice.apiUrl
+        changes.soulvoice_model = cfg.soulvoice.model
+        break
+      case 'tts_qwen':
+        changes.tts_qwen_api_key = cfg.tts_qwen.apiKey
+        changes.tts_qwen_api_url = cfg.tts_qwen.apiUrl
+        changes.tts_qwen_model_name = cfg.tts_qwen.modelName
+        break
+      case 'indextts2':
+        changes.indextts2_api_url = cfg.indextts2.apiUrl
+        changes.indextts2_reference_audio = cfg.indextts2.referenceAudio
+        changes.indextts2_infer_mode = cfg.indextts2.inferMode
+        changes.indextts2_temperature = cfg.indextts2.temperature
+        changes.indextts2_top_p = cfg.indextts2.topP
+        changes.indextts2_top_k = cfg.indextts2.topK
+        changes.indextts2_do_sample = cfg.indextts2.doSample
+        changes.indextts2_num_beams = cfg.indextts2.numBeams
+        changes.indextts2_repetition_penalty = cfg.indextts2.repetition_penalty
+        break
+      case 'doubaotts':
+        changes.doubaotts_ak = cfg.doubaotts.ak
+        changes.doubaotts_sk = cfg.doubaotts.sk
+        changes.doubaotts_appid = cfg.doubaotts.appid
+        changes.doubaotts_token = cfg.doubaotts.token
+        changes.doubaotts_cluster = cfg.doubaotts.cluster
+        changes.doubaotts_api_url = cfg.doubaotts.apiUrl
+        changes.doubaotts_volume = cfg.doubaotts.volume
+        changes.doubaotts_pitch = cfg.doubaotts.pitch
+        break
+    }
   }
 
   if (bgmStore.dirty) {
@@ -292,6 +314,13 @@ export function collectChangedFields(): Record<string, unknown> {
   if (exportStore.dirty) {
     changes.output_dir = exportStore.outputDir
     changes.output_format = exportStore.format
+  }
+
+  const proxyStore = useProxyStore()
+  if (proxyStore.dirty) {
+    changes.proxy_enabled = proxyStore.enabled
+    changes.proxy_http = proxyStore.http
+    changes.proxy_https = proxyStore.https
   }
 
   return changes

@@ -47,6 +47,7 @@ export interface IndexTTS2EngineConfig {
   topK: number
   doSample: boolean
   numBeams: number
+  repetition_penalty: number
 }
 
 export interface DoubaoEngineConfig {
@@ -76,7 +77,7 @@ const defaultEngineConfigs: EngineConfigs = {
   tencent_tts: { secretId: '', secretKey: '', region: '' },
   soulvoice: { apiKey: '', voiceUri: '', apiUrl: '', model: '' },
   tts_qwen: { apiKey: '', apiUrl: '', modelName: '' },
-  indextts2: { apiUrl: '', referenceAudio: '', inferMode: '', temperature: 0.7, topP: 0.9, topK: 50, doSample: true, numBeams: 1 },
+  indextts2: { apiUrl: '', referenceAudio: '', inferMode: '', temperature: 0.7, topP: 0.9, topK: 50, doSample: true, numBeams: 1, repetition_penalty: 1.0 },
   doubaotts: { ak: '', sk: '', appid: '', token: '', cluster: '', apiUrl: '', volume: 100, pitch: 0 },
 }
 
@@ -90,6 +91,7 @@ export const useTtsStore = defineStore('tts', () => {
 
   function setEngine(e: string) {
     engine.value = e
+    dirty.value = true
   }
 
   function updateConfig(engineName: string, config: Record<string, unknown>) {
@@ -97,12 +99,18 @@ export const useTtsStore = defineStore('tts', () => {
     const current = map[engineName]
     if (current) {
       map[engineName] = { ...current, ...config }
+      dirty.value = true
     }
   }
 
   async function loadConfig(config: AppConfig) {
     const ui = config.ui
     engine.value = ui.tts_engine
+
+    // 注意：以下部分凭证字段（如 speech_key、secret_id、api_key 等）
+    // 在 TypeScript 生成类型（如 AzureSection）中未声明，但 Rust 后端
+    // 的 TOML 配置段实际包含这些字段。使用 as unknown as Record 绕过
+    // 类型检查以访问运行时存在的字段。
 
     engineConfigs.value.edge_tts = {
       voiceName: ui.edge_voice_name,
@@ -148,6 +156,7 @@ export const useTtsStore = defineStore('tts', () => {
       topK: config.indextts2.top_k,
       doSample: config.indextts2.do_sample,
       numBeams: config.indextts2.num_beams,
+      repetition_penalty: config.indextts2.repetition_penalty,
     }
 
     engineConfigs.value.doubaotts = {

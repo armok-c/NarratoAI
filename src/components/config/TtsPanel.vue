@@ -409,11 +409,18 @@ watch(() => store.engine, (newEngine) => {
   }
 })
 
+// NaN 保护：v-model.number 在空输入时产生 NaN，此处将 NaN 替换为 0
+watch(store.engineConfigs, (configs) => {
+  for (const config of Object.values(configs)) {
+    for (const [key, value] of Object.entries(config)) {
+      if (typeof value === 'number' && isNaN(value)) {
+        ;(config as Record<string, unknown>)[key] = 0
+      }
+    }
+  }
+}, { deep: true })
+
 function handleReset() {
   store.resetPanel()
-}
-
-function handleEngineChange(_val: string) {
-  // Engine switch handled by v-model on store.engine
 }
 </script>
