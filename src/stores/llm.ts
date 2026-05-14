@@ -9,6 +9,7 @@ export const useLlmStore = defineStore('llm', () => {
   const textConfig = ref<LLMConfig>({ provider: '', model: '', apiKey: '', baseUrl: '' })
   const loading = ref(false)
   const dirty = ref(false)
+  const testing = ref(false)
 
   function updateVisionConfig(c: Partial<LLMConfig>) {
     visionConfig.value = { ...visionConfig.value, ...c }
@@ -36,13 +37,18 @@ export const useLlmStore = defineStore('llm', () => {
   }
 
   async function testConnection(which: 'vision' | 'text') {
-    const cfg = which === 'vision' ? visionConfig.value : textConfig.value
-    await tauriInvoke('test_llm_connection', {
-      provider: cfg.provider,
-      model: cfg.model,
-      apiKey: cfg.apiKey,
-      baseUrl: cfg.baseUrl,
-    })
+    testing.value = true
+    try {
+      const cfg = which === 'vision' ? visionConfig.value : textConfig.value
+      await tauriInvoke('test_llm_connection', {
+        provider: cfg.provider,
+        model: cfg.model,
+        apiKey: cfg.apiKey,
+        baseUrl: cfg.baseUrl,
+      })
+    } finally {
+      testing.value = false
+    }
   }
 
   function resetPanel(which: 'vision' | 'text') {
@@ -67,6 +73,7 @@ export const useLlmStore = defineStore('llm', () => {
     textConfig,
     loading,
     dirty,
+    testing,
     updateVisionConfig,
     updateTextConfig,
     loadConfig,
