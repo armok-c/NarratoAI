@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { AppConfig } from '@/types'
 
 export const useProxyStore = defineStore('proxy', () => {
@@ -8,6 +8,8 @@ export const useProxyStore = defineStore('proxy', () => {
   const https = ref('')
   const loading = ref(false)
   const dirty = ref(false)
+
+  watch([enabled, http, https], () => { dirty.value = true }, { flush: 'sync' })
 
   function setEnabled(v: boolean) {
     enabled.value = v

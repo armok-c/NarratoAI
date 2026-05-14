@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { AppConfig } from '@/types'
 
 export type BgmMode = 'random' | 'specified'
@@ -11,6 +11,8 @@ export const useBgmStore = defineStore('bgm', () => {
   const selectedFile = ref<string>('')
   const loading = ref(false)
   const dirty = ref(false)
+
+  watch([folder, mode, selectedFile], () => { dirty.value = true }, { flush: 'sync' })
 
   function setFolder(p: string) {
     folder.value = p

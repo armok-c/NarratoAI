@@ -158,11 +158,13 @@ export function clearDraft(): void {
   const bgm = useBgmStore()
   const exp = useExportStore()
   const proxy = useProxyStore()
+  const mode = useModeStore()
   llm.dirty = false
   tts.dirty = false
   bgm.dirty = false
   exp.dirty = false
   proxy.dirty = false
+  mode.dirty = false
   draftStatus.value = { hasDraft: false, updatedAt: null }
 }
 

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { LLMConfig } from '@/types'
 import type { AppConfig } from '@/types'
 import { tauriInvoke } from '@/composables/useTauri'
@@ -10,6 +10,9 @@ export const useLlmStore = defineStore('llm', () => {
   const loading = ref(false)
   const dirty = ref(false)
   const testing = ref(false)
+
+  watch(visionConfig, () => { dirty.value = true }, { deep: true, flush: 'sync' })
+  watch(textConfig, () => { dirty.value = true }, { deep: true, flush: 'sync' })
 
   function updateVisionConfig(c: Partial<LLMConfig>) {
     visionConfig.value = { ...visionConfig.value, ...c }

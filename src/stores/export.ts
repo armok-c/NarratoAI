@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { AppConfig } from '@/types'
 
 export const useExportStore = defineStore('export', () => {
@@ -7,6 +7,7 @@ export const useExportStore = defineStore('export', () => {
   const format = ref<string>('mp4')
   const loading = ref(false)
   const dirty = ref(false)
+  watch([outputDir, format], () => { dirty.value = true }, { flush: 'sync' })
 
   function setOutputDir(p: string) {
     outputDir.value = p

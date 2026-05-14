@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { AppConfig } from '@/types'
 
 export type WorkMode = 'documentary' | 'sde' | 'sdp'
@@ -33,6 +33,7 @@ export const useModeStore = defineStore('mode', () => {
   )
 
   const params = ref<ModeParams>({ ...defaultParams })
+  const dirty = ref(false)
 
   function setMode(val: WorkMode) {
     currentMode.value = val
@@ -54,11 +55,19 @@ export const useModeStore = defineStore('mode', () => {
     params.value = { ...defaultParams }
   }
 
+  function markClean() {
+    dirty.value = false
+  }
+
+  watch(params, () => { dirty.value = true }, { deep: true, flush: 'sync' })
+
   return {
     currentMode,
     params,
     setMode,
     loadConfig,
     resetParams,
+    dirty,
+    markClean,
   }
 })

@@ -91,7 +91,7 @@ Plans:
   6. FFmpeg 通过 Tauri sidecar 调用成功（externalBin 配置正确，shell:allow-execute 权限已添加），流水线可正常输出视频
   7. Edge-TTS 在代理网络环境下可正常生成音频（HTTP CONNECT 隧道建立，平台代理自动检测工作）
   8. Local Draft 模式保留 SettingsDrawer 中未保存的编辑，仅显式保存或应用启动时持久化到后端
-**Plans**: 5 plans
+**Plans**: 6 plans
 **UI hint**: yes
 Plans:
 - [x] 16-01-PLAN.md — FFmpeg sidecar + 5 Tauri config 命令 + shell 插件集成（Wave 0）
@@ -99,6 +99,7 @@ Plans:
 - [x] 16-03-PLAN.md — Pinia stores 扩展 + useConfig composable + ts-rs 类型同步（Wave 1）
 - [x] 16-04-PLAN.md — SettingsDrawer 手风琴 + 7 个配置面板组件 + 面板显隐规则（Wave 2）
 - [x] 16-05-PLAN.md — Local Draft 暂存 + 全局保存/验证/snackbar + 模式切换保护 + vitest 测试（Wave 3）
+- [x] 16-06-PLAN.md — Gap closure: Pinia store dirty tracking system (watch-based, all 6 stores) + vitest 测试（Wave 1）
 
 ### Phase 17: Pipeline Controls + Progress + Script Preview
 **Goal**: 完整流水线操作体验 — 视频列表数据表、操作按钮行（Upload/Start/Stop/Clear）、模式感知 Start 分发、实时进度事件流、脚本预览弹窗、滚动日志查看器
@@ -147,6 +148,6 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
 | 14. Foundation — Frontend Scaffold | v2.0 | 5/5 | Gap closure complete | - |
 | 15. Layout Shell + 3-Mode UX | v2.0 | 0/5 | Planned | - |
-| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 5/5 | Complete    | 2026-05-14 |
+| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 6/6 | Complete | 2026-05-14 |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
 | 18. Remaining Tech Debt + Polish | v2.0 | 0/0 | Not started | - |

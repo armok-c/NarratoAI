@@ -231,7 +231,7 @@ const isSaving = ref(false)
 const panelErrors = ref<Record<string, string[]>>({})
 
 const hasUnsavedChanges = computed(() =>
-  llmStore.dirty || ttsStore.dirty || bgmStore.dirty || exportStore.dirty || proxyStore.dirty
+  llmStore.dirty || ttsStore.dirty || bgmStore.dirty || exportStore.dirty || proxyStore.dirty || modeStore.dirty
 )
 
 // ============================================================
@@ -407,6 +407,7 @@ async function handleSave() {
     bgmStore.markClean()
     exportStore.markClean()
     proxyStore.markClean()
+    modeStore.markClean()
 
     showSnackbar('设置已保存', 'success', 3000)
   } catch (err: any) {
@@ -450,6 +451,7 @@ async function confirmOverwrite() {
     bgmStore.markClean()
     exportStore.markClean()
     proxyStore.markClean()
+    modeStore.markClean()
     showSnackbar('设置已保存', 'success', 3000)
   } catch (err: any) {
     showSnackbar(`配置保存失败: ${err?.message || err}`, 'error', 5000)
@@ -472,6 +474,13 @@ function handleResetAll() {
   exportStore.resetPanel()
   proxyStore.resetPanel()
   modeStore.resetParams()
+
+  llmStore.markClean()
+  ttsStore.markClean()
+  bgmStore.markClean()
+  exportStore.markClean()
+  proxyStore.markClean()
+  modeStore.markClean()
 }
 
 // ============================================================

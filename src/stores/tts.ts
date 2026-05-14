@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { AppConfig } from '@/types'
 import { tauriInvoke } from '@/composables/useTauri'
 
@@ -88,6 +88,9 @@ export const useTtsStore = defineStore('tts', () => {
   const voiceList = ref<string[]>([])
   const voicesLoading = ref(false)
   const dirty = ref(false)
+
+  watch(engine, () => { dirty.value = true }, { flush: 'sync' })
+  watch(engineConfigs, () => { dirty.value = true }, { deep: true, flush: 'sync' })
 
   function setEngine(e: string) {
     engine.value = e
