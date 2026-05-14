@@ -25,7 +25,8 @@
 
     <!-- Content (scrollable) -->
     <div class="settings-drawer__content pa-4 pt-2">
-      <SettingSection icon="mdi-brightness-6" title="外观" :collapsible="false">
+      <!-- 外观（非折叠，始终可见） -->
+      <SettingSection icon="mdi-brightness-6" title="外观" :collapsible="false" class="mb-3">
         <div class="d-flex align-center justify-space-between">
           <div>
             <span class="text-body-2">深色模式</span>
@@ -43,11 +44,47 @@
           />
         </div>
       </SettingSection>
+
+      <!-- Panel 1: LLM Vision（仅 Documentary 模式可见，D-02） -->
+      <LlmVisionPanel v-if="modeStore.currentMode === 'documentary'" class="mb-3" />
+
+      <!-- Panel 2: LLM Text（始终可见） -->
+      <LlmTextPanel class="mb-3" />
+
+      <!-- Panel 3: TTS（SDP 模式隐藏，D-02） -->
+      <TtsPanel v-if="modeStore.currentMode !== 'sdp'" class="mb-3" />
+
+      <!-- Panel 4: BGM（始终可见） -->
+      <BgmPanel class="mb-3" />
+
+      <!-- Panel 5: Export（始终可见） -->
+      <ExportPanel class="mb-3" />
+
+      <!-- Panel 6: 网络代理（始终可见） -->
+      <NetworkProxyPanel class="mb-3" />
+
+      <!-- Panel 7: 模式专用参数（始终可见） -->
+      <ModeParamsPanel class="mb-3" />
     </div>
 
-    <!-- Footer (fixed bottom) -->
-    <div class="settings-drawer__footer d-flex align-center justify-center pa-4">
-      <span class="text-caption" style="opacity: 0.6">{{ versionText }}</span>
+    <!-- Footer (fixed bottom, D-04) -->
+    <div class="settings-drawer__footer d-flex flex-column align-center pa-4 ga-2">
+      <v-btn
+        color="primary"
+        variant="elevated"
+        block
+        disabled
+        class="text-none"
+      >
+        保存设置
+      </v-btn>
+      <div class="d-flex align-center ga-1">
+        <span class="text-caption text-decoration-underline" style="cursor: pointer; opacity: 0.7">
+          重置全部
+        </span>
+        <span class="text-caption" style="opacity: 0.3">|</span>
+        <span class="text-caption" style="opacity: 0.6">{{ versionText }}</span>
+      </div>
     </div>
   </v-navigation-drawer>
 </template>
@@ -56,6 +93,14 @@
 import { ref, computed, onMounted } from 'vue'
 import SettingSection from '@/components/SettingSection.vue'
 import { useTheme } from '@/composables/useTheme'
+import { useModeStore } from '@/stores/mode'
+import LlmVisionPanel from '@/components/config/LlmVisionPanel.vue'
+import LlmTextPanel from '@/components/config/LlmTextPanel.vue'
+import TtsPanel from '@/components/config/TtsPanel.vue'
+import BgmPanel from '@/components/config/BgmPanel.vue'
+import ExportPanel from '@/components/config/ExportPanel.vue'
+import NetworkProxyPanel from '@/components/config/NetworkProxyPanel.vue'
+import ModeParamsPanel from '@/components/config/ModeParamsPanel.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -68,6 +113,7 @@ const emit = defineEmits<{
 const { theme, toggleTheme } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
 const versionText = ref('v0.1.0')
+const modeStore = useModeStore()
 
 onMounted(async () => {
   try {
