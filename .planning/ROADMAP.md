@@ -32,7 +32,7 @@
 
 - [x] **Phase 14: Foundation — Frontend Scaffold** - Vite 8 + Vue 3.5 + Vuetify 4 脚手架，路由/状态管理/API层，集成测试桩替换（2026-05-13）
 - [ ] **Phase 15: Layout Shell + 3-Mode UX** - AppHeader/DefaultLayout/HomeView/SettingsDrawer，三模式切换与动态面板
-- [ ] **Phase 16: Configuration Panels + FFmpeg Sidecar + Core Tech Debt** - LLM/TTS/BGM/Export 配置面板，FFmpeg 打包，Edge-TTS 代理隧道
+- [x] **Phase 16: Configuration Panels + FFmpeg Sidecar + Core Tech Debt** - LLM/TTS/BGM/Export 配置面板，FFmpeg 打包，Edge-TTS 代理隧道 (completed 2026-05-14)
 - [ ] **Phase 17: Pipeline Controls + Progress + Script Preview** - VideoTable/操作按钮/进度事件流/脚本预览/日志面板
 - [ ] **Phase 18: Remaining Tech Debt + Polish** - Tauri State读锁优化，YouTube/Pexels命令暴露，ConfigManager热加载
 
@@ -98,7 +98,7 @@ Plans:
 - [x] 16-02-PLAN.md — Edge-TTS 代理隧道补齐 + VisualAnalyzer 门面审查（Wave 0）
 - [x] 16-03-PLAN.md — Pinia stores 扩展 + useConfig composable + ts-rs 类型同步（Wave 1）
 - [x] 16-04-PLAN.md — SettingsDrawer 手风琴 + 7 个配置面板组件 + 面板显隐规则（Wave 2）
-- [ ] 16-05-PLAN.md — Local Draft 暂存 + 全局保存/验证/snackbar + 模式切换保护 + vitest 测试（Wave 3）
+- [x] 16-05-PLAN.md — Local Draft 暂存 + 全局保存/验证/snackbar + 模式切换保护 + vitest 测试（Wave 3）
 
 ### Phase 17: Pipeline Controls + Progress + Script Preview
 **Goal**: 完整流水线操作体验 — 视频列表数据表、操作按钮行（Upload/Start/Stop/Clear）、模式感知 Start 分发、实时进度事件流、脚本预览弹窗、滚动日志查看器
@@ -147,6 +147,6 @@ Phases execute in numeric order: 14 -> 15 -> 16 -> 17 -> 18
 | 13. Gap Closure | v1.0 | 5/5 | Complete | 2026-05-12 |
 | 14. Foundation — Frontend Scaffold | v2.0 | 5/5 | Gap closure complete | - |
 | 15. Layout Shell + 3-Mode UX | v2.0 | 0/5 | Planned | - |
-| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 4/5 | In Progress|  |
+| 16. Configuration Panels + FFmpeg Sidecar + Core Tech Debt | v2.0 | 5/5 | Complete   | 2026-05-14 |
 | 17. Pipeline Controls + Progress + Script Preview | v2.0 | 0/0 | Not started | - |
 | 18. Remaining Tech Debt + Polish | v2.0 | 0/0 | Not started | - |
