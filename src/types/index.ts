@@ -1,5 +1,18 @@
-// TODO:: Phase 14 skeleton — replace with ts-rs generated types from src/types/generated/
+// Re-export ts-rs generated types from narratoai-core
+export type { AppConfig } from './generated/AppConfig'
+export type { AppSection } from './generated/AppSection'
+export type { UiSection } from './generated/UiSection'
+export type { ProxySection } from './generated/ProxySection'
+export type { FramesSection } from './generated/FramesSection'
+export type { AzureSection } from './generated/AzureSection'
+export type { TencentSection } from './generated/TencentSection'
+export type { SoulVoiceSection } from './generated/SoulVoiceSection'
+export type { TtsQwenSection } from './generated/TtsQwenSection'
+export type { IndexTTS2Section } from './generated/IndexTTS2Section'
+export type { DoubaoTTSSection } from './generated/DoubaoTTSSection'
+export type { AudioSection } from './generated/AudioSection'
 
+// Remaining manual types
 export interface VideoMeta {
   id: string
   name: string
