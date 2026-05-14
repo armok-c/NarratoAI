@@ -4,6 +4,7 @@
     title="网络代理"
     collapsible
     :default-expanded="false"
+    :badge-count="badgeCount"
   >
     <template #default>
       <v-switch
@@ -40,6 +41,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import SettingSection from '@/components/SettingSection.vue'
+
+const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount: 0 })
 
 const proxyEnabled = ref(false)
 const proxyHttp = ref('')

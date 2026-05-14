@@ -4,6 +4,7 @@
     :title="panelTitle"
     collapsible
     :default-expanded="false"
+    :badge-count="badgeCount"
   >
     <template #header-actions>
       <v-btn variant="text" size="small" @click="handleReset">重置</v-btn>
@@ -90,6 +91,8 @@
 import { computed } from 'vue'
 import { useModeStore } from '@/stores/mode'
 import SettingSection from '@/components/SettingSection.vue'
+
+const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount: 0 })
 
 const store = useModeStore()
 const { currentMode, params } = store

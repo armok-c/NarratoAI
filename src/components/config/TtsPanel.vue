@@ -5,6 +5,7 @@
     collapsible
     :default-expanded="false"
     :loading="loading"
+    :badge-count="badgeCount"
   >
     <template #header-actions>
       <v-btn variant="text" size="small" @click="handleReset">重置</v-btn>
@@ -364,6 +365,8 @@ import type {
   DoubaoEngineConfig,
 } from '@/stores/tts'
 import SettingSection from '@/components/SettingSection.vue'
+
+const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount: 0 })
 
 const ENGINE_OPTIONS = [
   { title: 'Edge-TTS', value: 'edge_tts' },

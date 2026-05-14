@@ -5,6 +5,7 @@
     collapsible
     :default-expanded="false"
     :loading="loading"
+    :badge-count="badgeCount"
   >
     <template #default>
       <div class="d-flex align-center ga-2 mb-3">
@@ -49,6 +50,8 @@
 import { ref } from 'vue'
 import { useBgmStore } from '@/stores/bgm'
 import SettingSection from '@/components/SettingSection.vue'
+
+const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount: 0 })
 
 const store = useBgmStore()
 const { loading } = store

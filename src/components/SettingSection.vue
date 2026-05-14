@@ -7,7 +7,15 @@
       @click="toggleExpand"
     >
       <div class="d-flex align-center">
-        <v-icon v-if="icon" :icon="icon" size="20" class="mr-2" />
+        <v-badge
+          dot
+          color="error"
+          :model-value="badgeCount > 0"
+          offset-x="3"
+          offset-y="3"
+        >
+          <v-icon v-if="icon" :icon="icon" size="20" class="mr-2" />
+        </v-badge>
         <span class="setting-section-title text-subtitle-2 font-weight-medium">{{ title }}</span>
       </div>
       <div class="d-flex align-center">
@@ -46,6 +54,7 @@ interface SettingSectionProps {
   defaultExpanded?: boolean
   variant?: 'outlined' | 'flat' | 'elevated'
   loading?: boolean
+  badgeCount?: number
 }
 
 const props = withDefaults(defineProps<SettingSectionProps>(), {
@@ -54,6 +63,7 @@ const props = withDefaults(defineProps<SettingSectionProps>(), {
   defaultExpanded: true,
   variant: 'outlined',
   loading: false,
+  badgeCount: 0,
 })
 
 const isExpanded = ref(props.defaultExpanded)

@@ -5,6 +5,7 @@
     collapsible
     :default-expanded="false"
     :loading="loading"
+    :badge-count="badgeCount"
   >
     <template #default>
       <div class="d-flex align-center ga-2 mb-3">
@@ -36,6 +37,8 @@
 <script setup lang="ts">
 import { useExportStore } from '@/stores/export'
 import SettingSection from '@/components/SettingSection.vue'
+
+const props = withDefaults(defineProps<{ badgeCount?: number }>(), { badgeCount: 0 })
 
 const FORMATS = ['mp4', 'mkv', 'mov']
 

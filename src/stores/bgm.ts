@@ -27,6 +27,10 @@ export const useBgmStore = defineStore('bgm', () => {
     dirty.value = false
   }
 
+  function markClean() {
+    dirty.value = false
+  }
+
   function resetPanel() {
     folder.value = ''
     mode.value = 'random'
@@ -42,6 +46,7 @@ export const useBgmStore = defineStore('bgm', () => {
     setFolder,
     setMode,
     loadConfig,
+    markClean,
     resetPanel,
   }
 })
