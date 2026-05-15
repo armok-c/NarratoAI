@@ -334,6 +334,7 @@ const FIELD_TO_PANEL: Record<string, string> = {
   indextts2_top_k: 'tts',
   indextts2_do_sample: 'tts',
   indextts2_num_beams: 'tts',
+  indextts2_repetition_penalty: 'tts',
   doubaotts_ak: 'tts',
   doubaotts_sk: 'tts',
   doubaotts_appid: 'tts',

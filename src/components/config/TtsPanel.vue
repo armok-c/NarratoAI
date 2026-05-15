@@ -292,6 +292,17 @@
           density="compact"
           class="mb-3"
         />
+        <v-text-field
+          v-model.number="indexCfg.repetition_penalty"
+          label="重复惩罚"
+          type="number"
+          step="0.1"
+          min="1"
+          max="2"
+          variant="outlined"
+          density="compact"
+          class="mb-3"
+        />
       </template>
 
       <!-- 豆包 Doubao -->
