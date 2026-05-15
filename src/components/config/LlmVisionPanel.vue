@@ -90,8 +90,8 @@ async function handleTestConnection() {
   try {
     await store.testConnection('vision')
     snackbar.value = { show: true, text: '连接成功', color: 'success', timeout: 3000 }
-  } catch (e: any) {
-    snackbar.value = { show: true, text: e?.message || '连接失败', color: 'error', timeout: 5000 }
+  } catch (e: unknown) {
+    snackbar.value = { show: true, text: e instanceof Error ? e.message : '连接失败', color: 'error', timeout: 5000 }
   }
 }
 

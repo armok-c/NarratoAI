@@ -81,9 +81,13 @@ const defaultEngineConfigs: EngineConfigs = {
   doubaotts: { ak: '', sk: '', appid: '', token: '', cluster: '', apiUrl: '', volume: 100, pitch: 0 },
 }
 
+function cloneDefaults(): EngineConfigs {
+  return JSON.parse(JSON.stringify(defaultEngineConfigs))
+}
+
 export const useTtsStore = defineStore('tts', () => {
   const engine = ref<string>('edge_tts')
-  const engineConfigs = ref<EngineConfigs>({ ...defaultEngineConfigs })
+  const engineConfigs = ref<EngineConfigs>(cloneDefaults())
   const loading = ref(false)
   const voiceList = ref<string[]>([])
   const voicesLoading = ref(false)
@@ -181,6 +185,9 @@ export const useTtsStore = defineStore('tts', () => {
     try {
       const voices = await tauriInvoke<string[]>('get_edge_tts_voices')
       voiceList.value = voices
+    } catch (err: unknown) {
+      console.warn('[tts] 获取音色列表失败:', err)
+      voiceList.value = []
     } finally {
       voicesLoading.value = false
     }
@@ -192,7 +199,7 @@ export const useTtsStore = defineStore('tts', () => {
 
   function resetPanel() {
     engine.value = 'edge_tts'
-    engineConfigs.value = { ...defaultEngineConfigs }
+    engineConfigs.value = cloneDefaults()
     voiceList.value = []
   }
 

@@ -26,6 +26,7 @@ export const useBgmStore = defineStore('bgm', () => {
 
   function setSelectedFile(f: string) {
     selectedFile.value = f
+    dirty.value = true
   }
 
   async function loadConfig(_config: AppConfig) {

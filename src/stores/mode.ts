@@ -49,6 +49,7 @@ export const useModeStore = defineStore('mode', () => {
     params.value.clipCount = defaultParams.clipCount
     params.value.minDuration = defaultParams.minDuration
     params.value.maxDuration = defaultParams.maxDuration
+    dirty.value = false
   }
 
   function resetParams() {

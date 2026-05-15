@@ -27,8 +27,6 @@ export interface SettingsDraft {
 // Module-level state
 // ============================================================
 
-let _lastConfig: AppConfig | null = null
-
 export const draftStatus = ref<{ hasDraft: boolean; updatedAt: string | null }>({
   hasDraft: false,
   updatedAt: null,
@@ -134,6 +132,7 @@ export function restoreDraft(): boolean {
     bgm.dirty = true
     exp.dirty = true
     proxy.dirty = true
+    mode.dirty = true
 
     draftStatus.value = { hasDraft: true, updatedAt: draft.updatedAt }
     return true
@@ -159,12 +158,12 @@ export function clearDraft(): void {
   const exp = useExportStore()
   const proxy = useProxyStore()
   const mode = useModeStore()
-  llm.dirty = false
-  tts.dirty = false
-  bgm.dirty = false
-  exp.dirty = false
-  proxy.dirty = false
-  mode.dirty = false
+  llm.markClean()
+  tts.markClean()
+  bgm.markClean()
+  exp.markClean()
+  proxy.markClean()
+  mode.markClean()
   draftStatus.value = { hasDraft: false, updatedAt: null }
 }
 
@@ -190,7 +189,6 @@ export function hasDraft(): boolean {
 export async function loadFromBackend(): Promise<AppConfig | null> {
   try {
     const config = await tauriInvoke<AppConfig>('get_config')
-    _lastConfig = config
 
     const llmStore = useLlmStore()
     const ttsStore = useTtsStore()
